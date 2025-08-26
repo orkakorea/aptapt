@@ -1,29 +1,39 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+
+declare global { interface Window { kakao: any } }
 
 export default function MapPage() {
-  const mapRef = useRef<HTMLDivElement>(null);
+  const mapDivRef = useRef<HTMLDivElement>(null);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    // 카카오 SDK 스크립트 동적 로드
-    const script = document.createElement("script");
-    script.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=a53075efe7a2256480b8650cec67ebae&autoload=false`;
-    script.async = true;
-    script.onload = () => {
-      (window as any).kakao.maps.load(() => {
-        if (mapRef.current) {
-          const center = new (window as any).kakao.maps.LatLng(37.5665, 126.9780); // 서울시청
-          const map = new (window as any).kakao.maps.Map(mapRef.current, {
-            center,
-            level: 5,
-          });
+    const KAKAO_JS_KEY = "YOUR_KAKAO_JS_KEY";
+    const url = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${KAKAO_JS_KEY}&libraries=services,clusterer&autoload=false`;
 
-          const marker = new (window as any).kakao.maps.Marker({ position: center });
-          marker.setMap(map);
-        }
-      });
-    };
-    document.head.appendChild(script);
+    const onload = () => window.kakao.maps.load(() => {
+      if (!mapDivRef.current) return;
+      const { kakao } = window;
+      const map = new kakao.maps.Map(
+        mapDivRef.current,
+        { center: new kakao.maps.LatLng(37.5665, 126.9780), level: 5 }
+      );
+      new kakao.maps.Marker({ position: new kakao.maps.LatLng(37.5665, 126.9780) }).setMap(map);
+      setLoaded(true);
+    });
+
+    const exist = document.querySelector(`script[src^="${url}"]`) as HTMLScriptElement | null;
+    if (exist) exist.addEventListener("load", onload);
+    else {
+      const s = document.createElement("script");
+      s.src = url; s.async = true; s.onload = onload;
+      document.head.appendChild(s);
+    }
   }, []);
 
-  return <div ref={mapRef} style={{ width: "100%", height: "100vh" }} />;
+  return (
+    <div style={{ width: "100%", minHeight: "100vh" }}>
+      {!loaded && <div style={{padding:12}}>지도를 불러오는 중…</div>}
+      <div ref={mapDivRef} style={{ width: "100%", height: "100vh" }} />
+    </div>
+  );
 }
