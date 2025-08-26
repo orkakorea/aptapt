@@ -26,7 +26,7 @@ export const SearchSection: React.FC = () => {
   return (
     <section className="relative z-[2]">
       <div className="w-[656px] h-[70px] text-black text-center text-[40px] font-bold leading-[72px] tracking-[-0.8px] absolute left-[632px] top-[252px] max-md:w-[90%] max-md:text-[32px] max-md:leading-[48px] max-md:left-[5%] max-md:top-[180px] max-sm:w-[95%] max-sm:text-2xl max-sm:leading-8 max-sm:left-[2.5%] max-sm:top-[120px]">
-        <h2 className="font-bold text-[40px] text-black">
+        <h2 className="font-bold text-[40px] text-black font-pretendard">
           원하는 지역의 광고 가능 단지를 확인하세요
         </h2>
       </div>
@@ -37,7 +37,7 @@ export const SearchSection: React.FC = () => {
             {...register('searchQuery')}
             type="text"
             placeholder="지역명, 아파트 이름, 단지명, 건물명을 입력해주세요"
-            className="w-full h-full text-[#767676] text-xl font-normal leading-[38px] tracking-[-0.4px] px-[25px] py-0 rounded-[10px] border-[none] outline-none max-md:text-lg max-md:px-5 max-md:py-0 max-sm:text-base max-sm:px-[15px] max-sm:py-0"
+            className="w-full h-full text-[#767676] text-xl font-normal leading-[38px] tracking-[-0.4px] px-[25px] py-0 rounded-[10px] border-[none] outline-none font-pretendard max-md:text-lg max-md:px-5 max-md:py-0 max-sm:text-base max-sm:px-[15px] max-sm:py-0"
             aria-label="아파트 검색"
           />
         </div>
