@@ -2,6 +2,7 @@ import React from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { useNavigate } from 'react-router-dom';
 
 const searchSchema = z.object({
   searchQuery: z.string().min(1, '검색어를 입력해주세요'),
@@ -10,6 +11,7 @@ const searchSchema = z.object({
 type SearchFormData = z.infer<typeof searchSchema>;
 
 export const SearchSection: React.FC = () => {
+  const navigate = useNavigate();
   const {
     register,
     handleSubmit,
@@ -19,8 +21,10 @@ export const SearchSection: React.FC = () => {
   });
 
   const onSubmit = (data: SearchFormData) => {
-    console.log('Search query:', data.searchQuery);
-    // TODO: Implement search functionality
+    const query = data.searchQuery.trim();
+    if (query) {
+      navigate(`/map?q=${encodeURIComponent(query)}`);
+    }
   };
 
   return (
