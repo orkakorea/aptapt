@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
-const KAKAO_REST_KEY = "YOUR_KAKAO_REST_KEY"; // Replace with actual key
+const KAKAO_REST_KEY = "011e2458d92062bcccfc5a5af333df56"; // Replace with actual key
 
 const KAKAO_ADDR_URL =
   "https://dapi.kakao.com/v2/local/search/address.json?query=";
