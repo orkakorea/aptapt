@@ -1,9 +1,12 @@
-// src/pages/App.tsx (중요 부분만 예시)
+// src/App.tsx
 import { BrowserRouter, Routes, Route } from "react-router-dom";
-import Index from "./Index";
-import MapPage from "./MapPage"; // 너희 프로젝트 이름에 맞춰 유지
-import NotFound from "./NotFound";
-import AdminGeocode from "./AdminGeocode"; // ✅ 추가
+// 이미 있는 페이지들
+import Index from "./pages/Index";        // 경로는 프로젝트에 맞게 유지
+import MapPage from "./pages/MapPage";    // 없으면 지워도 됨
+import NotFound from "./pages/NotFound";  // 없으면 지워도 됨
+
+// ✅ 새로 추가
+import AdminGeocode from "./pages/AdminGeocode";
 
 export default function App() {
   return (
@@ -11,7 +14,8 @@ export default function App() {
       <Routes>
         <Route path="/" element={<Index />} />
         <Route path="/map" element={<MapPage />} />
-        <Route path="/admin/geocode" element={<AdminGeocode />} /> {/* ✅ 추가 */}
+        {/* ✅ 배치 지오코딩 페이지 */}
+        <Route path="/admin/geocode" element={<AdminGeocode />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>
