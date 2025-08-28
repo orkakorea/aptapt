@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 
 // 👉 카카오 JavaScript 키(REST 키 말고 JS 키). 도메인 등록 필수!
-const KAKAO_APP_KEY = "여기에_카카오_자바스크립트_키"; // 예: a5307...
+const KAKAO_APP_KEY = "a53075efe7a2256480b8650cec67ebae"; // 예: a5307...
 
 type KakaoNS = typeof window & { kakao: any };
 
