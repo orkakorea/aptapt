@@ -1,47 +1,38 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { supabase } from "../lib/supabase";
 
-// 👉 기존 Kakao JS 앱키
-const KAKAO_APP_KEY = "a53075efe7a2256480b8650cec67ebae";
+// 👉 기존에 쓰던 Kakao JS 앱키 그대로 사용하세요.
+const KAKAO_APP_KEY = "a53075efe7a2256480b8650cec67ebae"; // 예: a5307...
 
-type KakaoNS = typeof window & { kakao: any };
+type KakaoNS = typeof window & {
+  kakao: any;
+};
 
 export default function MapPage() {
   const mapRef = useRef<HTMLDivElement>(null);
-  const mapObjRef = useRef<any>(null);
   const clustererRef = useRef<any>(null);
-  const searchMarkerRef = useRef<any>(null);
-  const placesRef = useRef<any>(null); // kakao.maps.services.Places
-  const [q, setQ] = useState<string>("");
+  const mapObjRef = useRef<any>(null);
 
-  // 간단 디바운스
-  const idleTimer = useRef<number | null>(null);
-  function debounceIdle(fn: () => void, ms = 300) {
-    if (idleTimer.current) window.clearTimeout(idleTimer.current);
-    idleTimer.current = window.setTimeout(fn, ms);
-  }
-
-  // URL ?q 읽기/세팅
-  function readQuery() {
+  // 쿼리스트링 ?q=검색어 지원
+  function getQuery() {
     const u = new URL(window.location.href);
-    return (u.searchParams.get("q") || "").trim();
-  }
-  function writeQuery(v: string) {
-    const u = new URL(window.location.href);
-    if (v) u.searchParams.set("q", v);
-    else u.searchParams.delete("q");
-    window.history.replaceState(null, "", u.toString());
+    const q = (u.searchParams.get("q") || "").trim();
+    return q;
   }
 
   useEffect(() => {
+    // Kakao SDK 로더
     async function ensureKakao(): Promise<void> {
       if ((window as KakaoNS).kakao?.maps) return;
+
       await new Promise<void>((resolve) => {
         const s = document.createElement("script");
         s.async = true;
-        // services(지오코더/Places 포함) + clusterer
+        // services(지오코더) + clusterer(클러스터러) 활성화
         s.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${KAKAO_APP_KEY}&autoload=false&libraries=services,clusterer`;
-        s.onload = () => (window as KakaoNS).kakao.maps.load(() => resolve());
+        s.onload = () => {
+          (window as KakaoNS).kakao.maps.load(() => resolve());
+        };
         document.head.appendChild(s);
       });
     }
@@ -52,92 +43,66 @@ export default function MapPage() {
 
       const kakao = (window as KakaoNS).kakao;
       const center = new kakao.maps.LatLng(37.5665, 126.9780); // 기본: 서울시청
-      const map = new kakao.maps.Map(mapRef.current, { center, level: 6 });
+      const map = new kakao.maps.Map(mapRef.current, { center, level: 5 });
       mapObjRef.current = map;
 
-      // Places 인스턴스
-      placesRef.current = new kakao.maps.services.Places();
-
-      // 클러스터러
+      // 클러스터러 준비
       clustererRef.current = new kakao.maps.MarkerClusterer({
         map,
         averageCenter: true,
-        minLevel: 6,
+        minLevel: 6, // 확대 시에만 풀림
         disableClickZoom: false,
       });
 
-      // 맵 이동/확대 종료 시 현재 바운드로 아파트 핀 로드
-      kakao.maps.event.addListener(map, "idle", () => {
-        debounceIdle(loadMarkersInBounds, 300);
-      });
+      // 1) Supabase에서 좌표 가져와 클러스터러에 추가
+      await loadAndRenderMarkers();
 
-      // 초기: 현재 바운드 기준으로 핀 로드
-      await loadMarkersInBounds(); console.log("apt rows in bounds:", data?.length || 0);
-
-
-      // 쿼리 파라미터 검색
-      const initial = readQuery();
-      if (initial) {
-        setQ(initial);
-        keywordSearch(initial, { dropMarker: true }); // Places로 검색/이동
-      }
+      // 2) ?q=주소 가 있으면 해당 위치로 이동
+      const q = getQuery();
+      if (q) moveToAddress(q);
     }
 
     init();
   }, []);
 
-  // 현재 맵 바운드 안의 아파트만 불러와 클러스터링
-  async function loadMarkersInBounds() {
-    const kakao = (window as KakaoNS).kakao;
-    const map = mapObjRef.current;
-    if (!map) return;
+  // Supabase에서 ok된 좌표만 불러와 핀으로 렌더
+  async function loadAndRenderMarkers() {
+    // 필요한 컬럼만 선택
+  const { data, error } = await supabase
+  .from("places")
+  .select("id,name,address,lat,lng")
+  .eq("geocode_status", "ok")
+  .gte("lat", swLat).lte("lat", neLat)
+  .gte("lng", swLng).lte("lng", neLng)
+  .limit(2000);
 
-    const bounds = map.getBounds();
-    if (!bounds) return;
-
-    const sw = bounds.getSouthWest(); // LatLng
-    const ne = bounds.getNorthEast();
-
-    const swLat = sw.getLat();
-    const swLng = sw.getLng();
-    const neLat = ne.getLat();
-    const neLng = ne.getLng();
-
-    // 경도 국제선(±180) 케이스는 한국 지도에서는 사실상 발생 X
-
-    const { data, error } = await supabase
-      .from("places")
-      .select("id,name,address,lat,lng")
-      .eq("geocode_status", "ok")
-      .gte("lat", swLat)
-      .lte("lat", neLat)
-      .gte("lng", swLng)
-      .lte("lng", neLng)
-      .limit(2000);
+console.log("apt rows in bounds:", data?.length || 0); // ✅ 이 줄은 꼭 위 블록 '안'에!
+ 많으면 1000~3000 사이로 조절
 
     if (error) {
       console.error("Supabase select error:", error.message);
       return;
     }
+    const kakao = (window as KakaoNS).kakao;
+
+    // 기존 마커 제거
+    if (clustererRef.current) clustererRef.current.clear();
 
     const markers: any[] = [];
-    const kakaoMarkers = data?.map((row) => {
-      const pos = new kakao.maps.LatLng(row.lat, row.lng);
-      const marker = new kakao.maps.Marker({
-        position: pos,
-        title: row.name || row.address,
-      });
+    const overlays: any[] = [];
 
-      // 간단 오버레이
+    data?.forEach((row) => {
+      const pos = new kakao.maps.LatLng(row.lat, row.lng);
+      const marker = new kakao.maps.Marker({ position: pos, title: row.name || row.address });
+
+      // 간단한 오버레이
       const content = document.createElement("div");
       content.style.padding = "8px 10px";
       content.style.borderRadius = "8px";
       content.style.background = "white";
       content.style.boxShadow = "0 2px 8px rgba(0,0,0,.15)";
       content.style.fontSize = "12px";
-      content.innerHTML = `<strong>${escapeHtml(row.name || "단지")}</strong><br/>${escapeHtml(
-        row.address || ""
-      )}`;
+      content.innerHTML = `<strong>${escapeHtml(row.name || "단지")}</strong><br/>${escapeHtml(row.address || "")}`;
 
       const overlay = new kakao.maps.CustomOverlay({
         position: pos,
@@ -145,137 +110,52 @@ export default function MapPage() {
         yAnchor: 1.2,
         zIndex: 2,
       });
+      overlays.push(overlay);
 
       kakao.maps.event.addListener(marker, "click", () => {
-        const vis = (overlay as any)._visible;
-        overlay.setMap(vis ? null : mapObjRef.current);
-        (overlay as any)._visible = !vis;
+        // 오버레이 토글
+        if ((overlay as any)._visible) {
+          overlay.setMap(null);
+          (overlay as any)._visible = false;
+        } else {
+          overlay.setMap(mapObjRef.current);
+          (overlay as any)._visible = true;
+        }
       });
 
-      return marker;
+      markers.push(marker);
     });
 
-    if (clustererRef.current) {
-      clustererRef.current.clear();
-      if (kakaoMarkers?.length) clustererRef.current.addMarkers(kakaoMarkers);
-    }
+    clustererRef.current.addMarkers(markers);
   }
 
-  // 🔎 카카오 Places 키워드 검색: 역/건물/아파트명까지 정확히 이동
-  function keywordSearch(query: string, opts?: { dropMarker?: boolean }) {
+  // 주소 문자열로 지도 이동(+핀)
+  async function moveToAddress(addr: string) {
     const kakao = (window as KakaoNS).kakao;
-    const places = placesRef.current;
-    if (!places) return;
+    const geocoder = new kakao.maps.services.Geocoder();
+    geocoder.addressSearch(addr, (result: any[], status: string) => {
+      if (status !== kakao.maps.services.Status.OK || !result?.length) return;
 
-    // (선택) 현재 지도 중심 기준으로 검색하려면 options에 { location: map center } 등 지정 가능
-    places.keywordSearch(query, (results: any[], status: string) => {
-      if (status !== kakao.maps.services.Status.OK || !results?.length) return;
-
-      // 가장 관련 높은 첫 결과
-      const first = results[0];
-      const lat = Number(first.y);
-      const lng = Number(first.x);
-      if (Number.isNaN(lat) || Number.isNaN(lng)) return;
-
-      const latlng = new kakao.maps.LatLng(lat, lng);
+      const { y, x } = result[0];
+      const latlng = new kakao.maps.LatLng(Number(y), Number(x));
       mapObjRef.current.setLevel(4);
       mapObjRef.current.setCenter(latlng);
 
-      if (opts?.dropMarker) {
-        // 기존 검색 마커 제거
-        if (searchMarkerRef.current) {
-          searchMarkerRef.current.setMap(null);
-          searchMarkerRef.current = null;
-        }
-        // 보라색(스타) 마커 사용
-        const marker = new kakao.maps.Marker({
-          position: latlng,
-          image: new kakao.maps.MarkerImage(
-            "https://t1.daumcdn.net/localimg/localimages/07/mapapidoc/markerStar.png",
-            new kakao.maps.Size(24, 35)
-          ),
-          zIndex: 99,
-        });
-        marker.setMap(mapObjRef.current);
-        searchMarkerRef.current = marker;
-      }
-
-      // 이동 후 바운드 안 아파트 핀 다시 로드
-      loadMarkersInBounds();
+      const marker = new kakao.maps.Marker({ position: latlng });
+      marker.setMap(mapObjRef.current);
     });
   }
 
-  // 검색 실행
-  function onSearch() {
-    const query = q.trim();
-    if (!query) return;
-    writeQuery(query);
-    keywordSearch(query, { dropMarker: true });
-  }
-
-  // 안전 escape (replaceAll 미사용)
   function escapeHtml(s: string) {
     return s
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
   }
 
   return (
-    <div style={{ width: "100%", height: "100vh", position: "relative" }}>
-      {/* 상단 검색바 */}
-      <div
-        style={{
-          position: "absolute",
-          top: 16,
-          left: "50%",
-          transform: "translateX(-50%)",
-          display: "flex",
-          gap: 8,
-          zIndex: 10,
-          background: "white",
-          borderRadius: 12,
-          padding: "8px 10px",
-          boxShadow: "0 4px 16px rgba(0,0,0,.12)",
-          alignItems: "center",
-          width: "min(720px, 90vw)",
-        }}
-      >
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") onSearch();
-          }}
-          placeholder="예) 강남역, 평촌트리지아, 비산동, 삼성로 85"
-          style={{
-            flex: 1,
-            height: 40,
-            border: "1px solid #e5e7eb",
-            borderRadius: 10,
-            padding: "0 12px",
-            fontSize: 14,
-          }}
-        />
-        <button
-          onClick={onSearch}
-          style={{
-            height: 40,
-            padding: "0 14px",
-            borderRadius: 10,
-            background: "#6d28d9",
-            color: "white",
-            border: "none",
-            fontWeight: 600,
-          }}
-        >
-          검색
-        </button>
-      </div>
-
-      <div ref={mapRef} style={{ width: "100%", height: "100%" }} />
-    </div>
+    <div ref={mapRef} style={{ width: "100%", height: "100vh" }} />
   );
 }
