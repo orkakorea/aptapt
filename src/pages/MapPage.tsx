@@ -11,13 +11,26 @@ export default function MapPage() {
   const mapObjRef = useRef<any>(null);
   const clustererRef = useRef<any>(null);
   const searchMarkerRef = useRef<any>(null);
-
+  const placesRef = useRef<any>(null); // kakao.maps.services.Places
   const [q, setQ] = useState<string>("");
 
-  // queryString 읽기
-  function readQuery(): string {
+  // 간단 디바운스
+  const idleTimer = useRef<number | null>(null);
+  function debounceIdle(fn: () => void, ms = 300) {
+    if (idleTimer.current) window.clearTimeout(idleTimer.current);
+    idleTimer.current = window.setTimeout(fn, ms);
+  }
+
+  // URL ?q 읽기/세팅
+  function readQuery() {
     const u = new URL(window.location.href);
     return (u.searchParams.get("q") || "").trim();
+  }
+  function writeQuery(v: string) {
+    const u = new URL(window.location.href);
+    if (v) u.searchParams.set("q", v);
+    else u.searchParams.delete("q");
+    window.history.replaceState(null, "", u.toString());
   }
 
   useEffect(() => {
@@ -26,6 +39,7 @@ export default function MapPage() {
       await new Promise<void>((resolve) => {
         const s = document.createElement("script");
         s.async = true;
+        // services(지오코더/Places 포함) + clusterer
         s.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${KAKAO_APP_KEY}&autoload=false&libraries=services,clusterer`;
         s.onload = () => (window as KakaoNS).kakao.maps.load(() => resolve());
         document.head.appendChild(s);
@@ -37,9 +51,12 @@ export default function MapPage() {
       if (!mapRef.current) return;
 
       const kakao = (window as KakaoNS).kakao;
-      const center = new kakao.maps.LatLng(37.5665, 126.978); // 기본 서울시청
-      const map = new kakao.maps.Map(mapRef.current, { center, level: 5 });
+      const center = new kakao.maps.LatLng(37.5665, 126.9780); // 기본: 서울시청
+      const map = new kakao.maps.Map(mapRef.current, { center, level: 6 });
       mapObjRef.current = map;
+
+      // Places 인스턴스
+      placesRef.current = new kakao.maps.services.Places();
 
       // 클러스터러
       clustererRef.current = new kakao.maps.MarkerClusterer({
@@ -49,28 +66,52 @@ export default function MapPage() {
         disableClickZoom: false,
       });
 
-      // DB의 좌표 마커 로드
-      await loadAndRenderMarkers();
+      // 맵 이동/확대 종료 시 현재 바운드로 아파트 핀 로드
+      kakao.maps.event.addListener(map, "idle", () => {
+        debounceIdle(loadMarkersInBounds, 300);
+      });
 
-      // 주소 파라미터가 있으면 입력창에 세팅하고 이동
+      // 초기: 현재 바운드 기준으로 핀 로드
+      await loadMarkersInBounds();
+
+      // 쿼리 파라미터 검색
       const initial = readQuery();
       if (initial) {
         setQ(initial);
-        moveToAddress(initial, { dropMarker: true });
+        keywordSearch(initial, { dropMarker: true }); // Places로 검색/이동
       }
     }
 
     init();
   }, []);
 
-  // Supabase에서 좌표 로드하여 클러스터링
-  async function loadAndRenderMarkers() {
+  // 현재 맵 바운드 안의 아파트만 불러와 클러스터링
+  async function loadMarkersInBounds() {
+    const kakao = (window as KakaoNS).kakao;
+    const map = mapObjRef.current;
+    if (!map) return;
+
+    const bounds = map.getBounds();
+    if (!bounds) return;
+
+    const sw = bounds.getSouthWest(); // LatLng
+    const ne = bounds.getNorthEast();
+
+    const swLat = sw.getLat();
+    const swLng = sw.getLng();
+    const neLat = ne.getLat();
+    const neLng = ne.getLng();
+
+    // 경도 국제선(±180) 케이스는 한국 지도에서는 사실상 발생 X
+
     const { data, error } = await supabase
       .from("places")
       .select("id,name,address,lat,lng")
       .eq("geocode_status", "ok")
-      .not("lat", "is", null)
-      .not("lng", "is", null)
+      .gte("lat", swLat)
+      .lte("lat", neLat)
+      .gte("lng", swLng)
+      .lte("lng", neLng)
       .limit(2000);
 
     if (error) {
@@ -78,12 +119,8 @@ export default function MapPage() {
       return;
     }
 
-    const kakao = (window as KakaoNS).kakao;
-    clustererRef.current?.clear();
-
     const markers: any[] = [];
-
-    (data || []).forEach((row) => {
+    const kakaoMarkers = data?.map((row) => {
       const pos = new kakao.maps.LatLng(row.lat, row.lng);
       const marker = new kakao.maps.Marker({
         position: pos,
@@ -97,9 +134,9 @@ export default function MapPage() {
       content.style.background = "white";
       content.style.boxShadow = "0 2px 8px rgba(0,0,0,.15)";
       content.style.fontSize = "12px";
-      content.innerHTML = `<strong>${escapeHtml(
-        row.name || "단지"
-      )}</strong><br/>${escapeHtml(row.address || "")}`;
+      content.innerHTML = `<strong>${escapeHtml(row.name || "단지")}</strong><br/>${escapeHtml(
+        row.address || ""
+      )}`;
 
       const overlay = new kakao.maps.CustomOverlay({
         position: pos,
@@ -114,33 +151,42 @@ export default function MapPage() {
         (overlay as any)._visible = !vis;
       });
 
-      markers.push(marker);
+      return marker;
     });
 
-    clustererRef.current.addMarkers(markers);
+    if (clustererRef.current) {
+      clustererRef.current.clear();
+      if (kakaoMarkers?.length) clustererRef.current.addMarkers(kakaoMarkers);
+    }
   }
 
-  // 주소로 이동 (옵션: 검색 핀 생성)
-  function moveToAddress(addr: string, opts?: { dropMarker?: boolean }) {
+  // 🔎 카카오 Places 키워드 검색: 역/건물/아파트명까지 정확히 이동
+  function keywordSearch(query: string, opts?: { dropMarker?: boolean }) {
     const kakao = (window as KakaoNS).kakao;
-    const geocoder = new kakao.maps.services.Geocoder();
+    const places = placesRef.current;
+    if (!places) return;
 
-    geocoder.addressSearch(addr, (result: any[], status: string) => {
-      if (status !== kakao.maps.services.Status.OK || !result?.length) return;
+    // (선택) 현재 지도 중심 기준으로 검색하려면 options에 { location: map center } 등 지정 가능
+    places.keywordSearch(query, (results: any[], status: string) => {
+      if (status !== kakao.maps.services.Status.OK || !results?.length) return;
 
-      const { y, x } = result[0];
-      const latlng = new kakao.maps.LatLng(Number(y), Number(x));
+      // 가장 관련 높은 첫 결과
+      const first = results[0];
+      const lat = Number(first.y);
+      const lng = Number(first.x);
+      if (Number.isNaN(lat) || Number.isNaN(lng)) return;
 
+      const latlng = new kakao.maps.LatLng(lat, lng);
       mapObjRef.current.setLevel(4);
       mapObjRef.current.setCenter(latlng);
 
       if (opts?.dropMarker) {
-        // 이전 검색 마커 제거
+        // 기존 검색 마커 제거
         if (searchMarkerRef.current) {
           searchMarkerRef.current.setMap(null);
           searchMarkerRef.current = null;
         }
-        // 보라색 검색 마커
+        // 보라색(스타) 마커 사용
         const marker = new kakao.maps.Marker({
           position: latlng,
           image: new kakao.maps.MarkerImage(
@@ -152,22 +198,21 @@ export default function MapPage() {
         marker.setMap(mapObjRef.current);
         searchMarkerRef.current = marker;
       }
+
+      // 이동 후 바운드 안 아파트 핀 다시 로드
+      loadMarkersInBounds();
     });
   }
 
-  // 검색 실행 핸들러
+  // 검색 실행
   function onSearch() {
     const query = q.trim();
     if (!query) return;
-    // URL도 동기화
-    const u = new URL(window.location.href);
-    u.searchParams.set("q", query);
-    window.history.replaceState(null, "", u.toString());
-
-    moveToAddress(query, { dropMarker: true });
+    writeQuery(query);
+    keywordSearch(query, { dropMarker: true });
   }
 
-  // replaceAll 없이 안전 escape
+  // 안전 escape (replaceAll 미사용)
   function escapeHtml(s: string) {
     return s
       .replace(/&/g, "&amp;")
@@ -203,7 +248,7 @@ export default function MapPage() {
           onKeyDown={(e) => {
             if (e.key === "Enter") onSearch();
           }}
-          placeholder="예) 비산동, 강남역, 삼성로 85, ○○아파트"
+          placeholder="예) 강남역, 평촌트리지아, 비산동, 삼성로 85"
           style={{
             flex: 1,
             height: 40,
@@ -233,4 +278,3 @@ export default function MapPage() {
     </div>
   );
 }
-
