@@ -72,7 +72,8 @@ export default function MapPage() {
       });
 
       // 초기: 현재 바운드 기준으로 핀 로드
-      await loadMarkersInBounds();
+      await loadMarkersInBounds(); console.log("apt rows in bounds:", data?.length || 0);
+
 
       // 쿼리 파라미터 검색
       const initial = readQuery();
