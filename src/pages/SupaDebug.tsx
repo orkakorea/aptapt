@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+// src/pages/SupaDebug.tsx
+import React, { useEffect, useMemo, useState } from "react";
+import { supabase } from "../lib/supabase";
 
 function mask(s: string, head = 8, tail = 4) {
   if (!s) return "";
@@ -7,75 +8,90 @@ function mask(s: string, head = 8, tail = 4) {
   return s.slice(0, head) + "..." + s.slice(-tail);
 }
 
-type Row = { 단지명?: string; 주소?: string; lat?: number|null; lng?: number|null; };
+type Row = { 단지명?: string; 주소?: string; lat?: number | null; lng?: number | null };
 
-export default function SupaDebugPage() {
-  const [envOk, setEnvOk] = useState<null|boolean>(null);
-  const [envView, setEnvView] = useState<{ url?: string; key?: string }>({});
+function SupaDebugPage() {
+  const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || "";
+  const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || "";
+  const envOk = Boolean(envUrl && envKey);
+
   const [rows, setRows] = useState<Row[]>([]);
+  const [count, setCount] = useState<number | null>(null);
+  const [ms, setMs] = useState<number | null>(null);
   const [error, setError] = useState<any>(null);
 
-  useEffect(() => {
-    // Check environment variables from the Supabase client
-    const url = import.meta.env.VITE_SUPABASE_URL;
-    const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
-    
-    setEnvView({ url, key });
-    setEnvOk(Boolean(url && key));
+  async function runTest() {
+    setRows([]); setCount(null); setMs(null); setError(null);
+    const t0 = performance.now();
 
-    // Test database connection
-    (async () => {
-      try {
-        const { data, error } = await supabase
-          .from("raw_places")
-          .select('"단지명","주소",lat,lng')
-          .limit(5);
-        
-        if (error) {
-          setError(error);
-        } else {
-          setRows(data || []);
-        }
-      } catch (err) {
-        setError(err);
-      }
-    })();
-  }, []);
+    const { data, error, count } = await supabase
+      .from("raw_places")
+      .select("*", { count: "exact", head: false })
+      .limit(5);
+
+    const t1 = performance.now();
+    setMs(Math.round(t1 - t0));
+
+    if (error) setError(error);
+    else { setRows(data || []); setCount(count ?? (data?.length ?? 0)); }
+  }
+
+  useEffect(() => { if (envOk) runTest(); }, [envOk]);
+
+  const statusText = useMemo(() => {
+    if (!envOk) return "환경변수 누락";
+    if (error) return `오류: ${error.status ?? ""} ${error.message ?? ""}`.trim();
+    if (rows.length) return "연결 성공";
+    if (count === 0) return "연결 성공(데이터 0건)";
+    return "확인 중";
+  }, [envOk, error, rows.length, count]);
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">Supabase 연결 체크</h1>
+    <div style={{ padding: 20, fontFamily: "ui-sans-serif, system-ui", maxWidth: 920, margin: "0 auto" }}>
+      <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 12 }}>Supabase 연결 체크</h1>
+      <div style={{ marginBottom: 8, color: "#475569" }}>
+        현재 연결: {envUrl || "(env 누락)"}
+      </div>
 
-      <section className="p-4 border rounded-lg mb-6 bg-card">
-        <div className="font-semibold mb-3">환경변수</div>
-        <div className="space-y-2 text-sm">
-          <div>URL: {envView.url || "(빈 값)"}</div>
-          <div>ANON: {envView.key ? mask(envView.key) : "(빈 값)"}</div>
-          <div className="mt-3">
-            상태: <span className={`font-semibold ${envOk ? "text-green-600" : "text-red-600"}`}>
-              {envOk ? "OK" : "누락됨"}
-            </span>
-          </div>
+      <section style={{ padding: 12, border: "1px solid #e2e8f0", borderRadius: 8, marginBottom: 16 }}>
+        <div style={{ fontWeight: 600, marginBottom: 6 }}>환경변수</div>
+        <div>URL: {envUrl || "(빈 값)"} </div>
+        <div>ANON: {envKey ? mask(envKey) : "(빈 값)"} </div>
+        <div style={{ marginTop: 6 }}>
+          상태: <span style={{ fontWeight: 700, color: envOk ? "#16a34a" : "#dc2626" }}>
+            {envOk ? "OK" : "누락됨"}
+          </span>
         </div>
       </section>
 
-      <section className="p-4 border rounded-lg bg-card">
-        <div className="font-semibold mb-3">DB 읽기 테스트</div>
+      <section style={{ padding: 12, border: "1px solid #e2e8f0", borderRadius: 8 }}>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 8 }}>
+          <div style={{ fontWeight: 700 }}>상태: {statusText}</div>
+          <button
+            onClick={runTest}
+            style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer" }}
+          >
+            다시 테스트
+          </button>
+        </div>
+        <div style={{ color: "#475569", fontSize: 14, marginBottom: 6 }}>
+          총 행 수: {count === null ? "-" : count} / 응답: {ms === null ? "-" : `${ms}ms`}
+        </div>
+
         {error ? (
-          <pre className="bg-muted p-3 rounded text-sm whitespace-pre-wrap overflow-auto">
+          <pre style={{ background: "#f1f5f9", padding: 10, borderRadius: 6, whiteSpace: "pre-wrap" }}>
             {JSON.stringify(error, null, 2)}
           </pre>
         ) : rows.length ? (
-          <pre className="bg-muted p-3 rounded text-sm whitespace-pre-wrap overflow-auto">
+          <pre style={{ background: "#f1f5f9", padding: 10, borderRadius: 6, whiteSpace: "pre-wrap" }}>
             {JSON.stringify(rows, null, 2)}
           </pre>
         ) : (
-          <div className="text-muted-foreground">불러온 행 없음 (정상일 수 있음)</div>
+          <div style={{ color: "#64748b" }}>결과가 비어 있습니다. (정상일 수 있음)</div>
         )}
-        <div className="text-xs text-muted-foreground mt-3">
-          * 403 → 정책 문제, 401 → 키 문제, 200 + 빈 배열 → 컬럼/조건 문제
-        </div>
       </section>
     </div>
   );
 }
+
+export default SupaDebugPage;   // ✅ default export 확실히
