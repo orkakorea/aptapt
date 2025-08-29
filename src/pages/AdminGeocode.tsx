@@ -1,6 +1,6 @@
 // src/pages/AdminGeocode.tsx
 import { useEffect, useState } from "react";
-import { supabase } from "../lib/supabase"; // 경로 별칭(@) 안 쓰는 버전
+import { supabase } from "@/integrations/supabase/client";
 
 // ✅ Kakao Developers 에서 발급받은 REST API 키 (도메인 등록 필수)
 const KAKAO_REST_KEY = "011e2458d92062bcccfc5a5af333df56"; // 예: 01e2458d9...

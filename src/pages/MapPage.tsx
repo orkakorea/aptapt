@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { supabase } from "@/integrations/supabase/client";
 
 /** 카카오 JavaScript 키 (REST 키 아님). 해당 도메인 등록 필수 */
 const KAKAO_APP_KEY = "a53075efe7a2256480b8650cec67ebae";

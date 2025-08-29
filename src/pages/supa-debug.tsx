@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { supabase } from "@/integrations/supabase/client";
 
 function mask(s: string, head = 8, tail = 4) {
   if (!s) return "";
@@ -16,8 +16,8 @@ export default function SupaDebugPage() {
   const [error, setError] = useState<any>(null);
 
   useEffect(() => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+    const url = "https://qislrfbqilfqzkvkuknn.supabase.co";
+    const key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpc2xyZmJxaWxmcXprdmt1a25uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYyNTczMDUsImV4cCI6MjA3MTgzMzMwNX0.JGOsDmD6yak6fMVw8MszVtjM4y2KxNtfMkJoH7PUQKo";
     setEnvView({ url, key });
     setEnvOk(Boolean(url && key));
 
