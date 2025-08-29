@@ -96,3 +96,11 @@ function SupaDebugPage() {
         <div style={{ fontSize: 12, color: "#64748b", marginTop: 8, lineHeight: 1.5 }}>
           • 403 → RLS/Policy 문제, 401 → 키 문제 <br />
           • 200 + 빈 배열 → 컬럼/조건 문제 또는 다른 프로젝트에 연결됨 <br />
+          • 현재 쿼리: <code>select("*").limit(5)</code>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+export default SupaDebugPage;  // ✅ 기본 내보내기
