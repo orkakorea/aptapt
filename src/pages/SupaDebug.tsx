@@ -1,6 +1,6 @@
 // src/pages/SupaDebug.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { createClient } from "@supabase/supabase-js";
 
 function mask(s: string, head = 8, tail = 4) {
   if (!s) return "";
@@ -10,9 +10,14 @@ function mask(s: string, head = 8, tail = 4) {
 
 type Row = { 단지명?: string; 주소?: string; lat?: number | null; lng?: number | null };
 
+// Vite 환경변수에서 바로 읽어 클라이언트 생성
+const ENV_URL = (import.meta as any).env?.VITE_SUPABASE_URL || "";
+const ENV_KEY = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || "";
+const supabase = createClient(ENV_URL, ENV_KEY);
+
 function SupaDebugPage() {
-  const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || "";
-  const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || "";
+  const envUrl = ENV_URL;
+  const envKey = ENV_KEY;
   const envOk = Boolean(envUrl && envKey);
 
   const [rows, setRows] = useState<Row[]>([]);
@@ -94,4 +99,5 @@ function SupaDebugPage() {
   );
 }
 
-export default SupaDebugPage;   // ✅ default export 확실히
+export default SupaDebugPage;
+
