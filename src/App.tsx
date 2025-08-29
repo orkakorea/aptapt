@@ -7,6 +7,7 @@ import NotFound from "./pages/NotFound";  // 없으면 지워도 됨
 
 // ✅ 새로 추가
 import AdminGeocode from "./pages/AdminGeocode";
+import SupaDebug from "./pages/SupaDebug";
 
 export default function App() {
   return (
@@ -16,6 +17,7 @@ export default function App() {
         <Route path="/map" element={<MapPage />} />
         {/* ✅ 배치 지오코딩 페이지 */}
         <Route path="/admin/geocode" element={<AdminGeocode />} />
+        <Route path="/supa-debug" element={<SupaDebug />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>
