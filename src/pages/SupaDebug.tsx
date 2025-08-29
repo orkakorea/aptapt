@@ -1,6 +1,6 @@
 // src/pages/SupaDebug.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 function mask(s: string, head = 8, tail = 4) {
   if (!s) return "";
@@ -10,14 +10,10 @@ function mask(s: string, head = 8, tail = 4) {
 
 type Row = { 단지명?: string; 주소?: string; lat?: number | null; lng?: number | null };
 
-// Vite 환경변수에서 바로 읽어 클라이언트 생성
-const ENV_URL = (import.meta as any).env?.VITE_SUPABASE_URL || "";
-const ENV_KEY = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || "";
-const supabase = createClient(ENV_URL, ENV_KEY);
-
 function SupaDebugPage() {
-  const envUrl = ENV_URL;
-  const envKey = ENV_KEY;
+  // Vite 환경변수에서 읽기 (모듈 최상단에서 client 생성 금지!)
+  const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || "";
+  const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || "";
   const envOk = Boolean(envUrl && envKey);
 
   const [rows, setRows] = useState<Row[]>([]);
@@ -27,13 +23,26 @@ function SupaDebugPage() {
 
   async function runTest() {
     setRows([]); setCount(null); setMs(null); setError(null);
-    const t0 = performance.now();
 
+    if (!envOk) {
+      setError({ message: "환경변수 누락: VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY" });
+      return;
+    }
+
+    let supabase: SupabaseClient;
+    try {
+      // ✅ 이제서야 생성 (모듈 로드시가 아니라 런타임에!)
+      supabase = createClient(envUrl, envKey);
+    } catch (e: any) {
+      setError({ message: `createClient 실패: ${e?.message || e}` });
+      return;
+    }
+
+    const t0 = performance.now();
     const { data, error, count } = await supabase
       .from("raw_places")
       .select("*", { count: "exact", head: false })
       .limit(5);
-
     const t1 = performance.now();
     setMs(Math.round(t1 - t0));
 
@@ -41,6 +50,7 @@ function SupaDebugPage() {
     else { setRows(data || []); setCount(count ?? (data?.length ?? 0)); }
   }
 
+  // 페이지 진입 시 1회 자동 실행
   useEffect(() => { if (envOk) runTest(); }, [envOk]);
 
   const statusText = useMemo(() => {
@@ -55,49 +65,4 @@ function SupaDebugPage() {
     <div style={{ padding: 20, fontFamily: "ui-sans-serif, system-ui", maxWidth: 920, margin: "0 auto" }}>
       <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 12 }}>Supabase 연결 체크</h1>
       <div style={{ marginBottom: 8, color: "#475569" }}>
-        현재 연결: {envUrl || "(env 누락)"}
-      </div>
-
-      <section style={{ padding: 12, border: "1px solid #e2e8f0", borderRadius: 8, marginBottom: 16 }}>
-        <div style={{ fontWeight: 600, marginBottom: 6 }}>환경변수</div>
-        <div>URL: {envUrl || "(빈 값)"} </div>
-        <div>ANON: {envKey ? mask(envKey) : "(빈 값)"} </div>
-        <div style={{ marginTop: 6 }}>
-          상태: <span style={{ fontWeight: 700, color: envOk ? "#16a34a" : "#dc2626" }}>
-            {envOk ? "OK" : "누락됨"}
-          </span>
-        </div>
-      </section>
-
-      <section style={{ padding: 12, border: "1px solid #e2e8f0", borderRadius: 8 }}>
-        <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 8 }}>
-          <div style={{ fontWeight: 700 }}>상태: {statusText}</div>
-          <button
-            onClick={runTest}
-            style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer" }}
-          >
-            다시 테스트
-          </button>
-        </div>
-        <div style={{ color: "#475569", fontSize: 14, marginBottom: 6 }}>
-          총 행 수: {count === null ? "-" : count} / 응답: {ms === null ? "-" : `${ms}ms`}
-        </div>
-
-        {error ? (
-          <pre style={{ background: "#f1f5f9", padding: 10, borderRadius: 6, whiteSpace: "pre-wrap" }}>
-            {JSON.stringify(error, null, 2)}
-          </pre>
-        ) : rows.length ? (
-          <pre style={{ background: "#f1f5f9", padding: 10, borderRadius: 6, whiteSpace: "pre-wrap" }}>
-            {JSON.stringify(rows, null, 2)}
-          </pre>
-        ) : (
-          <div style={{ color: "#64748b" }}>결과가 비어 있습니다. (정상일 수 있음)</div>
-        )}
-      </section>
-    </div>
-  );
-}
-
-export default SupaDebugPage;
-
+        현재 연결: {envUrl || "
