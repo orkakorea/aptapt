@@ -24,7 +24,6 @@ function SupaDebugPage() {
     setRows([]); setCount(null); setMs(null); setError(null);
     const t0 = performance.now();
 
-    // ← 여기 쿼리만 바꿔가며 테스트하세요
     const { data, error, count } = await supabase
       .from("raw_places")
       .select("*", { count: "exact", head: false })
@@ -32,7 +31,6 @@ function SupaDebugPage() {
 
     const t1 = performance.now();
     setMs(Math.round(t1 - t0));
-
     if (error) setError(error);
     else { setRows(data || []); setCount(count ?? (data?.length ?? 0)); }
   }
@@ -54,7 +52,6 @@ function SupaDebugPage() {
         현재 연결: {envUrl || "(env 누락)"}
       </div>
 
-      {/* ENV */}
       <section style={{ padding: 12, border: "1px solid #e2e8f0", borderRadius: 8, marginBottom: 16 }}>
         <div style={{ fontWeight: 600, marginBottom: 6 }}>환경변수</div>
         <div>URL: {envUrl || "(빈 값)"} </div>
@@ -66,7 +63,6 @@ function SupaDebugPage() {
         </div>
       </section>
 
-      {/* RESULT */}
       <section style={{ padding: 12, border: "1px solid #e2e8f0", borderRadius: 8 }}>
         <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 8 }}>
           <div style={{ fontWeight: 700 }}>상태: {statusText}</div>
@@ -92,15 +88,10 @@ function SupaDebugPage() {
         ) : (
           <div style={{ color: "#64748b" }}>결과가 비어 있습니다. (정상일 수 있음)</div>
         )}
-
-        <div style={{ fontSize: 12, color: "#64748b", marginTop: 8, lineHeight: 1.5 }}>
-          • 403 → RLS/Policy 문제, 401 → 키 문제 <br />
-          • 200 + 빈 배열 → 컬럼/조건 문제 또는 다른 프로젝트에 연결됨 <br />
-          • 현재 쿼리: <code>select("*").limit(5)</code>
-        </div>
       </section>
     </div>
   );
 }
 
-export default SupaDebugPage;  // ✅ 기본 내보내기
+export default SupaDebugPage; // ✅ 반드시 default export
+
