@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 
-// 👉 카카오 JavaScript 키(REST 키 말고 JS 키). 도메인 등록 필수!
-const KAKAO_APP_KEY = "a53075efe7a2256480b8650cec67ebae"; // 예: a5307...
+/** 카카오 JavaScript 키 (REST 키 아님). 해당 도메인 등록 필수 */
+const KAKAO_APP_KEY = "a53075efe7a2256480b8650cec67ebae";
 
 type KakaoNS = typeof window & { kakao: any };
 
@@ -37,11 +37,12 @@ export default function MapPage() {
   useEffect(() => {
     async function ensureKakao(): Promise<void> {
       if ((window as KakaoNS).kakao?.maps) return;
-      await new Promise<void>((resolve) => {
+      await new Promise<void>((resolve, reject) => {
         const s = document.createElement("script");
         s.async = true;
         s.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${KAKAO_APP_KEY}&autoload=false&libraries=services,clusterer`;
         s.onload = () => (window as KakaoNS).kakao.maps.load(() => resolve());
+        s.onerror = () => reject(new Error("Kakao SDK load failed"));
         document.head.appendChild(s);
       });
     }
@@ -96,7 +97,7 @@ export default function MapPage() {
     const bounds = map.getBounds();
     if (!bounds) return;
 
-    const sw = bounds.getSouthWest(); // LatLng
+    const sw = bounds.getSouthWest();
     const ne = bounds.getNorthEast();
 
     const swLat = sw.getLat();
@@ -104,18 +105,18 @@ export default function MapPage() {
     const neLat = ne.getLat();
     const neLng = ne.getLng();
 
-    // Supabase: 현재 화면(바운드) 안의 ok 좌표만
+    // Supabase: 현재 화면(바운드) 안의 좌표가 "있는" 행만 조회 (테이블/컬럼명 맞춤)
     const { data, error } = await supabase
-      .from("places")
-      .select("id,name,address,lat,lng")
-      .eq("geocode_status", "ok")
+      .from("raw_places")
+      .select('"단지명","주소",lat,lng') // 한글 컬럼은 반드시 쌍따옴표
+      .not("lat", "is", null)
+      .not("lng", "is", null)
       .gte("lat", swLat)
       .lte("lat", neLat)
       .gte("lng", swLng)
       .lte("lng", neLng)
       .limit(2000);
 
-    // 🔎 디버그: 현재 바운드 내 행 수 확인
     console.log("apt rows in bounds:", (data && data.length) || 0);
 
     if (error) {
@@ -123,12 +124,11 @@ export default function MapPage() {
       return;
     }
 
-    const markers = (data || []).map((row) => {
+    const markers = (data || []).map((row: any) => {
       const pos = new kakao.maps.LatLng(row.lat, row.lng);
-      const marker = new kakao.maps.Marker({
-        position: pos,
-        title: row.name || row.address,
-      });
+      const title = row["단지명"] || row["주소"] || "";
+
+      const marker = new kakao.maps.Marker({ position: pos, title });
 
       // 간단 오버레이 (클릭 토글)
       const content = document.createElement("div");
@@ -138,8 +138,8 @@ export default function MapPage() {
       content.style.boxShadow = "0 2px 8px rgba(0,0,0,.15)";
       content.style.fontSize = "12px";
       content.innerHTML = `<strong>${escapeHtml(
-        row.name || "단지"
-      )}</strong><br/>${escapeHtml(row.address || "")}`;
+        row["단지명"] || "단지"
+      )}</strong><br/>${escapeHtml(row["주소"] || "")}`;
 
       const overlay = new kakao.maps.CustomOverlay({
         position: pos,
@@ -213,7 +213,7 @@ export default function MapPage() {
     keywordSearch(query, { dropMarker: true });
   }
 
-  // HTML escape (replaceAll 미사용)
+  // HTML escape
   function escapeHtml(s: string) {
     return s
       .replace(/&/g, "&amp;")
