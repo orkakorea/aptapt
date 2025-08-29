@@ -94,4 +94,3 @@ function SupaDebugPage() {
 }
 
 export default SupaDebugPage; // ✅ 반드시 default export
-
