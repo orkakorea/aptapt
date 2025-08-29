@@ -14,7 +14,105 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      places: {
+        Row: {
+          address: string | null
+          created_at: string | null
+          fee: number | null
+          geocode_status: string | null
+          hours: string | null
+          households: number | null
+          id: number
+          lat: number | null
+          lng: number | null
+          monitors: number | null
+          name: string | null
+          plays_per_month: number | null
+          product: string | null
+          residents: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          address?: string | null
+          created_at?: string | null
+          fee?: number | null
+          geocode_status?: string | null
+          hours?: string | null
+          households?: number | null
+          id?: number
+          lat?: number | null
+          lng?: number | null
+          monitors?: number | null
+          name?: string | null
+          plays_per_month?: number | null
+          product?: string | null
+          residents?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          address?: string | null
+          created_at?: string | null
+          fee?: number | null
+          geocode_status?: string | null
+          hours?: string | null
+          households?: number | null
+          id?: number
+          lat?: number | null
+          lng?: number | null
+          monitors?: number | null
+          name?: string | null
+          plays_per_month?: number | null
+          product?: string | null
+          residents?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      raw_places: {
+        Row: {
+          geocode_status: string | null
+          lat: number | null
+          lng: number | null
+          거주인원: string | null
+          단지명: string | null
+          모니터수량: string | null
+          상품명: string | null
+          세대수: string | null
+          운영시간: string | null
+          월광고료: string | null
+          월송출횟수: string | null
+          주소: string | null
+        }
+        Insert: {
+          geocode_status?: string | null
+          lat?: number | null
+          lng?: number | null
+          거주인원?: string | null
+          단지명?: string | null
+          모니터수량?: string | null
+          상품명?: string | null
+          세대수?: string | null
+          운영시간?: string | null
+          월광고료?: string | null
+          월송출횟수?: string | null
+          주소?: string | null
+        }
+        Update: {
+          geocode_status?: string | null
+          lat?: number | null
+          lng?: number | null
+          거주인원?: string | null
+          단지명?: string | null
+          모니터수량?: string | null
+          상품명?: string | null
+          세대수?: string | null
+          운영시간?: string | null
+          월광고료?: string | null
+          월송출횟수?: string | null
+          주소?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
