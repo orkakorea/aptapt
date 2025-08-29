@@ -1,53 +1,69 @@
-import { useState } from "react";
-import { supabase } from "@/lib/supabase";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useEffect, useState } from "react";
+import { supabase } from "../lib/supabase";
 
-export default function SupaDebug() {
-  const [result, setResult] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
+function mask(s: string, head = 8, tail = 4) {
+  if (!s) return "";
+  if (s.length <= head + tail) return s;
+  return s.slice(0, head) + "..." + s.slice(-tail);
+}
 
-  const testConnection = async () => {
-    setLoading(true);
-    try {
+type Row = { 단지명?: string; 주소?: string; lat?: number|null; lng?: number|null; };
+
+export default function SupaDebugPage() {
+  const [envOk, setEnvOk] = useState<null|boolean>(null);
+  const [envView, setEnvView] = useState<{ url?: string; key?: string }>({});
+  const [rows, setRows] = useState<Row[]>([]);
+  const [error, setError] = useState<any>(null);
+
+  useEffect(() => {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
+    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+    setEnvView({ url, key });
+    setEnvOk(Boolean(url && key));
+
+    (async () => {
       const { data, error } = await supabase
-        .from('places')
-        .select('*')
+        .from("raw_places")
+        .select('"단지명","주소",lat,lng')
         .limit(5);
-      
-      setResult({ data, error });
-    } catch (err) {
-      setResult({ error: err });
-    } finally {
-      setLoading(false);
-    }
-  };
+      if (error) setError(error);
+      else setRows(data || []);
+    })();
+  }, []);
 
   return (
-    <div className="container mx-auto p-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Supabase Debug Page</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <Button 
-            onClick={testConnection} 
-            disabled={loading}
-            className="w-full"
-          >
-            {loading ? "Testing..." : "Test Supabase Connection"}
-          </Button>
-          
-          {result && (
-            <div className="mt-4">
-              <h3 className="text-lg font-medium mb-2">Result:</h3>
-              <pre className="bg-muted p-4 rounded-md overflow-auto text-sm">
-                {JSON.stringify(result, null, 2)}
-              </pre>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+    <div style={{ padding: 20, fontFamily: "ui-sans-serif, system-ui" }}>
+      <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 12 }}>Supabase 연결 체크</h1>
+
+      <section style={{ padding: 12, border: "1px solid #e2e8f0", borderRadius: 8, marginBottom: 16 }}>
+        <div style={{ fontWeight: 600, marginBottom: 6 }}>환경변수</div>
+        <div>URL: {envView.url || "(빈 값)"} </div>
+        <div>ANON: {envView.key ? mask(envView.key) : "(빈 값)"} </div>
+        <div style={{ marginTop: 6 }}>
+          상태: <span style={{ fontWeight: 600, color: envOk ? "#16a34a" : "#dc2626" }}>
+            {envOk ? "OK" : "누락됨"}
+          </span>
+        </div>
+      </section>
+
+      <section style={{ padding: 12, border: "1px solid #e2e8f0", borderRadius: 8 }}>
+        <div style={{ fontWeight: 600, marginBottom: 6 }}>DB 읽기 테스트</div>
+        {error ? (
+          <pre style={{ background: "#f1f5f9", padding: 10, borderRadius: 6, whiteSpace: "pre-wrap" }}>
+            {JSON.stringify(error, null, 2)}
+          </pre>
+        ) : rows.length ? (
+          <pre style={{ background: "#f1f5f9", padding: 10, borderRadius: 6, whiteSpace: "pre-wrap" }}>
+            {JSON.stringify(rows, null, 2)}
+          </pre>
+        ) : (
+          <div style={{ color: "#64748b" }}>불러온 행 없음 (정상일 수 있음)</div>
+        )}
+        <div style={{ fontSize: 12, color: "#64748b", marginTop: 6 }}>
+          * 403 → 정책 문제, 401 → 키 문제, 200 + 빈 배열 → 컬럼/조건 문제
+        </div>
+      </section>
     </div>
   );
 }
+
