@@ -1,6 +1,6 @@
-// src/pages/supa-debug.tsx
+// src/pages/SupaDebug.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { supabase } from "../lib/supabase";
+import { supabase } from "@/integrations/supabase/client";
 
 function mask(s: string, head = 8, tail = 4) {
   if (!s) return "";
