@@ -1,23 +1,25 @@
 // src/App.tsx
-import React from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import MapPage from "./pages/MapPage";
-import SupaDebugPage from "./pages/SupaDebug"; // ← default import (파일명과 경로 정확히)
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+// 이미 있는 페이지들
+import Index from "./pages/Index";        // 경로는 프로젝트에 맞게 유지
+import MapPage from "./pages/MapPage";    // 없으면 지워도 됨
+import NotFound from "./pages/NotFound";  // 없으면 지워도 됨
 
-function App() {
+// ✅ 새로 추가
+import AdminGeocode from "./pages/AdminGeocode";
+import SupaDebug from "./pages/supa-debug";
+
+export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<MapPage />} />
+        <Route path="/" element={<Index />} />
         <Route path="/map" element={<MapPage />} />
-        <Route path="/supa-debug" element={<SupaDebugPage />} />
-        {/* 없는 경로는 / 로 */}
-        <Route path="*" element={<Navigate to="/" replace />} />
+        {/* ✅ 배치 지오코딩 페이지 */}
+        <Route path="/admin/geocode" element={<AdminGeocode />} />
+        <Route path="/supa-debug" element={<SupaDebug />} />
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>
   );
 }
-
-export default App;
-
-
