@@ -1,20 +1,28 @@
 // src/App.tsx
-import React from "react";
+import React, { Suspense, lazy } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import HomePage from "./pages/HomePage";
 import MapPage from "./pages/MapPage";
-import SupaDebugPage from "./pages/SupaDebug";
 
-function App() {
+// /supa-debug는 필요할 때만 로드
+const SupaDebugPage = lazy(() => import("./pages/SupaDebug"));
+
+export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<MapPage />} />
+        <Route path="/" element={<HomePage />} />
         <Route path="/map" element={<MapPage />} />
-        <Route path="/supa-debug" element={<SupaDebugPage />} />
+        <Route
+          path="/supa-debug"
+          element={
+            <Suspense fallback={<div style={{ padding: 20 }}>Loading…</div>}>
+              <SupaDebugPage />
+            </Suspense>
+          }
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );
 }
-
-export default App;
