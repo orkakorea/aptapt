@@ -1,28 +1,43 @@
 import { useEffect, useRef, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
-/** 카카오 JavaScript 키 (REST 키 아님). 해당 도메인 등록 필수 */
+// ✅ 카카오 JavaScript 키 (REST 키 아님)
 const KAKAO_APP_KEY = "a53075efe7a2256480b8650cec67ebae";
-
 type KakaoNS = typeof window & { kakao: any };
+
+// Vite env를 읽어서 필요할 때만 Supabase 클라이언트를 만든다
+function getSupabase(): SupabaseClient | null {
+  const url = (import.meta as any).env?.VITE_SUPABASE_URL as string | undefined;
+  const key = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string | undefined;
+  if (!url || !key) {
+    console.warn("[MapPage] Supabase env missing:", { url, key: key ? "(present)" : "(missing)" });
+    return null;
+  }
+  try {
+    return createClient(url, key);
+  } catch (e) {
+    console.error("[MapPage] createClient failed:", e);
+    return null;
+  }
+}
 
 export default function MapPage() {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapObjRef = useRef<any>(null);
   const clustererRef = useRef<any>(null);
   const searchMarkerRef = useRef<any>(null);
-  const placesRef = useRef<any>(null); // kakao.maps.services.Places
+  const placesRef = useRef<any>(null);
 
   const [q, setQ] = useState<string>("");
 
-  // 간단 디바운스
+  // 디바운스
   const idleTimer = useRef<number | null>(null);
   function debounceIdle(fn: () => void, ms = 300) {
     if (idleTimer.current) window.clearTimeout(idleTimer.current);
     idleTimer.current = window.setTimeout(fn, ms);
   }
 
-  // URL ?q 읽기/쓰기
+  // URL ?q
   function readQuery() {
     const u = new URL(window.location.href);
     return (u.searchParams.get("q") || "").trim();
@@ -88,7 +103,6 @@ export default function MapPage() {
   }, []);
 
   // ===================== 데이터 로드 & 렌더 =====================
-
   async function loadMarkersInBounds() {
     const kakao = (window as KakaoNS).kakao;
     const map = mapObjRef.current;
@@ -105,8 +119,13 @@ export default function MapPage() {
     const neLat = ne.getLat();
     const neLng = ne.getLng();
 
-    // Supabase: 현재 화면(바운드) 안의 좌표가 "있는" 행만 조회 (테이블/컬럼명 맞춤)
-    const { data, error } = await supabase
+    const client = getSupabase();
+    if (!client) {
+      // 환경변수 미설정이어도 페이지(검색창/지도)는 정상 렌더되도록 그냥 패스
+      return;
+    }
+
+    const { data, error } = await client
       .from("raw_places")
       .select('"단지명","주소",lat,lng') // 한글 컬럼은 반드시 쌍따옴표
       .not("lat", "is", null)
@@ -116,8 +135,6 @@ export default function MapPage() {
       .gte("lng", swLng)
       .lte("lng", neLng)
       .limit(2000);
-
-    console.log("apt rows in bounds:", (data && data.length) || 0);
 
     if (error) {
       console.error("Supabase select error:", error.message);
@@ -145,7 +162,7 @@ export default function MapPage() {
         position: pos,
         content,
         yAnchor: 1.2,
-        zIndex: 2,
+        zIndex: 100,
       });
 
       kakao.maps.event.addListener(marker, "click", () => {
@@ -164,7 +181,6 @@ export default function MapPage() {
   }
 
   // ===================== 검색(Places) =====================
-
   function keywordSearch(query: string, opts?: { dropMarker?: boolean }) {
     const kakao = (window as KakaoNS).kakao;
     const places = placesRef.current;
@@ -183,7 +199,6 @@ export default function MapPage() {
       mapObjRef.current.setCenter(latlng);
 
       if (opts && opts.dropMarker) {
-        // 이전 검색 마커 제거
         if (searchMarkerRef.current) {
           searchMarkerRef.current.setMap(null);
           searchMarkerRef.current = null;
@@ -194,7 +209,7 @@ export default function MapPage() {
             "https://t1.daumcdn.net/localimg/localimages/07/mapapidoc/markerStar.png",
             new kakao.maps.Size(24, 35)
           ),
-          zIndex: 99,
+          zIndex: 999,
         });
         marker.setMap(mapObjRef.current);
         searchMarkerRef.current = marker;
@@ -205,7 +220,6 @@ export default function MapPage() {
     });
   }
 
-  // 검색 실행
   function onSearch() {
     const query = q.trim();
     if (!query) return;
@@ -213,7 +227,6 @@ export default function MapPage() {
     keywordSearch(query, { dropMarker: true });
   }
 
-  // HTML escape
   function escapeHtml(s: string) {
     return s
       .replace(/&/g, "&amp;")
@@ -225,7 +238,7 @@ export default function MapPage() {
 
   return (
     <div style={{ width: "100%", height: "100vh", position: "relative" }}>
-      {/* 상단 검색바 */}
+      {/* ✅ 검색바 (항상 보이게 zIndex 크게) */}
       <div
         style={{
           position: "absolute",
@@ -234,21 +247,20 @@ export default function MapPage() {
           transform: "translateX(-50%)",
           display: "flex",
           gap: 8,
-          zIndex: 10,
+          zIndex: 2000,
           background: "white",
           borderRadius: 12,
           padding: "8px 10px",
           boxShadow: "0 4px 16px rgba(0,0,0,.12)",
           alignItems: "center",
           width: "min(720px, 90vw)",
+          pointerEvents: "auto",
         }}
       >
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") onSearch();
-          }}
+          onKeyDown={(e) => e.key === "Enter" && onSearch()}
           placeholder="예) 강남역, 평촌트리지아, 비산동, 삼성로 85"
           style={{
             flex: 1,
@@ -269,12 +281,14 @@ export default function MapPage() {
             color: "white",
             border: "none",
             fontWeight: 600,
+            cursor: "pointer",
           }}
         >
           검색
         </button>
       </div>
 
+      {/* 지도 */}
       <div ref={mapRef} style={{ width: "100%", height: "100%" }} />
     </div>
   );
