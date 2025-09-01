@@ -239,23 +239,41 @@ export default function MapPage() {
   return (
     <div className="min-h-screen bg-white">
       {/* Sticky toolbar */}
-      <div className="sticky top-0 z-50 bg-white border-b border-border h-16 flex items-center px-4">
-        <div className="flex items-center gap-4">
-          <h1 className="text-lg font-semibold">지도 검색</h1>
+      <div className="sticky top-0 z-50 bg-white border-b h-16">
+        <div className="max-w-[1280px] mx-auto px-4 h-full flex flex-col md:flex-row md:items-center md:justify-between gap-4 py-3 md:py-0">
+          {/* Left area - chips */}
           <div className="flex items-center gap-2">
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && onSearch()}
-              placeholder="예) 강남역, 평촌트리지아, 비산동, 삼성로 85"
-              className="w-80 h-10 px-3 border border-input rounded-md text-sm"
-            />
-            <button
-              onClick={onSearch}
-              className="h-10 px-4 bg-accent hover:bg-accent/90 text-accent-foreground rounded-md text-sm font-medium"
-            >
-              검색
-            </button>
+            <div className="h-8 px-3 border border-[#E5E7EB] rounded-full flex items-center text-sm text-[#111827]">
+              시·군·구 단위
+            </div>
+            <div className="h-8 px-3 border border-[#E5E7EB] rounded-full flex items-center text-sm text-[#111827]">
+              패키지 문의
+            </div>
+            <div className="h-8 px-3 bg-[#7B61FF] rounded-full flex items-center text-sm text-white">
+              1551 - 1810
+            </div>
+          </div>
+
+          {/* Right area - search */}
+          <div className="w-full md:w-[560px] h-10 bg-white border border-[#E5E7EB] rounded-full overflow-hidden group focus-within:ring-2 focus-within:ring-[#C7B8FF]">
+            <div className="flex h-full">
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && onSearch()}
+                placeholder="지역명, 아파트 이름, 단지명, 건물명을 입력해주세요"
+                className="flex-1 px-4 text-base text-[#111827] placeholder-[#9CA3AF] bg-transparent border-0 outline-none"
+              />
+              <button
+                onClick={onSearch}
+                className="w-10 h-10 bg-[#7B61FF] hover:bg-[#6A52FF] flex items-center justify-center text-white transition-colors"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="m21 21-4.35-4.35" />
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
       </div>
