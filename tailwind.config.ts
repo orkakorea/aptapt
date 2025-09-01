@@ -14,13 +14,11 @@ export default {
 			center: true,
 			padding: '2rem',
 			screens: {
-				DEFAULT: '1200px',
-				'2xl': '1280px'
+				'2xl': '1400px'
 			}
 		},
 		extend: {
 			fontFamily: {
-				'sans': ['Pretendard', 'system-ui', 'sans-serif'],
 				'pretendard': ['Pretendard Variable', 'Pretendard', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'Roboto', 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'sans-serif'],
 			},
 			colors: {
@@ -49,8 +47,6 @@ export default {
 					DEFAULT: 'hsl(var(--accent))',
 					foreground: 'hsl(var(--accent-foreground))'
 				},
-				'text-strong': 'hsl(var(--text-strong))',
-				'text-muted': 'hsl(var(--text-muted))',
 				popover: {
 					DEFAULT: 'hsl(var(--popover))',
 					foreground: 'hsl(var(--popover-foreground))'
@@ -73,10 +69,7 @@ export default {
 			borderRadius: {
 				lg: 'var(--radius)',
 				md: 'calc(var(--radius) - 2px)',
-				sm: 'calc(var(--radius) - 4px)',
-				card: '16px',
-				button: '12px',
-				input: '8px'
+				sm: 'calc(var(--radius) - 4px)'
 			},
 			keyframes: {
 				'accordion-down': {
