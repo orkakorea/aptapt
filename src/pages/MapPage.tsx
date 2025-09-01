@@ -283,9 +283,93 @@ export default function MapPage() {
         {/* Left sidebar */}
         <div className="w-[360px] bg-white sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto">
           <div className="p-4 flex flex-col gap-4">
-            <h2 className="text-sm font-medium text-muted-foreground">검색 결과</h2>
-            <div className="text-sm text-muted-foreground">
-              지도를 움직여서 해당 지역의 단지를 확인하세요.
+            {/* Card 1 - 송출 환경설정 */}
+            <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+              {/* Title row */}
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-base font-semibold text-[#111827]">송출 환경설정</h3>
+                <button className="w-6 h-6 flex items-center justify-center text-[#9CA3AF] hover:text-[#6B7280]">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="1"/>
+                    <circle cx="19" cy="12" r="1"/>
+                    <circle cx="5" cy="12" r="1"/>
+                  </svg>
+                </button>
+              </div>
+              {/* Body row */}
+              <button className="w-full h-10 border border-[#E5E7EB] hover:border-[#D1D5DB] rounded-lg flex items-center px-3 gap-2 text-[#111827] transition-colors">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-[#9CA3AF]">
+                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                  <line x1="16" y1="2" x2="16" y2="6"/>
+                  <line x1="8" y1="2" x2="8" y2="6"/>
+                  <line x1="3" y1="10" x2="21" y2="10"/>
+                </svg>
+                <span>날짜를 선택하세요</span>
+              </button>
+            </div>
+
+            {/* Card 2 - 송 비용 */}
+            <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
+              {/* Title row */}
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-base font-semibold text-[#111827]">송 비용</h3>
+                <span className="text-sm text-[#6B7280]">총 0건</span>
+              </div>
+              {/* Body - empty for now */}
+            </div>
+
+            {/* Card 3 - 장바구니 */}
+            <div className="space-y-3">
+              {/* Section header */}
+              <div className="bg-[#F3EEFF] rounded-xl px-3 py-2 inline-block">
+                <span className="text-sm font-medium text-[#111827]">0건 (장바구니)</span>
+              </div>
+              
+              {/* Empty state card */}
+              <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 h-[220px] flex flex-col items-center justify-center">
+                {/* Building illustration SVG */}
+                <svg width="120" height="80" viewBox="0 0 120 80" className="mb-4">
+                  <defs>
+                    <linearGradient id="buildingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stopColor="#D9CFFF" />
+                      <stop offset="100%" stopColor="#BFA6FF" />
+                    </linearGradient>
+                  </defs>
+                  {/* Building 1 */}
+                  <rect x="10" y="25" width="25" height="45" fill="url(#buildingGradient)" rx="2"/>
+                  <rect x="15" y="30" width="4" height="4" fill="white" opacity="0.8"/>
+                  <rect x="25" y="30" width="4" height="4" fill="white" opacity="0.8"/>
+                  <rect x="15" y="40" width="4" height="4" fill="white" opacity="0.8"/>
+                  <rect x="25" y="40" width="4" height="4" fill="white" opacity="0.8"/>
+                  <rect x="15" y="50" width="4" height="4" fill="white" opacity="0.8"/>
+                  <rect x="25" y="50" width="4" height="4" fill="white" opacity="0.8"/>
+                  
+                  {/* Building 2 */}
+                  <rect x="40" y="15" width="30" height="55" fill="url(#buildingGradient)" rx="2"/>
+                  <rect x="45" y="25" width="5" height="5" fill="white" opacity="0.8"/>
+                  <rect x="55" y="25" width="5" height="5" fill="white" opacity="0.8"/>
+                  <rect x="45" y="35" width="5" height="5" fill="white" opacity="0.8"/>
+                  <rect x="55" y="35" width="5" height="5" fill="white" opacity="0.8"/>
+                  <rect x="45" y="45" width="5" height="5" fill="white" opacity="0.8"/>
+                  <rect x="55" y="45" width="5" height="5" fill="white" opacity="0.8"/>
+                  <rect x="45" y="55" width="5" height="5" fill="white" opacity="0.8"/>
+                  <rect x="55" y="55" width="5" height="5" fill="white" opacity="0.8"/>
+                  
+                  {/* Building 3 */}
+                  <rect x="75" y="30" width="25" height="40" fill="url(#buildingGradient)" rx="2"/>
+                  <rect x="80" y="35" width="4" height="4" fill="white" opacity="0.8"/>
+                  <rect x="90" y="35" width="4" height="4" fill="white" opacity="0.8"/>
+                  <rect x="80" y="45" width="4" height="4" fill="white" opacity="0.8"/>
+                  <rect x="90" y="45" width="4" height="4" fill="white" opacity="0.8"/>
+                  <rect x="80" y="55" width="4" height="4" fill="white" opacity="0.8"/>
+                  <rect x="90" y="55" width="4" height="4" fill="white" opacity="0.8"/>
+                </svg>
+                
+                {/* Empty state text */}
+                <p className="text-sm text-[#9CA3AF] text-center">
+                  광고를 원하는 아파트단지를 담아주세요!
+                </p>
+              </div>
             </div>
           </div>
         </div>
