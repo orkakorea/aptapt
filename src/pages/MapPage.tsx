@@ -349,8 +349,14 @@ export default function MapPage() {
 
         {/* Right map area - shows first on mobile */}
         <div className="flex-1 order-1 md:order-2 relative z-[1]">
-          <div className="rounded-2xl border border-[#E5E7EB] overflow-hidden relative h-[calc(100svh-128px)]">
-            <div ref={mapRef} className="w-full h-full relative" />
+          <div className="rounded-2xl border border-[#E5E7EB] overflow-hidden relative h-[calc(100svh-96px)]">
+            {mapObjRef.current ? (
+              <div ref={mapRef} className="w-full h-full relative" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center">
+                <p className="text-xs text-[#9CA3AF]">Map will render here</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
