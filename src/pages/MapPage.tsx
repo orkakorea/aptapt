@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 // ✅ 카카오 JavaScript 키 (REST 키 아님)
-const KAKAO_APP_KEY = "8f7b0c647c14bed4b0e49bcab3c080a2";
+const KAKAO_APP_KEY = "a53075efe7a2256480b8650cec67ebae";
 type KakaoNS = typeof window & {
   kakao: any;
 };
@@ -214,8 +214,8 @@ export default function MapPage() {
   }
   return <div className="min-h-screen bg-white">
       {/* Sticky toolbar */}
-      <div className="sticky top-0 z-10 bg-white border-b border-[#E5E7EB] h-16">
-        <div className="max-w-[1280px] mx-auto px-4 h-full flex items-center">
+      <div className="sticky top-0 z-50 bg-white border-b h-16">
+        <div className="max-w-[1280px] mx-auto px-4 h-full flex flex-col md:flex-row md:items-center md:justify-between gap-4 py-3 md:py-0">
           {/* Left area - chips */}
           <div className="flex items-center gap-2">
             <div className="h-8 px-3 border border-[#E5E7EB] rounded-full flex items-center text-sm text-[#111827]">
@@ -224,52 +224,46 @@ export default function MapPage() {
             <div className="h-8 px-3 border border-[#E5E7EB] rounded-full flex items-center text-sm text-[#111827]">
               패키지 문의
             </div>
-            <div className="h-8 px-3 bg-[#7B61FF] hover:bg-[#6A52FF] rounded-full flex items-center text-sm text-white transition-colors">
+            <div className="h-8 px-3 bg-[#7B61FF] rounded-full flex items-center text-sm text-white">
               1551 - 1810
+            </div>
+          </div>
+
+          {/* Right area - search */}
+          <div className="w-full md:w-[560px] h-10 bg-white border border-[#E5E7EB] rounded-full overflow-hidden group focus-within:ring-2 focus-within:ring-[#C7B8FF]">
+            <div className="flex h-full">
+              <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === "Enter" && onSearch()} placeholder="지역명, 아파트 이름, 단지명, 건물명을 입력해주세요" className="flex-1 px-4 text-base text-[#111827] placeholder-[#9CA3AF] bg-transparent border-0 outline-none" />
+              <button onClick={onSearch} className="w-10 h-10 bg-[#7B61FF] hover:bg-[#6A52FF] flex items-center justify-center text-white transition-colors">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="m21 21-4.35-4.35" />
+                </svg>
+              </button>
             </div>
           </div>
         </div>
       </div>
 
       {/* Two-column layout */}
-      <div className="flex flex-col md:flex-row gap-4 p-4">
-        {/* Left sidebar - shows second on mobile */}
-        <div className="w-full md:w-80 order-2 md:order-1 mt-4 md:mt-0 sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto z-[2]">
-          <div className="flex flex-col gap-4">
-            {/* Search */}
-            <div className="relative">
-              <input 
-                value={q} 
-                onChange={e => setQ(e.target.value)} 
-                onKeyDown={e => e.key === "Enter" && onSearch()} 
-                placeholder="지역명, 아파트 이름, 단지명, 건물명을 입력해주세요" 
-                className="w-full h-10 bg-white border border-[#E5E7EB] rounded-lg px-4 pr-10 text-base text-[#111827] placeholder-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#C7B8FF]" 
-              />
-              <button 
-                onClick={onSearch}
-                className="absolute right-0 top-0 w-10 h-10 flex items-center justify-center text-[#9CA3AF] hover:text-[#6B7280] transition-colors"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="11" cy="11" r="8" />
-                  <path d="m21 21-4.35-4.35" />
-                </svg>
-              </button>
-            </div>
+      <div className="flex flex-col md:flex-row">
+        {/* Right map area - shows first on mobile */}
+        <div className="flex-1 order-1 md:order-2 p-4">
+          <div className="rounded-2xl border border-[#E5E7EB] overflow-hidden relative h-[calc(100svh-152px)] w-full">
+            <div ref={mapRef} className="w-full h-full relative z-10" />
+          </div>
+        </div>
 
-            {/* Card 1 - 송출 희망일 */}
+        {/* Left sidebar - shows second on mobile */}
+        <div className="w-full md:w-[360px] bg-white md:sticky md:top-16 md:h-[calc(100vh-4rem)] md:overflow-y-auto order-2 md:order-1">
+          <div className="p-4 flex flex-col gap-4">
+            {/* Card 1 - 송출 환경설정 */}
             <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
               {/* Title row */}
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-base font-semibold text-[#111827]">송출 희망일</h3>
-                <button className="text-[#9CA3AF] hover:text-[#6B7280] transition-colors">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="12" cy="12" r="1"/>
-                    <circle cx="19" cy="12" r="1"/>
-                    <circle cx="5" cy="12" r="1"/>
-                  </svg>
-                </button>
+                <h3 className="text-base font-semibold text-[#111827]">송출 개시일자</h3>
+                
               </div>
-              {/* Date field */}
+              {/* Body row */}
               <button className="w-full h-10 border border-[#E5E7EB] hover:border-[#D1D5DB] rounded-lg flex items-center px-3 gap-2 text-[#111827] transition-colors">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-[#9CA3AF]">
                   <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
@@ -281,21 +275,21 @@ export default function MapPage() {
               </button>
             </div>
 
-            {/* Card 2 - 총 비용 */}
+            {/* Card 2 - 송 비용 */}
             <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
               {/* Title row */}
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-base font-semibold text-[#111827]">총 비용</h3>
+                <h3 className="text-base font-semibold text-[#111827]">총 비용 (VAT포함)</h3>
                 <span className="text-sm text-[#6B7280]">총 0건</span>
               </div>
-              {/* Body - empty placeholder */}
+              {/* Body - empty for now */}
             </div>
 
-            {/* Cart - 장바구니 영역 */}
+            {/* Card 3 - 장바구니 */}
             <div className="space-y-3">
               {/* Section header */}
-              <div className="bg-[#F3EEFF] rounded-xl px-3 h-9 flex items-center">
-                <span className="text-sm font-medium text-[#111827]">0원 (VAT별도)</span>
+              <div className="bg-[#F3EEFF] rounded-xl px-3 py-2 inline-block">
+                <span className="text-sm font-medium text-[#111827]">0건 (장바구니)</span>
               </div>
               
               {/* Empty state card */}
@@ -338,25 +332,12 @@ export default function MapPage() {
                   <rect x="90" y="55" width="4" height="4" fill="white" opacity="0.8" />
                 </svg>
                 
-                {/* Caption */}
+                {/* Empty state text */}
                 <p className="text-sm text-[#9CA3AF] text-center">
                   광고를 원하는 아파트단지를 담아주세요!
                 </p>
               </div>
             </div>
-          </div>
-        </div>
-
-        {/* Right map area - shows first on mobile */}
-        <div className="flex-1 order-1 md:order-2 relative z-[1]">
-          <div className="rounded-2xl border border-[#E5E7EB] overflow-hidden relative h-[calc(100svh-96px)]">
-            {mapObjRef.current ? (
-              <div ref={mapRef} className="w-full h-full relative" />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center">
-                <p className="text-xs text-[#9CA3AF]">Map will render here</p>
-              </div>
-            )}
           </div>
         </div>
       </div>
