@@ -1,6 +1,14 @@
 import React, { useEffect, useRef, useState, FormEvent } from "react";
+import { createClient } from "@supabase/supabase-js";
 
-/* ============== 아이콘 ============== */
+/* ---------- Env & Supabase ---------- */
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+const supabase = SUPABASE_URL && SUPABASE_ANON
+  ? createClient(SUPABASE_URL, SUPABASE_ANON)
+  : null;
+
+/* ---------- Small UI ---------- */
 const SearchIcon = (props: React.SVGProps<SVGSVGElement>) => (
   <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true" {...props}>
     <path d="M21 21l-4.2-4.2m1.2-4.8a7 7 0 11-14 0 7 7 0 0114 0z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -17,8 +25,6 @@ const DotsIcon = (props: React.SVGProps<SVGSVGElement>) => (
     <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
   </svg>
 );
-
-/* ============== 작은 UI ============== */
 function Chip({ children, active = false }: { children: React.ReactNode; active?: boolean }) {
   const base = "h-8 px-3 rounded-full text-sm inline-flex items-center justify-center";
   return active
@@ -43,7 +49,7 @@ function EmptyCart() {
   );
 }
 
-/* ============== 지도 SDK 로더 ============== */
+/* ---------- Kakao/Naver SDK Loader ---------- */
 function ensureKakao(appkey: string) {
   return new Promise<any>((resolve, reject) => {
     const w: any = window;
@@ -63,7 +69,8 @@ function ensureKakao(appkey: string) {
       return;
     }
     const s = document.createElement("script");
-    s.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${appkey}&autoload=false&libraries=services`;
+    // services(지오코딩) + clusterer(클러스터)
+    s.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${appkey}&autoload=false&libraries=services,clusterer`;
     s.async = true;
     s.onerror = () => reject(new Error("Kakao SDK load failed"));
     s.onload = onLoad;
@@ -91,7 +98,7 @@ function ensureNaver(clientId: string) {
   });
 }
 
-/* ============== URL 파라미터 헬퍼 ============== */
+/* ---------- URL Params ---------- */
 function getParams() {
   const p = new URLSearchParams(window.location.search);
   const q = (p.get("q") || "").trim();
@@ -102,7 +109,7 @@ function getParams() {
   return { q, lat, lng };
 }
 
-/* ============== 지도 캔버스 (지오코딩 포함) ============== */
+/* ---------- Map Canvas ---------- */
 function MapCanvas() {
   const ref = useRef<HTMLDivElement>(null);
   const [loaded, setLoaded] = useState(false);
@@ -120,49 +127,105 @@ function MapCanvas() {
         const kakaoKey = import.meta.env.VITE_KAKAO_JS_KEY as string | undefined;
         const naverId  = import.meta.env.VITE_NAVER_CLIENT_ID as string | undefined;
 
-        // Kakao 우선
+        /* ---- 1) Kakao: 지도 생성 ---- */
         if (kakaoKey) {
           const kakao = await ensureKakao(kakaoKey);
-
           const map = new kakao.maps.Map(el, {
-            center: new kakao.maps.LatLng(37.5665, 126.9780), // 기본: 시청
+            center: new kakao.maps.LatLng(37.5665, 126.9780),
             level: 6,
           });
+          map.setMapTypeId(kakao.maps.MapTypeId.ROADMAP); // 타일 보장
+          setTimeout(() => map.relayout(), 0);
 
+          // 클러스터러 준비
+          const clusterer = new kakao.maps.MarkerClusterer({
+            map,
+            averageCenter: true,
+            minLevel: 7,
+            disableClickZoom: false,
+          });
+
+          // 2) URL 파라미터 기반 중심 이동 (주소/키워드 지오코딩 지원)
           const { q, lat, lng } = getParams();
-          const centerTo = (la: number, ln: number) => {
+          const centerTo = (la: number, ln: number, openInfo?: string) => {
             const pt = new kakao.maps.LatLng(la, ln);
             map.setCenter(pt);
-            new kakao.maps.Marker({ position: pt }).setMap(map);
+            const mk = new kakao.maps.Marker({ position: pt });
+            mk.setMap(map);
+            if (openInfo) {
+              new kakao.maps.InfoWindow({
+                content: `<div style="padding:6px 10px;font-size:12px;">${openInfo}</div>`,
+              }).open(map, mk);
+            }
           };
 
           if (lat != null && lng != null) {
             centerTo(lat, lng);
           } else if (q) {
-            // 주소 → 좌표
             const geocoder = new kakao.maps.services.Geocoder();
             geocoder.addressSearch(q, (result: any[], status: string) => {
               if (status === kakao.maps.services.Status.OK && result.length) {
                 const r0 = result[0];
-                centerTo(Number(r0.y), Number(r0.x));
+                centerTo(Number(r0.y), Number(r0.x), q);
               } else {
-                // 키워드(역/건물명 등) → 좌표
                 const places = new kakao.maps.services.Places();
                 places.keywordSearch(q, (data: any[], stat: string) => {
                   if (stat === kakao.maps.services.Status.OK && data.length) {
                     const d0 = data[0];
-                    centerTo(Number(d0.y), Number(d0.x));
+                    centerTo(Number(d0.y), Number(d0.x), d0.place_name || q);
                   }
                 });
               }
             });
           }
 
+          /* ---- 3) Supabase에서 지오코딩된 포인트 불러와 마커/클러스터 ---- */
+          if (!supabase) {
+            console.warn("Supabase 환경변수가 설정되지 않아 포인트를 불러오지 못합니다.");
+          } else {
+            const { data, error: se } = await supabase
+              .from("apt_points") // ← 테이블명 다르면 바꿔주세요
+              .select("id, apt_name, addr, lat, lng")
+              .not("lat", "is", null)
+              .not("lng", "is", null)
+              .limit(10000);
+
+            if (se) {
+              console.error(se);
+              setError("Supabase에서 데이터를 불러오지 못했습니다.");
+            } else if (data && data.length) {
+              const info = new kakao.maps.InfoWindow({ zIndex: 2 });
+              const markers = data.map((row: any) => {
+                const m = new kakao.maps.Marker({
+                  position: new kakao.maps.LatLng(row.lat, row.lng),
+                });
+                kakao.maps.event.addListener(m, "click", () => {
+                  const html = `
+                    <div style="padding:6px 10px;font-size:12px;max-width:220px;">
+                      <div style="font-weight:600;margin-bottom:2px;">${row.apt_name ?? "(무제)"}</div>
+                      <div style="color:#6B7280;">${row.addr ?? ""}</div>
+                    </div>`;
+                  info.setContent(html);
+                  info.open(map, m);
+                });
+                return m;
+              });
+              clusterer.addMarkers(markers);
+
+              // 검색파라미터가 없고, 마커가 충분하다면 bounds 맞추기
+              if (!q && !(lat != null && lng != null)) {
+                const bounds = new kakao.maps.LatLngBounds();
+                markers.slice(0, 5000).forEach((m: any) => bounds.extend(m.getPosition()));
+                if (!bounds.isEmpty()) map.setBounds(bounds);
+              }
+            }
+          }
+
           setLoaded(true);
           return;
         }
 
-        // Naver만 쓰는 경우 (기본 중심)
+        /* ---- 4) Naver만 사용하는 경우(기본 지도 표시) ---- */
         if (naverId) {
           const naver = await ensureNaver(naverId);
           new naver.maps.Map(el, {
@@ -197,14 +260,19 @@ function MapCanvas() {
   );
 }
 
-/* ============== /map 페이지 ============== */
+/* ---------- /map Page ---------- */
+function getParamsForPage() {
+  const p = new URLSearchParams(window.location.search);
+  return { q: (p.get("q") || "").trim() };
+}
+
 export default function MapPage() {
-  const params = getParams();
+  const { q } = getParamsForPage();
 
   const onSearch = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const q = new FormData(e.currentTarget).get("q") as string;
-    if (q?.trim()) window.location.href = "/map?q=" + encodeURIComponent(q.trim());
+    const nq = new FormData(e.currentTarget).get("q") as string;
+    if (nq?.trim()) window.location.href = "/map?q=" + encodeURIComponent(nq.trim());
   };
 
   return (
@@ -217,11 +285,11 @@ export default function MapPage() {
             <Chip>패키지 문의</Chip>
             <Chip active>1551 - 1810</Chip>
           </div>
-          <div /> {/* 오른쪽 비움 */}
+          <div />
         </div>
       </div>
 
-      {/* 본문 2열 레이아웃 */}
+      {/* 본문 2열 */}
       <div className="mx-auto max-w-[1280px] px-4 py-4">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-[320px,1fr]">
           {/* 왼쪽 사이드바 */}
@@ -231,7 +299,7 @@ export default function MapPage() {
               <form onSubmit={onSearch} className="relative">
                 <input
                   name="q"
-                  defaultValue={params.q}
+                  defaultValue={q}
                   type="text"
                   placeholder="지역명, 아파트 이름, 단지명, 건물명을 입력해주세요"
                   className="w-full h-10 rounded-lg border border-[#E5E7EB] bg-white px-4 pr-10 text-[16px] leading-[24px] text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#C7B8FF]"
@@ -246,7 +314,7 @@ export default function MapPage() {
                 </button>
               </form>
 
-              {/* 카드 1 — 송출 희망일 */}
+              {/* 카드 1 */}
               <section className="rounded-2xl border border-[#E5E7EB] bg-white p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <h3 className="text-[16px] font-semibold text-[#111827]">송출 희망일</h3>
@@ -263,7 +331,7 @@ export default function MapPage() {
                 </button>
               </section>
 
-              {/* 카드 2 — 송 비용 */}
+              {/* 카드 2 */}
               <section className="rounded-2xl border border-[#E5E7EB] bg-white p-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-[16px] font-semibold text-[#111827]">송 비용</h3>
@@ -281,7 +349,7 @@ export default function MapPage() {
             </div>
           </aside>
 
-          {/* 우측 지도 */}
+          {/* 지도 */}
           <section
             className="rounded-2xl border border-[#E5E7EB] overflow-hidden"
             style={{ height: "calc(100svh - 160px)", minHeight: 560 }}
@@ -293,3 +361,4 @@ export default function MapPage() {
     </div>
   );
 }
+
