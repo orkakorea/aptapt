@@ -2,6 +2,41 @@ import React, { useEffect, useRef, useState, FormEvent } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 /* ====== Env ====== */
+const REST_BASE = SUPABASE_URL ? `${SUPABASE_URL}/rest/v1` : null;
+const POINTS_SELECT = "id, apt_name, name, addr, address, lat, lng, latitude, longitude, x, y";
+
+// supabase-js → 실패(특히 'No API key') 시 REST 쿼리스트링으로 재시도
+async function fetchPointsAny() {
+  // 1) supabase-js 경로
+  if (supabase) {
+    const { data, error } = await supabase
+      .from(POINTS_TABLE)
+      .select(POINTS_SELECT)
+      .limit(20000);
+
+    if (!error && data) return data;
+
+    // apikey 헤더가 막히는 프리뷰 환경
+    if (!/No API key/i.test(String(error?.message || ""))) {
+      throw error ?? new Error("Supabase query failed");
+    }
+    console.warn("[REST Fallback] apikey header blocked, retry with url param");
+  }
+
+  // 2) REST 폴백 (apikey를 쿼리스트링으로)
+  if (!REST_BASE || !SUPABASE_ANON)
+    throw new Error("Supabase env missing for REST fallback");
+
+  const url =
+    `${REST_BASE}/${POINTS_TABLE}` +
+    `?select=${encodeURIComponent(POINTS_SELECT)}` +
+    `&limit=20000&apikey=${encodeURIComponent(SUPABASE_ANON)}`;
+
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error(`REST fallback failed: ${res.status}`);
+  return (await res.json()) as any[];
+}
+
 const SUPABASE_URL   = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const SUPABASE_ANON  = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 const POINTS_TABLE   = (import.meta.env.VITE_POINTS_TABLE as string | undefined) || "apt_points";
@@ -119,62 +154,61 @@ function MapCanvas() {
         }
 
         // 3) Supabase에서 포인트 불러오기 (테이블/칼럼 유연 매핑)
-        if (!supabase) {
-          console.warn("Supabase env 없음: 포인트 로드 생략");
-        } else {
-          const { data, error:se } = await supabase
-            .from(POINTS_TABLE) // ← 여기서 .env로 테이블명 결정
-            .select("id, apt_name, name, addr, address, lat, lng, latitude, longitude, x, y")
-            .limit(20000);
-          if (se) { console.error(se); setError(`Supabase 에러: ${se.message}`); }
-          const rows = (data||[])
-            .map((r:any) => {
-              const ll = pickLatLng(r); if (!ll) return null;
-              return { id:r.id, nm: r.apt_name || r.name || "(무제)", addr: r.addr || r.address || "", ...ll };
-            })
-            .filter(Boolean) as Array<{id:any;nm:string;addr:string;lat:number;lng:number}>;
-          setCount(rows.length);
+        /* ---- 3) Supabase에서 지오코딩된 포인트 불러와 마커/클러스터 ---- */
+try {
+  const rowsRaw = await fetchPointsAny(); // ← 위 유틸 사용
+  console.log("[DB] rows:", rowsRaw?.length, rowsRaw?.slice?.(0, 3));
 
-          if (rows.length) {
-            const clusterer = new kakao.maps.MarkerClusterer({ map, averageCenter:true, minLevel:7, disableClickZoom:false });
-            const info = new kakao.maps.InfoWindow({ zIndex:2 });
-            const markers = rows.map((r) => {
-              const m = new kakao.maps.Marker({ position:new kakao.maps.LatLng(r.lat, r.lng) });
-              kakao.maps.event.addListener(m,"click",()=> {
-                info.setContent(`<div style="padding:6px 10px;font-size:12px;max-width:220px;">
-                  <div style="font-weight:600;margin-bottom:2px;">${r.nm}</div>
-                  <div style="color:#6B7280;">${r.addr}</div>
-                </div>`);
-                info.open(map,m);
-              });
-              return m;
-            });
-            clusterer.addMarkers(markers);
+  const rows = (rowsRaw || [])
+    .map((r: any) => {
+      const lat = Number(r.lat ?? r.latitude ?? r.y ?? r["위도"]);
+      const lng = Number(r.lng ?? r.longitude ?? r.x ?? r["경도"]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      return {
+        id: r.id,
+        nm: r.apt_name || r.name || "(무제)",
+        addr: r.addr || r.address || "",
+        lat,
+        lng,
+      };
+    })
+    .filter(Boolean) as Array<{ id: any; nm: string; addr: string; lat: number; lng: number }>;
 
-            if (!q && lat==null && lng==null) {
-              const bounds = new kakao.maps.LatLngBounds();
-              markers.slice(0,5000).forEach(m => bounds.extend(m.getPosition()));
-              if (!bounds.isEmpty()) map.setBounds(bounds);
-            }
-          }
-        }
+  setCount(rows.length);
 
-        setLoaded(true);
-      } catch (e:any) {
-        console.error(e);
-        setError(e?.message || "지도 로딩 실패");
-      }
-    })();
-  }, []);
+  if (rows.length) {
+    const clusterer = new kakao.maps.MarkerClusterer({
+      map,
+      averageCenter: true,
+      minLevel: 7,
+      disableClickZoom: false,
+    });
 
-  return (
-    <div className="relative w-full h-full">
-      {!loaded && !error && <div className="absolute inset-0 flex items-center justify-center text-sm text-[#6B7280]">지도를 불러오는 중…</div>}
-      {error && <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-sm text-red-600">{error}</div>}
-      {count!=null && <div className="absolute left-2 bottom-2 text-xs bg-white/80 border border-gray-200 rounded px-2 py-1">points: {count}</div>}
-      <div ref={ref} className={`w-full h-full ${loaded ? "" : "opacity-0"}`} />
-    </div>
-  );
+    const info = new kakao.maps.InfoWindow({ zIndex: 2 });
+    const markers = rows.map((r) => {
+      const m = new kakao.maps.Marker({ position: new kakao.maps.LatLng(r.lat, r.lng) });
+      kakao.maps.event.addListener(m, "click", () => {
+        info.setContent(
+          `<div style="padding:6px 10px;font-size:12px;max-width:220px;">
+            <div style="font-weight:600;margin-bottom:2px;">${r.nm}</div>
+            <div style="color:#6B7280;">${r.addr}</div>
+          </div>`
+        );
+        info.open(map, m);
+      });
+      return m;
+    });
+    clusterer.addMarkers(markers);
+
+    if (!q && lat == null && lng == null) {
+      const bounds = new kakao.maps.LatLngBounds();
+      markers.slice(0, 5000).forEach((m) => bounds.extend(m.getPosition()));
+      if (!bounds.isEmpty()) map.setBounds(bounds);
+    }
+  }
+} catch (se: any) {
+  console.error(se);
+  setError(`Supabase 에러: ${se?.message || se}`);
 }
 
 /* ====== Page ====== */
