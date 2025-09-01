@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 
-declare global { interface Window { kakao: any } }
 
 export default function MapPage() {
   const mapDivRef = useRef<HTMLDivElement>(null);
