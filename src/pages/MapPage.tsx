@@ -279,9 +279,16 @@ export default function MapPage() {
       </div>
 
       {/* Two-column layout */}
-      <div className="flex">
-        {/* Left sidebar */}
-        <div className="w-[360px] bg-white sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto">
+      <div className="flex flex-col md:flex-row">
+        {/* Right map area - shows first on mobile */}
+        <div className="flex-1 order-1 md:order-2 p-4">
+          <div className="rounded-2xl border border-[#E5E7EB] overflow-hidden relative h-[calc(100svh-152px)] w-full">
+            <div ref={mapRef} className="w-full h-full relative z-10" />
+          </div>
+        </div>
+
+        {/* Left sidebar - shows second on mobile */}
+        <div className="w-full md:w-[360px] bg-white md:sticky md:top-16 md:h-[calc(100vh-4rem)] md:overflow-y-auto order-2 md:order-1">
           <div className="p-4 flex flex-col gap-4">
             {/* Card 1 - 송출 환경설정 */}
             <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
@@ -371,13 +378,6 @@ export default function MapPage() {
                 </p>
               </div>
             </div>
-          </div>
-        </div>
-
-        {/* Right map area */}
-        <div className="flex-1 p-4">
-          <div className="rounded-2xl border border-[#E5E7EB] overflow-hidden relative h-[calc(100svh-152px)]">
-            <div ref={mapRef} className="w-full h-full" />
           </div>
         </div>
       </div>
