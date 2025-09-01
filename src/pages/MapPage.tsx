@@ -214,7 +214,7 @@ export default function MapPage() {
   }
   return <div className="min-h-screen bg-white">
       {/* Sticky toolbar */}
-      <div className="sticky top-0 z-50 bg-white border-b border-[#E5E7EB] h-16">
+      <div className="sticky top-0 z-10 bg-white border-b border-[#E5E7EB] h-16">
         <div className="max-w-[1280px] mx-auto px-4 h-full flex items-center">
           {/* Left area - chips */}
           <div className="flex items-center gap-2">
@@ -232,9 +232,9 @@ export default function MapPage() {
       </div>
 
       {/* Two-column layout */}
-      <div className="flex gap-4 p-4">
-        {/* Left sidebar */}
-        <div className="w-80 sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto">
+      <div className="flex flex-col md:flex-row gap-4 p-4">
+        {/* Left sidebar - shows second on mobile */}
+        <div className="w-full md:w-80 order-2 md:order-1 mt-4 md:mt-0 sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto z-[2]">
           <div className="flex flex-col gap-4">
             {/* Search */}
             <div className="relative">
@@ -347,10 +347,10 @@ export default function MapPage() {
           </div>
         </div>
 
-        {/* Right map area */}
-        <div className="flex-1">
-          <div className="rounded-2xl border border-[#E5E7EB] overflow-hidden relative h-[calc(100vh-6rem)]">
-            <div ref={mapRef} className="w-full h-full relative z-10" />
+        {/* Right map area - shows first on mobile */}
+        <div className="flex-1 order-1 md:order-2 relative z-[1]">
+          <div className="rounded-2xl border border-[#E5E7EB] overflow-hidden relative h-[calc(100svh-128px)]">
+            <div ref={mapRef} className="w-full h-full relative" />
           </div>
         </div>
       </div>
