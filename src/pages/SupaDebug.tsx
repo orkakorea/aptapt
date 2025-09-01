@@ -1,5 +1,5 @@
 // src/pages/SupaDebug.tsx
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 type Row = { 단지명?: string; 주소?: string; lat?: number | null; lng?: number | null };
@@ -9,75 +9,95 @@ function mask(s: string, head = 8, tail = 4) {
   return s.slice(0, head) + "..." + s.slice(-tail);
 }
 
+function deriveFunctionsBase(supaUrl: string) {
+  try {
+    const host = new URL(supaUrl).hostname;             // qislrfbqilfqzkvkuknn.supabase.co
+    const ref = host.split(".")[0];                     // qislrfbqilfqzkvkuknn
+    return `https://${ref}.functions.supabase.co`;
+  } catch { return ""; }
+}
+
 export default function SupaDebugPage() {
   const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || "";
   const envKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY || "";
-  const urlOk = /^https?:\/\/.+\.supabase\.co/.test(envUrl);
-  const keyOk = /^eyJ/.test(envKey); // Supabase JWT는 보통 eyJ… 로 시작
+  const envOk  = Boolean(envUrl && envKey);
+  const funcBase = deriveFunctionsBase(envUrl);
 
   const [rows, setRows] = useState<Row[]>([]);
-  const [count, setCount] = useState<number | null>(null);
-  const [ms, setMs] = useState<number | null>(null);
   const [error, setError] = useState<any>(null);
 
-  async function runTest() {
-    setRows([]); setCount(null); setMs(null); setError(null);
+  const [counts, setCounts] = useState<{ok:number; pending:number; notfound:number; errors:number; total:number}>({
+    ok:0, pending:0, notfound:0, errors:0, total:0
+  });
+  const [lastRun, setLastRun] = useState<any>(null);
+  const [running, setRunning] = useState(false);
 
-    if (!urlOk || !keyOk) {
-      setError({ message: "환경변수 형식이 올바르지 않습니다. (.env에 VITE_ 접두사/값 확인)" });
-      return;
-    }
+  const supaRef = useRef<SupabaseClient | null>(null);
+  useEffect(() => {
+    if (!envOk) return;
+    supaRef.current = createClient(envUrl, envKey);
+    refreshCounts();
+    // 샘플 5행
+    (async () => {
+      const { data } = await supaRef.current!
+        .from("raw_places").select('"단지명","주소",lat,lng,geocode_status').limit(5);
+      setRows(data || []);
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [envOk]);
 
-    let supabase: SupabaseClient;
-    try { supabase = createClient(envUrl, envKey); }
-    catch (e: any) { setError({ message: `createClient 실패: ${e?.message || e}` }); return; }
+  async function refreshCounts() {
+    if (!supaRef.current) return;
+    const sb = supaRef.current;
+    const get = (filter?: (q:any)=>any) =>
+      filter ? filter(sb.from("raw_places").select("geocode_status", { count: "exact", head: true })) 
+             : sb.from("raw_places").select("geocode_status", { count: "exact", head: true });
 
-    const t0 = performance.now();
-    const { data, error, count } = await supabase
-      .from("raw_places")
-      .select("*", { count: "exact", head: false })
-      .limit(5);
-    const t1 = performance.now();
-    setMs(Math.round(t1 - t0));
-    if (error) setError(error); else { setRows(data || []); setCount(count ?? (data?.length ?? 0)); }
+    const [{ count: total }, { count: ok }, { count: notfound }, { count: errors }, { count: pending }] =
+      await Promise.all([
+        get(),
+        get(q => q.eq("geocode_status","ok")),
+        get(q => q.eq("geocode_status","notfound")),
+        get(q => q.like("geocode_status","error_%")),
+        get(q => q.or("geocode_status.is.null,geocode_status.eq.pending")),
+      ]);
+
+    setCounts({
+      ok: ok ?? 0,
+      notfound: notfound ?? 0,
+      errors: errors ?? 0,
+      pending: pending ?? 0,
+      total: total ?? 0
+    });
   }
 
+  async function runOnce(limit=25) {
+    setError(null);
+    if (!funcBase) { setError({ message: "functions base URL 파싱 실패" }); return; }
+    const r = await fetch(`${funcBase}/geocode_pending?limit=${limit}`);
+    const j = await r.json();
+    setLastRun(j);
+    await refreshCounts();
+    return j;
+  }
+
+  async function runAuto({limit=25, rounds=20, intervalMs=2000}: {limit:number; rounds:number; intervalMs:number}) {
+    if (running) return;
+    setRunning(true);
+    try {
+      for (let i=0; i<rounds; i++) {
+        const j = await runOnce(limit);
+        // 남은게 없으면 조기 종료
+        if ((counts.pending ?? 0) === 0) break;
+        await new Promise(res => setTimeout(res, intervalMs));
+      }
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  const statusText = useMemo(() => envOk ? "OK" : "누락됨", [envOk]);
+
   return (
-    <div style={{ padding: 20, fontFamily: "ui-sans-serif, system-ui", maxWidth: 920, margin: "0 auto" }}>
-      <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 12 }}>Supabase 연결 체크</h1>
-
-      <section style={{ padding: 12, border: "1px solid #e2e8f0", borderRadius: 8, marginBottom: 16 }}>
-        <div style={{ fontWeight: 600, marginBottom: 6 }}>환경변수</div>
-        <div>URL: {envUrl || "(빈 값)"} </div>
-        <div>ANON: {envKey ? mask(envKey) : "(빈 값)"} </div>
-        <div style={{ marginTop: 6 }}>
-          상태: <b style={{ color: urlOk && keyOk ? "#16a34a" : "#dc2626" }}>
-            {urlOk && keyOk ? "OK" : "누락/형식 오류"}
-          </b>
-        </div>
-        <button onClick={runTest}
-          style={{ marginTop: 10, padding: "6px 10px", borderRadius: 8, border: "1px solid #cbd5e1" }}>
-          다시 테스트
-        </button>
-      </section>
-
-      <section style={{ padding: 12, border: "1px solid #e2e8f0", borderRadius: 8 }}>
-        <div style={{ color: "#475569", fontSize: 14, marginBottom: 6 }}>
-          총 행 수: {count === null ? "-" : count} / 응답: {ms === null ? "-" : `${ms}ms`}
-        </div>
-        {error ? (
-          <pre style={{ background: "#f1f5f9", padding: 10, borderRadius: 6, whiteSpace: "pre-wrap" }}>
-            {JSON.stringify(error, null, 2)}
-          </pre>
-        ) : rows.length ? (
-          <pre style={{ background: "#f1f5f9", padding: 10, borderRadius: 6, whiteSpace: "pre-wrap" }}>
-            {JSON.stringify(rows, null, 2)}
-          </pre>
-        ) : (
-          <div style={{ color: "#64748b" }}>결과가 비어 있습니다.</div>
-        )}
-      </section>
-    </div>
-  );
-}
+    <div style={{ padding: 20, fontFamily: "ui-sans-serif, system-ui", maxWidth: 980, margin: "0
 
