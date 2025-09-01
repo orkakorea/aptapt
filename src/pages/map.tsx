@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, FormEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 
 declare global { interface Window { kakao: any } }
 
@@ -36,7 +36,4 @@ export default function MapPage() {
       <div ref={mapDivRef} style={{ width: "100%", height: "100vh" }} />
     </div>
   );
-}
-export default function MapPage() {
-  // ... (당신이 이미 넣어둔 JSX/코드 그대로)
 }
