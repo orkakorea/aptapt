@@ -2,6 +2,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Search } from "lucide-react";
+import NavBar from "../components/NavBar";
 
 export default function HomePage() {
   const [q, setQ] = useState("");
@@ -15,12 +16,7 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-[#F4ECFF]">
-      {/* Header */}
-      <header className="w-full px-6 py-6">
-        <div className="max-w-6xl mx-auto">
-          <div className="text-lg font-bold text-gray-900 font-pretendard">응답하라-입주민이여</div>
-        </div>
-      </header>
+      <NavBar />
 
       {/* Hero Section */}
       <main className="w-full max-w-[960px] mx-auto px-6 pt-[120px] pb-20 text-center">
