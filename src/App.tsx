@@ -2,7 +2,7 @@
 import React, { Suspense, lazy } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import HomePage from "./pages/HomePage";
-import MapPage from "./pages/MapPage";
+import MapPage from "./pages/map";
 
 // /supa-debug는 필요할 때만 로드
 const SupaDebugPage = lazy(() => import("./pages/SupaDebug"));
