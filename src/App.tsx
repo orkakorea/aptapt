@@ -1,7 +1,7 @@
 // src/App.tsx
 import React, { Suspense, lazy } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import Landing from "./pages/Landing";
+import HomePage from "./pages/HomePage";
 import MapPage from "./pages/MapPage";
 
 // /supa-debug는 필요할 때만 로드
@@ -11,7 +11,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Landing />} />
+        <Route path="/" element={<HomePage />} />
         <Route path="/map" element={<MapPage />} />
         <Route
           path="/supa-debug"
