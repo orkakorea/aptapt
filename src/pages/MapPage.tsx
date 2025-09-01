@@ -1,345 +1,199 @@
-import { useEffect, useRef, useState } from "react";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { useEffect, useRef, FormEvent } from "react";
 
-// ✅ 카카오 JavaScript 키 (REST 키 아님)
-const KAKAO_APP_KEY = "a53075efe7a2256480b8650cec67ebae";
-type KakaoNS = typeof window & {
-  kakao: any;
-};
-
-// Vite env를 읽어서 필요할 때만 Supabase 클라이언트를 만든다
-function getSupabase(): SupabaseClient | null {
-  const url = (import.meta as any).env?.VITE_SUPABASE_URL as string | undefined;
-  const key = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string | undefined;
-  if (!url || !key) {
-    console.warn("[MapPage] Supabase env missing:", {
-      url,
-      key: key ? "(present)" : "(missing)"
-    });
-    return null;
-  }
-  try {
-    return createClient(url, key);
-  } catch (e) {
-    console.error("[MapPage] createClient failed:", e);
-    return null;
+/** 전역 지도 SDK(카카오/네이버) 타입 안전용 */
+declare global {
+  interface Window {
+    kakao?: any;
+    naver?: any;
   }
 }
-export default function MapPage() {
-  const mapRef = useRef<HTMLDivElement>(null);
-  const mapObjRef = useRef<any>(null);
-  const clustererRef = useRef<any>(null);
-  const searchMarkerRef = useRef<any>(null);
-  const placesRef = useRef<any>(null);
-  const [q, setQ] = useState<string>("");
 
-  // 디바운스
-  const idleTimer = useRef<number | null>(null);
-  function debounceIdle(fn: () => void, ms = 300) {
-    if (idleTimer.current) window.clearTimeout(idleTimer.current);
-    idleTimer.current = window.setTimeout(fn, ms);
-  }
+/** 아이콘들 (SVG 인라인) */
+const SearchIcon = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true" {...props}>
+    <path d="M21 21l-4.2-4.2m1.2-4.8a7 7 0 11-14 0 7 7 0 0114 0z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+  </svg>
+);
+const CalendarIcon = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true" {...props}>
+    <rect x="3" y="5" width="18" height="16" rx="2" stroke="currentColor" strokeWidth="1.8"/>
+    <path d="M3 9h18M8 3v4M16 3v4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+  </svg>
+);
+const DotsIcon = (props: React.SVGProps<SVGSVGElement>) => (
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true" {...props}>
+    <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
+  </svg>
+);
 
-  // URL ?q
-  function readQuery() {
-    const u = new URL(window.location.href);
-    return (u.searchParams.get("q") || "").trim();
-  }
-  function writeQuery(v: string) {
-    const u = new URL(window.location.href);
-    if (v) u.searchParams.set("q", v);else u.searchParams.delete("q");
-    window.history.replaceState(null, "", u.toString());
-  }
+/** 칩 버튼 */
+function Chip({
+  children,
+  active = false,
+  onClick,
+}: { children: React.ReactNode; active?: boolean; onClick?: () => void }) {
+  const base = "h-8 px-3 rounded-full text-sm inline-flex items-center justify-center";
+  return active ? (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`${base} bg-[#7B61FF] text-white hover:bg-[#6A52FF] transition-colors`}
+    >
+      {children}
+    </button>
+  ) : (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`${base} border border-[#E5E7EB] text-[#111827] bg-white`}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** 지도 캔버스: 카카오 있으면 카카오, 없고 네이버 있으면 네이버, 없으면 플레이스홀더 */
+function MapCanvas() {
+  const ref = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
-    async function ensureKakao(): Promise<void> {
-      if ((window as KakaoNS).kakao?.maps) return;
-      await new Promise<void>((resolve, reject) => {
-        const s = document.createElement("script");
-        s.async = true;
-        s.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${KAKAO_APP_KEY}&autoload=false&libraries=services,clusterer`;
-        s.onload = () => (window as KakaoNS).kakao.maps.load(() => resolve());
-        s.onerror = () => reject(new Error("Kakao SDK load failed"));
-        document.head.appendChild(s);
-      });
-    }
-    async function init() {
-      await ensureKakao();
-      if (!mapRef.current) return;
-      const kakao = (window as KakaoNS).kakao;
+    const el = ref.current;
+    if (!el) return;
+
+    if (window.kakao?.maps) {
+      const { kakao } = window as any;
       const center = new kakao.maps.LatLng(37.5665, 126.9780); // 서울시청
-      const map = new kakao.maps.Map(mapRef.current, {
-        center,
-        level: 6
+      // level: 6 정도가 스샷 느낌
+      const map = new kakao.maps.Map(el, { center, level: 6 });
+      // TODO: 마커/클러스터는 추후 데이터 연동 시 추가
+      void map;
+    } else if (window.naver?.maps) {
+      const { naver } = window as any;
+      const map = new naver.maps.Map(el, {
+        center: new naver.maps.LatLng(37.5665, 126.9780),
+        zoom: 12,
       });
-      mapObjRef.current = map;
-
-      // Places 인스턴스
-      placesRef.current = new kakao.maps.services.Places();
-
-      // 마커 클러스터러
-      clustererRef.current = new kakao.maps.MarkerClusterer({
-        map,
-        averageCenter: true,
-        minLevel: 6,
-        disableClickZoom: false
-      });
-
-      // 맵 이동/확대 종료 시 현재 바운드 기준으로 로드
-      kakao.maps.event.addListener(map, "idle", () => {
-        debounceIdle(loadMarkersInBounds, 300);
-      });
-
-      // 초기 로드
-      await loadMarkersInBounds();
-
-      // /map?q=... 초기 검색 처리
-      const initial = readQuery();
-      if (initial) {
-        setQ(initial);
-        keywordSearch(initial, {
-          dropMarker: true
-        });
-      }
+      void map;
     }
-    init();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ===================== 데이터 로드 & 렌더 =====================
-  async function loadMarkersInBounds() {
-    const kakao = (window as KakaoNS).kakao;
-    const map = mapObjRef.current;
-    if (!map) return;
-    const bounds = map.getBounds();
-    if (!bounds) return;
-    const sw = bounds.getSouthWest();
-    const ne = bounds.getNorthEast();
-    const swLat = sw.getLat();
-    const swLng = sw.getLng();
-    const neLat = ne.getLat();
-    const neLng = ne.getLng();
-    const client = getSupabase();
-    if (!client) {
-      // 환경변수 미설정이어도 페이지(검색창/지도)는 정상 렌더되도록 그냥 패스
-      return;
-    }
-    const {
-      data,
-      error
-    } = await client.from("raw_places").select('"단지명","주소",lat,lng') // 한글 컬럼은 반드시 쌍따옴표
-    .not("lat", "is", null).not("lng", "is", null).gte("lat", swLat).lte("lat", neLat).gte("lng", swLng).lte("lng", neLng).limit(2000);
-    if (error) {
-      console.error("Supabase select error:", error.message);
-      return;
-    }
-    const markers = (data || []).map((row: any) => {
-      const pos = new kakao.maps.LatLng(row.lat, row.lng);
-      const title = row["단지명"] || row["주소"] || "";
-      const marker = new kakao.maps.Marker({
-        position: pos,
-        title
-      });
+  return <div ref={ref} className="w-full h-full" />;
+}
 
-      // 간단 오버레이 (클릭 토글)
-      const content = document.createElement("div");
-      content.style.padding = "8px 10px";
-      content.style.borderRadius = "8px";
-      content.style.background = "white";
-      content.style.boxShadow = "0 2px 8px rgba(0,0,0,.15)";
-      content.style.fontSize = "12px";
-      content.innerHTML = `<strong>${escapeHtml(row["단지명"] || "단지")}</strong><br/>${escapeHtml(row["주소"] || "")}`;
-      const overlay = new kakao.maps.CustomOverlay({
-        position: pos,
-        content,
-        yAnchor: 1.2,
-        zIndex: 100
-      });
-      kakao.maps.event.addListener(marker, "click", () => {
-        const vis = (overlay as any)._visible;
-        overlay.setMap(vis ? null : mapObjRef.current);
-        (overlay as any)._visible = !vis;
-      });
-      return marker;
-    });
-    if (clustererRef.current) {
-      clustererRef.current.clear();
-      if (markers.length) clustererRef.current.addMarkers(markers);
-    }
-  }
+/** 빈 장바구니(아이코닉 일러스트) */
+function EmptyCart() {
+  return (
+    <div className="flex h-[220px] flex-col items-center justify-center">
+      <svg width="56" height="56" viewBox="0 0 56 56" aria-hidden="true">
+        <defs>
+          <linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#D9CFFF"/><stop offset="100%" stopColor="#BFA6FF"/>
+          </linearGradient>
+        </defs>
+        <rect x="4" y="18" width="16" height="30" rx="4" fill="url(#g1)" />
+        <rect x="22" y="10" width="20" height="38" rx="4" fill="url(#g1)" />
+        <rect x="44" y="22" width="12" height="26" rx="4" fill="url(#g1)" />
+        <rect x="8" y="24" width="8" height="4" rx="2" fill="#fff" opacity=".9"/>
+        <rect x="26" y="16" width="8" height="4" rx="2" fill="#fff" opacity=".9"/>
+        <rect x="36" y="16" width="8" height="4" rx="2" fill="#fff" opacity=".9"/>
+        <rect x="48" y="28" width="8" height="4" rx="2" fill="#fff" opacity=".9"/>
+      </svg>
+      <p className="mt-4 text-sm text-[#9CA3AF] text-center">광고를 원하는 아파트단지를 담아주세요!</p>
+    </div>
+  );
+}
 
-  // ===================== 검색(Places) =====================
-  function keywordSearch(query: string, opts?: {
-    dropMarker?: boolean;
-  }) {
-    const kakao = (window as KakaoNS).kakao;
-    const places = placesRef.current;
-    if (!places) return;
-    places.keywordSearch(query, (results: any[], status: string) => {
-      if (status !== kakao.maps.services.Status.OK || !results || !results.length) return;
-      const first = results[0];
-      const lat = Number(first.y);
-      const lng = Number(first.x);
-      if (isNaN(lat) || isNaN(lng)) return;
-      const latlng = new kakao.maps.LatLng(lat, lng);
-      mapObjRef.current.setLevel(4);
-      mapObjRef.current.setCenter(latlng);
-      if (opts && opts.dropMarker) {
-        if (searchMarkerRef.current) {
-          searchMarkerRef.current.setMap(null);
-          searchMarkerRef.current = null;
-        }
-        const marker = new kakao.maps.Marker({
-          position: latlng,
-          image: new kakao.maps.MarkerImage("https://t1.daumcdn.net/localimg/localimages/07/mapapidoc/markerStar.png", new kakao.maps.Size(24, 35)),
-          zIndex: 999
-        });
-        marker.setMap(mapObjRef.current);
-        searchMarkerRef.current = marker;
-      }
+/** /map 페이지 */
+export default function MapPage() {
+  const onSearch = (e: FormEvent) => e.preventDefault();
 
-      // 이동 후 현재 바운드에 맞춰 아파트 핀 재로드
-      loadMarkersInBounds();
-    });
-  }
-  function onSearch() {
-    const query = q.trim();
-    if (!query) return;
-    writeQuery(query);
-    keywordSearch(query, {
-      dropMarker: true
-    });
-  }
-  function escapeHtml(s: string) {
-    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
-  }
-  return <div className="min-h-screen bg-white">
-      {/* Sticky toolbar */}
-      <div className="sticky top-0 z-50 bg-white border-b h-16">
-        <div className="max-w-[1280px] mx-auto px-4 h-full flex flex-col md:flex-row md:items-center md:justify-between gap-4 py-3 md:py-0">
-          {/* Left area - chips */}
+  return (
+    <div className="bg-white min-h-[100svh]">
+      {/* 상단 툴바 (칩 3개) */}
+      <div className="sticky top-0 z-10 bg-white border-b border-[#E5E7EB]">
+        <div className="mx-auto max-w-[1280px] h-16 flex items-center justify-between px-4">
           <div className="flex items-center gap-2">
-            <div className="h-8 px-3 border border-[#E5E7EB] rounded-full flex items-center text-sm text-[#111827]">
-              시·군·구 단위
-            </div>
-            <div className="h-8 px-3 border border-[#E5E7EB] rounded-full flex items-center text-sm text-[#111827]">
-              패키지 문의
-            </div>
-            <div className="h-8 px-3 bg-[#7B61FF] rounded-full flex items-center text-sm text-white">
-              1551 - 1810
-            </div>
+            <Chip>시·군·구 단위</Chip>
+            <Chip>패키지 문의</Chip>
+            <Chip active>1551 - 1810</Chip>
           </div>
-
-          {/* Right area - search */}
-          <div className="w-full md:w-[560px] h-10 bg-white border border-[#E5E7EB] rounded-full overflow-hidden group focus-within:ring-2 focus-within:ring-[#C7B8FF]">
-            <div className="flex h-full">
-              <input value={q} onChange={e => setQ(e.target.value)} onKeyDown={e => e.key === "Enter" && onSearch()} placeholder="지역명, 아파트 이름, 단지명, 건물명을 입력해주세요" className="flex-1 px-4 text-base text-[#111827] placeholder-[#9CA3AF] bg-transparent border-0 outline-none" />
-              <button onClick={onSearch} className="w-10 h-10 bg-[#7B61FF] hover:bg-[#6A52FF] flex items-center justify-center text-white transition-colors">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="11" cy="11" r="8" />
-                  <path d="m21 21-4.35-4.35" />
-                </svg>
-              </button>
-            </div>
-          </div>
+          {/* 요구사항: /map 툴바 오른쪽엔 검색 없음 (사이드바에 배치) */}
+          <div />
         </div>
       </div>
 
-      {/* Two-column layout */}
-      <div className="flex flex-col md:flex-row">
-        {/* Right map area - shows first on mobile */}
-        <div className="flex-1 order-1 md:order-2 p-4">
-          <div className="rounded-2xl border border-[#E5E7EB] overflow-hidden relative h-[calc(100svh-152px)] w-full">
-            <div ref={mapRef} className="w-full h-full relative z-10" />
-          </div>
-        </div>
+      {/* 본문 2열 레이아웃 */}
+      <div className="mx-auto max-w-[1280px] px-4 py-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-[320px,1fr]">
+          {/* 사이드바 */}
+          <aside className="md:sticky md:top-16 md:self-start">
+            <div className="flex flex-col gap-4">
+              {/* 사이드 검색 */}
+              <form onSubmit={onSearch} className="relative">
+                <input
+                  type="text"
+                  placeholder="지역명, 아파트 이름, 단지명, 건물명을 입력해주세요"
+                  className="w-full h-10 rounded-lg border border-[#E5E7EB] bg-white px-4 pr-10 text-[16px] leading-[24px] text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#C7B8FF]"
+                  aria-label="검색어 입력"
+                />
+                <button
+                  type="submit"
+                  aria-label="검색"
+                  className="absolute right-1 top-1 h-8 w-8 rounded-md flex items-center justify-center text-[#9CA3AF] hover:text-[#6B7280] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#C7B8FF]"
+                >
+                  <SearchIcon />
+                </button>
+              </form>
 
-        {/* Left sidebar - shows second on mobile */}
-        <div className="w-full md:w-[360px] bg-white md:sticky md:top-16 md:h-[calc(100vh-4rem)] md:overflow-y-auto order-2 md:order-1">
-          <div className="p-4 flex flex-col gap-4">
-            {/* Card 1 - 송출 환경설정 */}
-            <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
-              {/* Title row */}
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-base font-semibold text-[#111827]">송출 개시일자</h3>
-                
-              </div>
-              {/* Body row */}
-              <button className="w-full h-10 border border-[#E5E7EB] hover:border-[#D1D5DB] rounded-lg flex items-center px-3 gap-2 text-[#111827] transition-colors">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-[#9CA3AF]">
-                  <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-                  <line x1="16" y1="2" x2="16" y2="6" />
-                  <line x1="8" y1="2" x2="8" y2="6" />
-                  <line x1="3" y1="10" x2="21" y2="10" />
-                </svg>
-                <span>날짜를 선택하세요</span>
-              </button>
-            </div>
+              {/* 카드 1: 송출 희망일 */}
+              <section className="rounded-2xl border border-[#E5E7EB] bg-white p-4">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-[16px] font-semibold text-[#111827]">송출 희망일</h3>
+                  <button className="text-[#9CA3AF] hover:text-[#6B7280]" aria-label="더보기">
+                    <DotsIcon />
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  className="w-full h-10 rounded-lg border border-[#E5E7EB] bg-white px-3 text-left text-[#111827] hover:border-[#D1D5DB] flex items-center gap-2"
+                >
+                  <CalendarIcon className="text-[#9CA3AF]" />
+                  <span>날짜를 선택하세요</span>
+                </button>
+              </section>
 
-            {/* Card 2 - 송 비용 */}
-            <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
-              {/* Title row */}
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-base font-semibold text-[#111827]">총 비용 (VAT포함)</h3>
-                <span className="text-sm text-[#6B7280]">총 0건</span>
-              </div>
-              {/* Body - empty for now */}
-            </div>
+              {/* 카드 2: 송 비용 */}
+              <section className="rounded-2xl border border-[#E5E7EB] bg-white p-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-[16px] font-semibold text-[#111827]">송 비용</h3>
+                  <span className="text-sm text-[#6B7280]">총 0건</span>
+                </div>
+                {/* 바디 비워둠 (스펙상 Placeholder) */}
+              </section>
 
-            {/* Card 3 - 장바구니 */}
-            <div className="space-y-3">
-              {/* Section header */}
-              <div className="bg-[#F3EEFF] rounded-xl px-3 py-2 inline-block">
-                <span className="text-sm font-medium text-[#111827]">0건 (장바구니)</span>
-              </div>
-              
-              {/* Empty state card */}
-              <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4 h-[220px] flex flex-col items-center justify-center">
-                {/* Building illustration SVG */}
-                <svg width="120" height="80" viewBox="0 0 120 80" className="mb-4">
-                  <defs>
-                    <linearGradient id="buildingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#D9CFFF" />
-                      <stop offset="100%" stopColor="#BFA6FF" />
-                    </linearGradient>
-                  </defs>
-                  {/* Building 1 */}
-                  <rect x="10" y="25" width="25" height="45" fill="url(#buildingGradient)" rx="2" />
-                  <rect x="15" y="30" width="4" height="4" fill="white" opacity="0.8" />
-                  <rect x="25" y="30" width="4" height="4" fill="white" opacity="0.8" />
-                  <rect x="15" y="40" width="4" height="4" fill="white" opacity="0.8" />
-                  <rect x="25" y="40" width="4" height="4" fill="white" opacity="0.8" />
-                  <rect x="15" y="50" width="4" height="4" fill="white" opacity="0.8" />
-                  <rect x="25" y="50" width="4" height="4" fill="white" opacity="0.8" />
-                  
-                  {/* Building 2 */}
-                  <rect x="40" y="15" width="30" height="55" fill="url(#buildingGradient)" rx="2" />
-                  <rect x="45" y="25" width="5" height="5" fill="white" opacity="0.8" />
-                  <rect x="55" y="25" width="5" height="5" fill="white" opacity="0.8" />
-                  <rect x="45" y="35" width="5" height="5" fill="white" opacity="0.8" />
-                  <rect x="55" y="35" width="5" height="5" fill="white" opacity="0.8" />
-                  <rect x="45" y="45" width="5" height="5" fill="white" opacity="0.8" />
-                  <rect x="55" y="45" width="5" height="5" fill="white" opacity="0.8" />
-                  <rect x="45" y="55" width="5" height="5" fill="white" opacity="0.8" />
-                  <rect x="55" y="55" width="5" height="5" fill="white" opacity="0.8" />
-                  
-                  {/* Building 3 */}
-                  <rect x="75" y="30" width="25" height="40" fill="url(#buildingGradient)" rx="2" />
-                  <rect x="80" y="35" width="4" height="4" fill="white" opacity="0.8" />
-                  <rect x="90" y="35" width="4" height="4" fill="white" opacity="0.8" />
-                  <rect x="80" y="45" width="4" height="4" fill="white" opacity="0.8" />
-                  <rect x="90" y="45" width="4" height="4" fill="white" opacity="0.8" />
-                  <rect x="80" y="55" width="4" height="4" fill="white" opacity="0.8" />
-                  <rect x="90" y="55" width="4" height="4" fill="white" opacity="0.8" />
-                </svg>
-                
-                {/* Empty state text */}
-                <p className="text-sm text-[#9CA3AF] text-center">
-                  광고를 원하는 아파트단지를 담아주세요!
-                </p>
-              </div>
+              {/* 장바구니 영역 */}
+              <section className="rounded-2xl border border-[#E5E7EB] bg-white overflow-hidden">
+                <div className="h-9 flex items-center px-3 bg-[#F3EEFF] text-[#111827] text-sm">
+                  0원 (VAT별도)
+                </div>
+                <EmptyCart />
+              </section>
             </div>
-          </div>
+          </aside>
+
+          {/* 지도 영역 */}
+          <section
+            className="rounded-2xl border border-[#E5E7EB] overflow-hidden"
+            style={{
+              // Nav(약 56) + Toolbar(64) + 여백(24~40) 보정치. 프로젝트마다 다를 수 있어요.
+              height: "calc(100svh - 160px)",
+              minHeight: 560,
+            }}
+          >
+            <MapCanvas />
+          </section>
         </div>
       </div>
-    </div>;
+    </div>
+  );
 }
