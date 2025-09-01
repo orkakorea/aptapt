@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
 // ✅ 카카오 JavaScript 키 (REST 키 아님)
-const KAKAO_APP_KEY = "a53075efe7a2256480b8650cec67ebae";
+const KAKAO_APP_KEY = "8f7b0c647c14bed4b0e49bcab3c080a2";
 type KakaoNS = typeof window & {
   kakao: any;
 };
