@@ -237,59 +237,46 @@ export default function MapPage() {
   }
 
   return (
-    <div style={{ width: "100%", height: "100vh", position: "relative" }}>
-      {/* ✅ 검색바 (항상 보이게 zIndex 크게) */}
-      <div
-        style={{
-          position: "absolute",
-          top: 16,
-          left: "50%",
-          transform: "translateX(-50%)",
-          display: "flex",
-          gap: 8,
-          zIndex: 2000,
-          background: "white",
-          borderRadius: 12,
-          padding: "8px 10px",
-          boxShadow: "0 4px 16px rgba(0,0,0,.12)",
-          alignItems: "center",
-          width: "min(720px, 90vw)",
-          pointerEvents: "auto",
-        }}
-      >
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && onSearch()}
-          placeholder="예) 강남역, 평촌트리지아, 비산동, 삼성로 85"
-          style={{
-            flex: 1,
-            height: 40,
-            border: "1px solid #e5e7eb",
-            borderRadius: 10,
-            padding: "0 12px",
-            fontSize: 14,
-          }}
-        />
-        <button
-          onClick={onSearch}
-          style={{
-            height: 40,
-            padding: "0 14px",
-            borderRadius: 10,
-            background: "#6d28d9",
-            color: "white",
-            border: "none",
-            fontWeight: 600,
-            cursor: "pointer",
-          }}
-        >
-          검색
-        </button>
+    <div className="min-h-screen bg-white">
+      {/* Sticky toolbar */}
+      <div className="sticky top-0 z-50 bg-white border-b border-border h-16 flex items-center px-4">
+        <div className="flex items-center gap-4">
+          <h1 className="text-lg font-semibold">지도 검색</h1>
+          <div className="flex items-center gap-2">
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && onSearch()}
+              placeholder="예) 강남역, 평촌트리지아, 비산동, 삼성로 85"
+              className="w-80 h-10 px-3 border border-input rounded-md text-sm"
+            />
+            <button
+              onClick={onSearch}
+              className="h-10 px-4 bg-accent hover:bg-accent/90 text-accent-foreground rounded-md text-sm font-medium"
+            >
+              검색
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* 지도 */}
-      <div ref={mapRef} style={{ width: "100%", height: "100%" }} />
+      {/* Two-column layout */}
+      <div className="flex">
+        {/* Left sidebar */}
+        <div className="w-[360px] bg-white border-r border-border">
+          <div className="p-4">
+            <h2 className="text-sm font-medium text-muted-foreground mb-4">검색 결과</h2>
+            <div className="text-sm text-muted-foreground">
+              지도를 움직여서 해당 지역의 단지를 확인하세요.
+            </div>
+          </div>
+        </div>
+
+        {/* Right map area */}
+        <div className="flex-1">
+          <div ref={mapRef} className="w-full h-[calc(100vh-4rem)]" />
+        </div>
+      </div>
     </div>
   );
 }
