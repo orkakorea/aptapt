@@ -7,12 +7,12 @@ export default function MapPage() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    const KAKAO_JS_KEY = "YOUR_KAKAO_JS_KEY";
-    const url = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${KAKAO_JS_KEY}&libraries=services,clusterer&autoload=false`;
+const KAKAO_JS_KEY = import.meta.env.VITE_KAKAO_JS_KEY as string; // ← 교체
+const url = `//dapi.kakao.com/v2/maps/sdk.js?appkey=${KAKAO_JS_KEY}&autoload=false`; // ← 교체
 
     const onload = () => window.kakao.maps.load(() => {
       if (!mapDivRef.current) return;
-      const { kakao } = window;
+const { kakao } = window as any; // ← "const kakao = window;" 절대 금지
       const map = new kakao.maps.Map(
         mapDivRef.current,
         { center: new kakao.maps.LatLng(37.5665, 126.9780), level: 5 }
