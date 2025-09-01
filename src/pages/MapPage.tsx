@@ -232,25 +232,44 @@ export default function MapPage() {
       </div>
 
       {/* Two-column layout */}
-      <div className="flex flex-col md:flex-row">
-        {/* Right map area - shows first on mobile */}
-        <div className="flex-1 order-1 md:order-2 p-4">
-          <div className="rounded-2xl border border-[#E5E7EB] overflow-hidden relative h-[calc(100svh-152px)] w-full">
-            <div ref={mapRef} className="w-full h-full relative z-10" />
-          </div>
-        </div>
+      <div className="flex gap-4 p-4">
+        {/* Left sidebar */}
+        <div className="w-80 sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto">
+          <div className="flex flex-col gap-4">
+            {/* Search */}
+            <div className="relative">
+              <input 
+                value={q} 
+                onChange={e => setQ(e.target.value)} 
+                onKeyDown={e => e.key === "Enter" && onSearch()} 
+                placeholder="지역명, 아파트 이름, 단지명, 건물명을 입력해주세요" 
+                className="w-full h-10 bg-white border border-[#E5E7EB] rounded-lg px-4 pr-10 text-base text-[#111827] placeholder-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-[#C7B8FF]" 
+              />
+              <button 
+                onClick={onSearch}
+                className="absolute right-0 top-0 w-10 h-10 flex items-center justify-center text-[#9CA3AF] hover:text-[#6B7280] transition-colors"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="m21 21-4.35-4.35" />
+                </svg>
+              </button>
+            </div>
 
-        {/* Left sidebar - shows second on mobile */}
-        <div className="w-full md:w-[360px] bg-white md:sticky md:top-16 md:h-[calc(100vh-4rem)] md:overflow-y-auto order-2 md:order-1">
-          <div className="p-4 flex flex-col gap-4">
-            {/* Card 1 - 송출 환경설정 */}
+            {/* Card 1 - 송출 희망일 */}
             <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
               {/* Title row */}
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-base font-semibold text-[#111827]">송출 개시일자</h3>
-                
+                <h3 className="text-base font-semibold text-[#111827]">송출 희망일</h3>
+                <button className="text-[#9CA3AF] hover:text-[#6B7280] transition-colors">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="1"/>
+                    <circle cx="19" cy="12" r="1"/>
+                    <circle cx="5" cy="12" r="1"/>
+                  </svg>
+                </button>
               </div>
-              {/* Body row */}
+              {/* Date field */}
               <button className="w-full h-10 border border-[#E5E7EB] hover:border-[#D1D5DB] rounded-lg flex items-center px-3 gap-2 text-[#111827] transition-colors">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-[#9CA3AF]">
                   <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
@@ -262,21 +281,21 @@ export default function MapPage() {
               </button>
             </div>
 
-            {/* Card 2 - 송 비용 */}
+            {/* Card 2 - 총 비용 */}
             <div className="bg-white rounded-2xl border border-[#E5E7EB] p-4">
               {/* Title row */}
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-base font-semibold text-[#111827]">총 비용 (VAT포함)</h3>
+                <h3 className="text-base font-semibold text-[#111827]">총 비용</h3>
                 <span className="text-sm text-[#6B7280]">총 0건</span>
               </div>
-              {/* Body - empty for now */}
+              {/* Body - empty placeholder */}
             </div>
 
-            {/* Card 3 - 장바구니 */}
+            {/* Cart - 장바구니 영역 */}
             <div className="space-y-3">
               {/* Section header */}
-              <div className="bg-[#F3EEFF] rounded-xl px-3 py-2 inline-block">
-                <span className="text-sm font-medium text-[#111827]">0건 (장바구니)</span>
+              <div className="bg-[#F3EEFF] rounded-xl px-3 h-9 flex items-center">
+                <span className="text-sm font-medium text-[#111827]">0원 (VAT별도)</span>
               </div>
               
               {/* Empty state card */}
@@ -319,12 +338,19 @@ export default function MapPage() {
                   <rect x="90" y="55" width="4" height="4" fill="white" opacity="0.8" />
                 </svg>
                 
-                {/* Empty state text */}
+                {/* Caption */}
                 <p className="text-sm text-[#9CA3AF] text-center">
                   광고를 원하는 아파트단지를 담아주세요!
                 </p>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Right map area */}
+        <div className="flex-1">
+          <div className="rounded-2xl border border-[#E5E7EB] overflow-hidden relative h-[calc(100vh-6rem)]">
+            <div ref={mapRef} className="w-full h-full relative z-10" />
           </div>
         </div>
       </div>
