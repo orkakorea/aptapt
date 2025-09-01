@@ -20,6 +20,7 @@ export default {
 		extend: {
 			fontFamily: {
 				'pretendard': ['Pretendard Variable', 'Pretendard', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'Roboto', 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'sans-serif'],
+				'sans': ['Pretendard', 'system-ui', 'sans-serif'],
 			},
 			colors: {
 				border: 'hsl(var(--border))',
@@ -29,7 +30,7 @@ export default {
 				background: 'hsl(var(--background))',
 				foreground: 'hsl(var(--foreground))',
 				primary: {
-					DEFAULT: 'hsl(var(--primary))',
+					DEFAULT: '#6C2DFF',
 					foreground: 'hsl(var(--primary-foreground))'
 				},
 				secondary: {
@@ -65,7 +66,14 @@ export default {
 					'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
 					border: 'hsl(var(--sidebar-border))',
 					ring: 'hsl(var(--sidebar-ring))'
-				}
+				},
+				black: '#000000',
+				gray: {
+					700: '#2D2D2D',
+					500: '#757575'
+				},
+				bg: '#F4F0FB',
+				white: '#FFFFFF'
 			},
 			borderRadius: {
 				lg: 'var(--radius)',
