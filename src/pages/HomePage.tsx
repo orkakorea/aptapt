@@ -33,6 +33,36 @@ export default function HomePage() {
               </button>
             </div>
           </div>
+
+          {/* Illustration */}
+          <div className="w-[560px] mx-auto mt-20">
+            <svg width="560" height="200" viewBox="0 0 560 200" className="w-full h-auto">
+              <defs>
+                <linearGradient id="buildingGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop offset="0%" stopColor="#D9CFFF" />
+                  <stop offset="100%" stopColor="#BFA6FF" />
+                </linearGradient>
+              </defs>
+              
+              {/* Building 1 */}
+              <path
+                d="M80 180 L80 80 L140 80 L140 180 Z"
+                fill="url(#buildingGradient)"
+              />
+              
+              {/* Building 2 (taller, center) */}
+              <path
+                d="M220 180 L220 50 L300 50 L300 180 Z"
+                fill="url(#buildingGradient)"
+              />
+              
+              {/* Building 3 */}
+              <path
+                d="M380 180 L380 90 L440 90 L440 180 Z"
+                fill="url(#buildingGradient)"
+              />
+            </svg>
+          </div>
         </div>
       </div>
     </div>
