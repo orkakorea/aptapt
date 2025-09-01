@@ -281,9 +281,9 @@ export default function MapPage() {
       {/* Two-column layout */}
       <div className="flex">
         {/* Left sidebar */}
-        <div className="w-[360px] bg-white border-r border-border">
-          <div className="p-4">
-            <h2 className="text-sm font-medium text-muted-foreground mb-4">검색 결과</h2>
+        <div className="w-[360px] bg-white sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto">
+          <div className="p-4 flex flex-col gap-4">
+            <h2 className="text-sm font-medium text-muted-foreground">검색 결과</h2>
             <div className="text-sm text-muted-foreground">
               지도를 움직여서 해당 지역의 단지를 확인하세요.
             </div>
@@ -291,8 +291,10 @@ export default function MapPage() {
         </div>
 
         {/* Right map area */}
-        <div className="flex-1">
-          <div ref={mapRef} className="w-full h-[calc(100vh-4rem)]" />
+        <div className="flex-1 p-4">
+          <div className="rounded-2xl border border-[#E5E7EB] overflow-hidden relative h-[calc(100svh-152px)]">
+            <div ref={mapRef} className="w-full h-full" />
+          </div>
         </div>
       </div>
     </div>
