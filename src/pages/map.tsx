@@ -134,10 +134,6 @@ function MapCanvas() {
             center: new kakao.maps.LatLng(37.5665, 126.9780),
             level: 6,
           });
-
-          console.log('[MAP] origin:', location.origin, 'key?', !!kakaoKey);
-map.addListener('tilesloaded', () => console.log('[MAP] tilesloaded'));
-
           map.setMapTypeId(kakao.maps.MapTypeId.ROADMAP); // 타일 보장
           setTimeout(() => map.relayout(), 0);
 
