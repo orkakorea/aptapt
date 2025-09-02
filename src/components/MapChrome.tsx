@@ -37,8 +37,8 @@ export default function MapChrome() {
             {/* 검색 입력 */}
             <div className="relative">
               <input
-                className="w-full h-12 rounded-[10px] border border-neutral-300 bg-white pl-3 pr-12 text-sm placeholder:text-neutral-500 outline-none"
-                placeholder="지역명, 아파트 이름, 단지명, 건물명을 입력하세요"
+                className="w-full h-12 rounded-[10px] border border-neutral-300 bg-white pl-4 pr-12 text-sm placeholder:text-neutral-500 outline-none"
+                placeholder="지역명, 아파트 단지명, 건물명을 입력해주세요"
               />
               <button
                 type="button"
