@@ -30,7 +30,7 @@ export default function MapChrome() {
                 패키지 문의
               </span>
               <span className="inline-flex items-center rounded-full bg-[#6C2DFF] px-3 py-1 text-xs text-white">
-                1551 - 1810
+                1551 - 0810
               </span>
             </div>
 
@@ -38,7 +38,7 @@ export default function MapChrome() {
             <div className="relative">
               <input
                 className="w-full h-12 rounded-[10px] border border-neutral-300 bg-white pl-4 pr-12 text-sm placeholder:text-neutral-500 outline-none"
-                placeholder="지역명, 아파트 이름, 단지명, 건물명을 입력해주세요"
+                placeholder="지역명, 아파트 단지명, 건물명을 입력하세요"
               />
               <button
                 type="button"
