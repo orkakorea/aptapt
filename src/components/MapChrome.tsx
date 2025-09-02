@@ -1,5 +1,5 @@
 // src/components/MapChrome.tsx
-import React from "react";
+import React, { useEffect, useState } from "react";
 
 // 2탭에 표시할 최소 정보 타입
 export type SelectedApt = {
@@ -10,11 +10,25 @@ export type SelectedApt = {
 };
 
 type Props = {
-  selected?: SelectedApt | null;      // 선택된 단지 (없으면 2탭 숨김)
-  onCloseSelected?: () => void;       // 2탭 닫기 콜백
+  selected?: SelectedApt | null;          // 선택된 단지 (없으면 2탭 숨김)
+  onCloseSelected?: () => void;           // 2탭 닫기 콜백
+  onSearch?: (query: string) => void;     // 검색 실행 콜백 (부모가 처리)
+  initialQuery?: string;                  // 초기 표시할 검색어 (?q 값)
 };
 
-export default function MapChrome({ selected, onCloseSelected }: Props) {
+export default function MapChrome({ selected, onCloseSelected, onSearch, initialQuery }: Props) {
+  const [query, setQuery] = useState(initialQuery || "");
+
+  useEffect(() => {
+    setQuery(initialQuery || "");
+  }, [initialQuery]);
+
+  const runSearch = () => {
+    const q = query.trim();
+    if (!q) return;
+    onSearch?.(q);
+  };
+
   return (
     <>
       {/* 상단 바 */}
@@ -25,33 +39,28 @@ export default function MapChrome({ selected, onCloseSelected }: Props) {
       </div>
 
       {/* 1탭(좌측 패널) */}
-      <aside
-        className="hidden md:block fixed top-16 bottom-0 left-0 w-[360px] z-[60] pointer-events-none"
-        data-tab="1"
-      >
+      <aside className="hidden md:block fixed top-16 bottom-0 left-0 w-[360px] z-[60] pointer-events-none" data-tab="1">
         <div className="h-full px-6 py-5">
           <div className="pointer-events-auto flex flex-col gap-4">
             {/* 칩들 */}
             <div className="flex items-center gap-2">
-              <span className="inline-flex h-8 items-center rounded-full border border-[#E5E7EB] bg-white px-3 text-xs text-[#111827]">
-                시·군·구 단위
-              </span>
-              <span className="inline-flex h-8 items-center rounded-full border border-[#E5E7EB] bg-white px-3 text-xs text-[#111827]">
-                패키지 문의
-              </span>
-              <span className="inline-flex h-8 items-center rounded-full bg-[#6C2DFF] px-3 text-xs text-white">
-                1551 - 1810
-              </span>
+              <span className="inline-flex h-8 items-center rounded-full border border-[#E5E7EB] bg-white px-3 text-xs text-[#111827]">시·군·구 단위</span>
+              <span className="inline-flex h-8 items-center rounded-full border border-[#E5E7EB] bg-white px-3 text-xs text-[#111827]">패키지 문의</span>
+              <span className="inline-flex h-8 items-center rounded-full bg-[#6C2DFF] px-3 text-xs text-white">1551 - 1810</span>
             </div>
 
-            {/* 검색 입력 (UI만, 기능은 기존 /map 로직 유지) */}
+            {/* 검색 입력 (동작 연결) */}
             <div className="relative">
               <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && runSearch()}
                 className="w-full h-12 rounded-[10px] border border-[#E5E7EB] bg-white pl-4 pr-12 text-sm placeholder:text-[#757575] outline-none focus:ring-2 focus:ring-[#C7B8FF]"
                 placeholder="지역명, 아파트 이름, 단지명, 건물명을 입력해주세요"
               />
               <button
                 type="button"
+                onClick={runSearch}
                 className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-8 w-8 items-center justify-center rounded-md bg-[#6C2DFF]"
                 aria-label="검색"
               >
@@ -108,26 +117,19 @@ export default function MapChrome({ selected, onCloseSelected }: Props) {
         </div>
       </aside>
 
-      {/* 2탭(선택 상세) — selected 있을 때만 노출, 1탭과 동일 폭 */}
+      {/* 2탭(선택 상세) */}
       {selected && (
-        <aside
-          className="hidden md:block fixed top-16 bottom-0 left-[360px] w-[360px] z-[60] pointer-events-none"
-          data-tab="2"
-        >
+        <aside className="hidden md:block fixed top-16 bottom-0 left-[360px] w-[360px] z-[60] pointer-events-none" data-tab="2">
           <div className="h-full px-6 py-5">
             <div className="pointer-events-auto flex flex-col gap-4">
-              {/* 썸네일 (없으면 플레이스홀더) */}
               <div className="rounded-2xl overflow-hidden border border-[#E5E7EB] bg-[#F3F4F6]">
                 <div className="aspect-[4/3] w-full bg-[url('https://images.unsplash.com/photo-1512917774080-9991f1c4c750?q=80&w=1600&auto=format&fit=crop')] bg-cover bg-center" />
               </div>
 
-              {/* 타이틀/메타 + 닫기 */}
               <div className="flex items-start justify-between">
                 <div>
                   <div className="text-xl font-bold text-black">{selected.name}</div>
-                  {selected.address && (
-                    <div className="mt-1 text-sm text-[#6B7280]">{selected.address}</div>
-                  )}
+                  {selected.address && <div className="mt-1 text-sm text-[#6B7280]">{selected.address}</div>}
                 </div>
                 <button
                   onClick={onCloseSelected}
@@ -140,7 +142,6 @@ export default function MapChrome({ selected, onCloseSelected }: Props) {
                 </button>
               </div>
 
-              {/* 가격 박스 (데모: 정적 표기) */}
               <div className="rounded-2xl border border-[#E5E7EB] bg-white p-4">
                 <div className="flex items-center justify-between">
                   <div className="text-[#6B7280]">월 광고료</div>
@@ -155,16 +156,11 @@ export default function MapChrome({ selected, onCloseSelected }: Props) {
                     <div className="text-base font-bold text-[#6C2DFF]">— (VAT별도)</div>
                   </div>
                 </div>
-                <button className="mt-4 h-12 w-full rounded-xl bg-[#6C2DFF] text-white font-semibold">
-                  아파트 담기
-                </button>
+                <button className="mt-4 h-12 w-full rounded-xl bg-[#6C2DFF] text-white font-semibold">아파트 담기</button>
               </div>
 
-              {/* 상세정보 (데모 항목) */}
               <div className="rounded-2xl border border-[#E5E7EB] bg-white">
-                <div className="px-4 py-3 text-base font-semibold text-black border-b border-[#F3F4F6]">
-                  상세정보
-                </div>
+                <div className="px-4 py-3 text-base font-semibold text-black border-b border-[#F3F4F6]">상세정보</div>
                 <dl className="px-4 py-2 text-sm">
                   <div className="flex items-center justify-between py-3 border-b border-[#F3F4F6]">
                     <dt className="text-[#6B7280]">주소</dt>
