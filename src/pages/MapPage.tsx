@@ -6,12 +6,17 @@ import MapChrome, { SelectedApt } from "../components/MapChrome";
 type KakaoNS = typeof window & { kakao: any };
 const FALLBACK_KAKAO_KEY = "a53075efe7a2256480b8650cec67ebae";
 
+// --- Supabase / Kakao utils ---
 function getSupabase(): SupabaseClient | null {
   const url = (import.meta as any).env?.VITE_SUPABASE_URL as string | undefined;
   const key = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string | undefined;
-  if (!url || !key) { console.warn("[MapPage] Supabase env missing:", { url, hasKey: !!key }); return null; }
+  if (!url || !key) {
+    console.warn("[MapPage] Supabase env missing:", { url, hasKey: !!key });
+    return null;
+  }
   try { return createClient(url, key); } catch { return null; }
 }
+
 function loadKakao(): Promise<any> {
   const w = window as any;
   if (w.kakao?.maps) return Promise.resolve(w.kakao);
@@ -32,6 +37,8 @@ function loadKakao(): Promise<any> {
     document.head.appendChild(s);
   });
 }
+
+// --- URL ?q ---
 function readQuery() {
   const u = new URL(window.location.href);
   return (u.searchParams.get("q") || "").trim();
@@ -42,11 +49,17 @@ function writeQuery(v: string) {
   window.history.replaceState(null, "", u.toString());
 }
 
-// 문자열/숫자 혼합 값을 안전하게 숫자로
+// 숫자 안전 파싱
 function toNum(v: any): number | undefined {
   if (v === null || v === undefined) return undefined;
   const n = typeof v === "number" ? v : Number(String(v).replace(/,/g, "").trim());
   return Number.isFinite(n) ? n : undefined;
+}
+
+// 다양한 한글/영문 키 후보를 유연하게 조회
+function getField(obj: any, keys: string[]): any {
+  for (const k of keys) if (k in obj && obj[k] != null && obj[k] !== "") return obj[k];
+  return undefined;
 }
 
 export default function MapPage() {
@@ -65,6 +78,7 @@ export default function MapPage() {
     idleTimer.current = window.setTimeout(fn, ms);
   }
 
+  // 지도 초기화
   useEffect(() => {
     let resizeHandler: any;
     let map: any;
@@ -85,7 +99,6 @@ export default function MapPage() {
       setTimeout(() => map && map.relayout(), 0);
       loadMarkersInBounds();
 
-      // 초기 ?q 처리
       const q0 = readQuery();
       setInitialQ(q0);
       if (q0) runPlaceSearch(q0);
@@ -98,7 +111,13 @@ export default function MapPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** 바운드 내 마커 로드(Supabase) */
+  // 2탭 열고 닫힐 때 레이아웃 보정
+  useEffect(() => {
+    const m = mapObjRef.current;
+    if ((window as any).kakao?.maps && m) setTimeout(() => m.relayout(), 0);
+  }, [selected]);
+
+  // 바운드 내 마커 로드 (안전한 select('*') + 필드 매핑)
   async function loadMarkersInBounds() {
     const kakao = (window as KakaoNS).kakao;
     const map = mapObjRef.current;
@@ -115,33 +134,67 @@ export default function MapPage() {
     const reqId = Date.now();
     lastReqIdRef.current = reqId;
 
-    const { data, error } = await client
+    // ✅ 컬럼명 불일치로 인한 실패를 피하기 위해 전체 컬럼 조회
+    let data: any[] | null = null;
+    let errorMsg: string | null = null;
+
+    const res = await client
       .from("raw_places")
-      .select('"단지명","상품명","세대수","거주인원","모니터수량","월 송출횟수","운영시간","주소",lat,lng')
+      .select("*")
       .not("lat", "is", null).not("lng", "is", null)
       .gte("lat", sw.getLat()).lte("lat", ne.getLat())
       .gte("lng", sw.getLng()).lte("lng", ne.getLng())
       .limit(2000);
 
-    if (reqId !== lastReqIdRef.current) return;
-    if (error) { console.error("Supabase select error:", error.message); return; }
+    if (res.error) {
+      errorMsg = res.error.message;
+      // 최소 컬럼만 재시도 (마커만이라도 보이도록)
+      const res2 = await client
+        .from("raw_places")
+        .select('"단지명","주소",lat,lng')
+        .not("lat", "is", null).not("lng", "is", null)
+        .gte("lat", sw.getLat()).lte("lat", ne.getLat())
+        .gte("lng", sw.getLng()).lte("lng", ne.getLng())
+        .limit(2000);
+      if (res2.error) {
+        console.error("Supabase select error:", errorMsg, "| fallback:", res2.error.message);
+        return;
+      }
+      data = res2.data ?? [];
+    } else {
+      data = res.data ?? [];
+    }
 
-    const markers = (data || []).map((row: any) => {
+    if (reqId !== lastReqIdRef.current) return;
+
+    const markers = data.map((row: any) => {
+      const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
+      const address = getField(row, ["주소", "address"]) || "";
+
+      const households = toNum(getField(row, ["세대수", "세대 수", "households"]));
+      const residents = toNum(getField(row, ["거주인원", "거주 인원", "residents"]));
+      const monitors = toNum(getField(row, ["모니터수량", "모니터 수량", "모니터대수", "monitors"]));
+      const monthlyImpressions = toNum(
+        getField(row, ["월 송출횟수", "월송출횟수", "월_송출횟수", "monthlyImpressions"])
+      );
+      const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
+      const productName = getField(row, ["상품명", "상품 명", "productName"]) || "";
+
       const kakao = (window as KakaoNS).kakao;
       const pos = new kakao.maps.LatLng(row.lat, row.lng);
-      const marker = new kakao.maps.Marker({ position: pos, title: row["단지명"] || "" });
+      const marker = new kakao.maps.Marker({ position: pos, title: name });
 
-      // 마커 클릭 → 2탭 열기 (지도 오버레이 없음)
+      // ✅ 마커 클릭 → 지도 오버레이 없이 2탭 열기
       kakao.maps.event.addListener(marker, "click", () => {
         setSelected({
-          name: row["단지명"] || "",
-          productName: row["상품명"] || "",
-          households: toNum(row["세대수"]),
-          residents: toNum(row["거주인원"]),
-          monitors: toNum(row["모니터수량"]),
-          monthlyImpressions: toNum(row["월 송출횟수"]),
-          hours: row["운영시간"] || "",
-          address: row["주소"] || "",
+          name,
+          address,
+          productName,
+          households,
+          residents,
+          monitors,
+          monthlyImpressions,
+          hours,
           lat: row.lat,
           lng: row.lng,
         });
@@ -156,7 +209,7 @@ export default function MapPage() {
     }
   }
 
-  /** Kakao Places 검색 실행 */
+  // Kakao Places 검색 → 이동 후 핀 갱신
   function runPlaceSearch(query: string) {
     const kakao = (window as KakaoNS).kakao;
     const places = placesRef.current;
@@ -170,11 +223,10 @@ export default function MapPage() {
       const latlng = new kakao.maps.LatLng(lat, lng);
       mapObjRef.current.setLevel(4);
       mapObjRef.current.setCenter(latlng);
-      loadMarkersInBounds(); // 이동 후 핀 갱신
+      loadMarkersInBounds();
     });
   }
 
-  /** MapChrome에서 오는 검색 */
   function handleSearch(query: string) {
     writeQuery(query);
     runPlaceSearch(query);
@@ -182,7 +234,6 @@ export default function MapPage() {
 
   function closeSelected() { setSelected(null); }
 
-  // 2탭 열림 여부에 따라 지도 오프셋 변경
   const mapLeftClass = selected ? "md:left-[720px]" : "md:left-[360px]";
 
   return (
