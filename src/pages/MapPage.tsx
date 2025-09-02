@@ -1,11 +1,29 @@
 // src/pages/MapPage.tsx
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import MapChrome from "../components/MapChrome";
 
-// ❗ 임시: env가 비어 있으면 하드코드 키로 fallback (나중에 .env로 옮기세요)
+/** Kakao + Supabase 유틸 */
+type KakaoNS = typeof window & { kakao: any };
+
+// ❗ env가 비어 있으면 임시 키 사용 (배포 전 .env 로 옮기세요)
 const FALLBACK_KAKAO_KEY = "a53075efe7a2256480b8650cec67ebae";
 
-// Kakao JS SDK 로더 (중복 로드 방지)
+function getSupabase(): SupabaseClient | null {
+  const url = (import.meta as any).env?.VITE_SUPABASE_URL as string | undefined;
+  const key = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string | undefined;
+  if (!url || !key) {
+    console.warn("[MapPage] Supabase env missing:", { url, key: !!key });
+    return null;
+  }
+  try {
+    return createClient(url, key);
+  } catch (e) {
+    console.error("[MapPage] createClient failed:", e);
+    return null;
+  }
+}
+
 function loadKakao(): Promise<any> {
   const w = window as any;
   if (w.kakao?.maps) return Promise.resolve(w.kakao);
@@ -15,13 +33,13 @@ function loadKakao(): Promise<any> {
   if (!key) return Promise.reject(new Error("KAKAO JS KEY missing"));
 
   return new Promise((resolve, reject) => {
-    const scriptId = "kakao-maps-sdk";
-    if (document.getElementById(scriptId)) {
+    const id = "kakao-maps-sdk";
+    if (document.getElementById(id)) {
       const tryLoad = () => (w.kakao?.maps ? resolve(w.kakao) : setTimeout(tryLoad, 50));
       return tryLoad();
     }
     const s = document.createElement("script");
-    s.id = scriptId;
+    s.id = id;
     s.src = `//dapi.kakao.com/v2/maps/sdk.js?appkey=${key}&autoload=false&libraries=services,clusterer`;
     s.onload = () => {
       if (!w.kakao) return reject(new Error("kakao object not found"));
@@ -32,50 +50,30 @@ function loadKakao(): Promise<any> {
   });
 }
 
+/** HTML escape */
+function escapeHtml(s: string) {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
 export default function MapPage() {
   const mapRef = useRef<HTMLDivElement | null>(null);
+  const mapObjRef = useRef<any>(null);
+  const clustererRef = useRef<any>(null);
+  const placesRef = useRef<any>(null);
+  const searchMarkerRef = useRef<any>(null);
 
-  useEffect(() => {
-    let map: any;
-    const handleResize = () => {
-      // 지도 컨테이너가 레이아웃 기반 크기라 relayout 필요
-      if (map) map.relayout();
-    };
+  // 안정성용
+  const openOverlaysRef = useRef<any[]>([]);
+  const lastReqIdRef = useRef<number>(0);
+  const idleTimer = useRef<number | null>(null);
 
-    loadKakao()
-      .then((kakao) => {
-        if (!mapRef.current) return;
+  const [q, setQ] = useState("");
 
-        // 초기 중심: 서울시청
-        const center = new kakao.maps.LatLng(37.5665, 126.9780);
-        map = new kakao.maps.Map(mapRef.current, { center, level: 7 });
+  /** idle 디바운스 */
+  function debounceIdle(fn: () => void
 
-        // 첫 페인트 뒤 1회 보정
-        setTimeout(() => map && map.relayout(), 0);
-
-        // 리사이즈 대응
-        window.addEventListener("resize", handleResize);
-      })
-      .catch((err) => {
-        console.error("[KakaoMap] load error:", err);
-      });
-
-    return () => {
-      window.removeEventListener("resize", handleResize);
-    };
-  }, []);
-
-  return (
-    <div className="w-screen h-[100dvh] bg-white">
-      {/* 지도: 모바일에선 좌패널 제거 가정 → left-0, 데스크탑(md↑)에선 360px 여백 */}
-      <div
-        ref={mapRef}
-        className="fixed top-16 left-0 md:left-[360px] right-0 bottom-0 z-[10]"
-        aria-label="map"
-      />
-
-      {/* 오버레이 UI (상단바 + 좌측 패널) */}
-      <MapChrome />
-    </div>
-  );
-}
