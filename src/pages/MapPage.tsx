@@ -1,251 +1,210 @@
-// src/pages/MapPage.tsx
-import React, { useEffect, useRef, useState } from "react";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import MapChrome, { SelectedApt } from "../components/MapChrome";
+// src/components/MapChrome.tsx
+import React, { useEffect, useState } from "react";
 
-type KakaoNS = typeof window & { kakao: any };
-const FALLBACK_KAKAO_KEY = "a53075efe7a2256480b8650cec67ebae";
+// 2탭에 표시할 데이터 타입
+export type SelectedApt = {
+  name: string;               // 단지명
+  address?: string;           // 주소
+  productName?: string;       // 상품명
+  households?: number;        // 세대수
+  residents?: number;         // 거주인원
+  monitors?: number;          // 모니터수량
+  monthlyImpressions?: number;// 월 송출횟수
+  hours?: string;             // 운영시간
+  lat: number;
+  lng: number;
+};
 
-// --- Supabase / Kakao utils ---
-function getSupabase(): SupabaseClient | null {
-  const url = (import.meta as any).env?.VITE_SUPABASE_URL as string | undefined;
-  const key = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string | undefined;
-  if (!url || !key) {
-    console.warn("[MapPage] Supabase env missing:", { url, hasKey: !!key });
-    return null;
-  }
-  try { return createClient(url, key); } catch { return null; }
-}
+type Props = {
+  selected?: SelectedApt | null;      // 선택된 단지 (없으면 2탭 숨김)
+  onCloseSelected?: () => void;       // 2탭 닫기
+  onSearch?: (query: string) => void; // 검색 실행
+  initialQuery?: string;              // 초기 검색어 (?q)
+};
 
-function loadKakao(): Promise<any> {
-  const w = window as any;
-  if (w.kakao?.maps) return Promise.resolve(w.kakao);
-  const envKey = (import.meta as any).env?.VITE_KAKAO_JS_KEY as string | undefined;
-  const key = envKey && envKey.trim() ? envKey : FALLBACK_KAKAO_KEY;
-  if (!key) return Promise.reject(new Error("KAKAO JS KEY missing"));
-  return new Promise((resolve, reject) => {
-    const id = "kakao-maps-sdk";
-    if (document.getElementById(id)) {
-      const tryLoad = () => (w.kakao?.maps ? resolve(w.kakao) : setTimeout(tryLoad, 50));
-      return tryLoad();
-    }
-    const s = document.createElement("script");
-    s.id = id;
-    s.src = `//dapi.kakao.com/v2/maps/sdk.js?appkey=${key}&autoload=false&libraries=services,clusterer`;
-    s.onload = () => { if (!w.kakao) return reject(new Error("kakao object not found")); w.kakao.maps.load(() => resolve(w.kakao)); };
-    s.onerror = () => reject(new Error("Failed to load Kakao Maps SDK"));
-    document.head.appendChild(s);
-  });
-}
+export default function MapChrome({ selected, onCloseSelected, onSearch, initialQuery }: Props) {
+  const [query, setQuery] = useState(initialQuery || "");
+  useEffect(() => { setQuery(initialQuery || ""); }, [initialQuery]);
 
-// --- URL ?q ---
-function readQuery() {
-  const u = new URL(window.location.href);
-  return (u.searchParams.get("q") || "").trim();
-}
-function writeQuery(v: string) {
-  const u = new URL(window.location.href);
-  if (v) u.searchParams.set("q", v); else u.searchParams.delete("q");
-  window.history.replaceState(null, "", u.toString());
-}
+  const runSearch = () => {
+    const q = query.trim();
+    if (!q) return;
+    onSearch?.(q);
+  };
 
-// 숫자 안전 파싱
-function toNum(v: any): number | undefined {
-  if (v === null || v === undefined) return undefined;
-  const n = typeof v === "number" ? v : Number(String(v).replace(/,/g, "").trim());
-  return Number.isFinite(n) ? n : undefined;
-}
+  const fmt = (n?: number, suffix = "") =>
+    typeof n === "number" && !Number.isNaN(n) ? n.toLocaleString() + (suffix ? ` ${suffix}` : "") : "—";
 
-// 다양한 한글/영문 키 후보를 유연하게 조회
-function getField(obj: any, keys: string[]): any {
-  for (const k of keys) if (k in obj && obj[k] != null && obj[k] !== "") return obj[k];
-  return undefined;
-}
-
-export default function MapPage() {
-  const mapRef = useRef<HTMLDivElement | null>(null);
-  const mapObjRef = useRef<any>(null);
-  const clustererRef = useRef<any>(null);
-  const placesRef = useRef<any>(null);
-  const lastReqIdRef = useRef<number>(0);
-  const idleTimer = useRef<number | null>(null);
-
-  const [selected, setSelected] = useState<SelectedApt | null>(null);
-  const [initialQ, setInitialQ] = useState("");
-
-  function debounceIdle(fn: () => void, ms = 300) {
-    if (idleTimer.current) window.clearTimeout(idleTimer.current);
-    idleTimer.current = window.setTimeout(fn, ms);
-  }
-
-  // 지도 초기화
-  useEffect(() => {
-    let resizeHandler: any;
-    let map: any;
-
-    loadKakao().then((kakao) => {
-      if (!mapRef.current) return;
-      const center = new kakao.maps.LatLng(37.5665, 126.9780);
-      map = new kakao.maps.Map(mapRef.current, { center, level: 6 });
-      mapObjRef.current = map;
-
-      placesRef.current = new kakao.maps.services.Places();
-      clustererRef.current = new kakao.maps.MarkerClusterer({
-        map, averageCenter: true, minLevel: 6, disableClickZoom: false,
-      });
-
-      kakao.maps.event.addListener(map, "idle", () => debounceIdle(loadMarkersInBounds, 300));
-
-      setTimeout(() => map && map.relayout(), 0);
-      loadMarkersInBounds();
-
-      const q0 = readQuery();
-      setInitialQ(q0);
-      if (q0) runPlaceSearch(q0);
-
-      resizeHandler = () => map && map.relayout();
-      window.addEventListener("resize", resizeHandler);
-    }).catch((err) => console.error("[KakaoMap] load error:", err));
-
-    return () => window.removeEventListener("resize", resizeHandler);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // 2탭 열고 닫힐 때 레이아웃 보정
-  useEffect(() => {
-    const m = mapObjRef.current;
-    if ((window as any).kakao?.maps && m) setTimeout(() => m.relayout(), 0);
-  }, [selected]);
-
-  // 바운드 내 마커 로드 (안전한 select('*') + 필드 매핑)
-  async function loadMarkersInBounds() {
-    const kakao = (window as KakaoNS).kakao;
-    const map = mapObjRef.current;
-    if (!map) return;
-
-    const bounds = map.getBounds();
-    if (!bounds) return;
-    const sw = bounds.getSouthWest();
-    const ne = bounds.getNorthEast();
-
-    const client = getSupabase();
-    if (!client) return;
-
-    const reqId = Date.now();
-    lastReqIdRef.current = reqId;
-
-    // ✅ 컬럼명 불일치로 인한 실패를 피하기 위해 전체 컬럼 조회
-    let data: any[] | null = null;
-    let errorMsg: string | null = null;
-
-    const res = await client
-      .from("raw_places")
-      .select("*")
-      .not("lat", "is", null).not("lng", "is", null)
-      .gte("lat", sw.getLat()).lte("lat", ne.getLat())
-      .gte("lng", sw.getLng()).lte("lng", ne.getLng())
-      .limit(2000);
-
-    if (res.error) {
-      errorMsg = res.error.message;
-      // 최소 컬럼만 재시도 (마커만이라도 보이도록)
-      const res2 = await client
-        .from("raw_places")
-        .select('"단지명","주소",lat,lng')
-        .not("lat", "is", null).not("lng", "is", null)
-        .gte("lat", sw.getLat()).lte("lat", ne.getLat())
-        .gte("lng", sw.getLng()).lte("lng", ne.getLng())
-        .limit(2000);
-      if (res2.error) {
-        console.error("Supabase select error:", errorMsg, "| fallback:", res2.error.message);
-        return;
-      }
-      data = res2.data ?? [];
-    } else {
-      data = res.data ?? [];
-    }
-
-    if (reqId !== lastReqIdRef.current) return;
-
-    const markers = data.map((row: any) => {
-      const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
-      const address = getField(row, ["주소", "address"]) || "";
-
-      const households = toNum(getField(row, ["세대수", "세대 수", "households"]));
-      const residents = toNum(getField(row, ["거주인원", "거주 인원", "residents"]));
-      const monitors = toNum(getField(row, ["모니터수량", "모니터 수량", "모니터대수", "monitors"]));
-      const monthlyImpressions = toNum(
-        getField(row, ["월 송출횟수", "월송출횟수", "월_송출횟수", "monthlyImpressions"])
-      );
-      const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
-      const productName = getField(row, ["상품명", "상품 명", "productName"]) || "";
-
-      const kakao = (window as KakaoNS).kakao;
-      const pos = new kakao.maps.LatLng(row.lat, row.lng);
-      const marker = new kakao.maps.Marker({ position: pos, title: name });
-
-      // ✅ 마커 클릭 → 지도 오버레이 없이 2탭 열기
-      kakao.maps.event.addListener(marker, "click", () => {
-        setSelected({
-          name,
-          address,
-          productName,
-          households,
-          residents,
-          monitors,
-          monthlyImpressions,
-          hours,
-          lat: row.lat,
-          lng: row.lng,
-        });
-      });
-
-      return marker;
-    });
-
-    if (clustererRef.current) {
-      clustererRef.current.clear();
-      if (markers.length) clustererRef.current.addMarkers(markers);
-    }
-  }
-
-  // Kakao Places 검색 → 이동 후 핀 갱신
-  function runPlaceSearch(query: string) {
-    const kakao = (window as KakaoNS).kakao;
-    const places = placesRef.current;
-    if (!places) return;
-    places.keywordSearch(query, (results: any[], status: string) => {
-      if (status !== kakao.maps.services.Status.OK || !results?.length) return;
-      const first = results[0];
-      const lat = Number(first.y);
-      const lng = Number(first.x);
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-      const latlng = new kakao.maps.LatLng(lat, lng);
-      mapObjRef.current.setLevel(4);
-      mapObjRef.current.setCenter(latlng);
-      loadMarkersInBounds();
-    });
-  }
-
-  function handleSearch(query: string) {
-    writeQuery(query);
-    runPlaceSearch(query);
-  }
-
-  function closeSelected() { setSelected(null); }
-
-  const mapLeftClass = selected ? "md:left-[720px]" : "md:left-[360px]";
+  const fmtTight = (n?: number, unit = "") =>
+    typeof n === "number" && !Number.isNaN(n) ? n.toLocaleString() + unit : "—";
 
   return (
-    <div className="w-screen h-[100dvh] bg-white">
-      <div ref={mapRef} className={`fixed top-16 left-0 right-0 bottom-0 z-[10] ${mapLeftClass}`} aria-label="map" />
-      <MapChrome
-        selected={selected}
-        onCloseSelected={closeSelected}
-        onSearch={handleSearch}
-        initialQuery={initialQ}
-      />
-    </div>
+    <>
+      {/* 상단 바 */}
+      <div className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-[#E5E7EB] z-[60]">
+        <div className="h-full flex items-center px-6">
+          <div className="text-xl font-bold text-black">응답하라-입주민이여</div>
+        </div>
+      </div>
+
+      {/* 1탭(좌측 패널) */}
+      <aside className="hidden md:block fixed top-16 bottom-0 left-0 w-[360px] z-[60] pointer-events-none" data-tab="1">
+        <div className="h-full px-6 py-5">
+          <div className="pointer-events-auto flex flex-col gap-4">
+            {/* 칩들 */}
+            <div className="flex items-center gap-2">
+              <span className="inline-flex h-8 items-center rounded-full border border-[#E5E7EB] bg-white px-3 text-xs text-[#111827]">시·군·구 단위</span>
+              <span className="inline-flex h-8 items-center rounded-full border border-[#E5E7EB] bg-white px-3 text-xs text-[#111827]">패키지 문의</span>
+              <span className="inline-flex h-8 items-center rounded-full bg-[#6C2DFF] px-3 text-xs text-white">1551 - 1810</span>
+            </div>
+
+            {/* 검색 입력 (동작 연결) */}
+            <div className="relative">
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && runSearch()}
+                className="w-full h-12 rounded-[10px] border border-[#E5E7EB] bg-white pl-4 pr-12 text-sm placeholder:text-[#757575] outline-none focus:ring-2 focus:ring-[#C7B8FF]"
+                placeholder="지역명, 아파트 이름, 단지명, 건물명을 입력해주세요"
+              />
+              <button
+                type="button"
+                onClick={runSearch}
+                className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-8 w-8 items-center justify-center rounded-md bg-[#6C2DFF]"
+                aria-label="검색"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <circle cx="11" cy="11" r="7" stroke="white" strokeWidth="2" />
+                  <path d="M20 20L17 17" stroke="white" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+
+            {/* 날짜 선택 */}
+            <div className="space-y-2">
+              <div className="text-sm font-semibold text-black">송출 희망일</div>
+              <button
+                type="button"
+                className="w-full h-12 rounded-[10px] border border-[#E5E7EB] bg-white flex items-center justify-between px-3 text-sm text-[#111827]"
+              >
+                <span className="text-[#757575]">날짜를 선택하세요</span>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <rect x="3" y="5" width="18" height="16" rx="2" stroke="#757575" strokeWidth="1.5" />
+                  <path d="M8 3V7M16 3V7M3 10H21" stroke="#757575" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+
+            {/* 총 비용 */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold text-black">
+                  총 비용 <span className="text-xs text-[#757575]">(VAT별도)</span>
+                </div>
+                <div className="text-xs text-[#757575]">총 0건</div>
+              </div>
+              <div className="h-10 rounded-[10px] bg-[#F4F0FB] flex items-center px-3 text-sm font-semibold text-[#6C2DFF]">
+                0원 (VAT별도)
+              </div>
+            </div>
+
+            {/* 빈 장바구니 카드 */}
+            <div className="rounded-2xl border border-[#E5E7EB] bg-white p-5">
+              <div className="h-60 rounded-xl border border-[#E5E7EB] bg-[#FAFAFA] flex flex-col items-center justify-center text-[#6B7280]">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="#6C2DFF" className="mb-2">
+                  <path d="M3 21V8a1 1 0 0 1 1-1h6V4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v17H3Z" opacity=".2" />
+                  <path d="M3 21V8a1 1 0 0 1 1-1h6V4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v17" fill="none" stroke="#6C2DFF" strokeWidth="1.5"/>
+                  <path d="M6 10h2M6 13h2M6 16h2M13 7h2M13 10h2M13 13h2M13 16h2" stroke="#6C2DFF" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
+                <div className="text-sm text-center leading-relaxed">
+                  광고를 원하는<br/>아파트단지를 담아주세요!
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </aside>
+
+      {/* 2탭(선택 상세) */}
+      {selected && (
+        <aside className="hidden md:block fixed top-16 bottom-0 left-[360px] w-[360px] z-[60] pointer-events-none" data-tab="2">
+          <div className="h-full px-6 py-5">
+            <div className="pointer-events-auto flex flex-col gap-4">
+              {/* 썸네일 */}
+              <div className="rounded-2xl overflow-hidden border border-[#E5E7EB] bg-[#F3F4F6]">
+                <div className="aspect-[4/3] w-full bg-[url('https://images.unsplash.com/photo-1512917774080-9991f1c4c750?q=80&w=1600&auto=format&fit=crop')] bg-cover bg-center" />
+              </div>
+
+              {/* 타이틀 + 메타(세대수·거주인원) + 닫기 */}
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="text-xl font-bold text-black truncate">{selected.name}</div>
+                  <div className="mt-1 text-sm text-[#6B7280]">
+                    {fmtTight(selected.households, "세대")} · <span>거주인원 {fmtTight(selected.residents, "명")}</span>
+                  </div>
+                </div>
+                <button
+                  onClick={onCloseSelected}
+                  className="ml-3 inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB]"
+                  aria-label="닫기"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" fill="none">
+                    <path d="M6 6L18 18M6 18L18 6" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* 가격 영역 (데모) */}
+              <div className="rounded-2xl border border-[#E5E7EB] bg-white p-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-[#6B7280]">월 광고료</div>
+                  <div className="text-lg font-semibold text-black">— (VAT별도)</div>
+                </div>
+                <div className="mt-4 rounded-xl border border-[#C8B6FF] bg-[#F4F0FB] p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <input type="checkbox" className="accent-[#6C2DFF]" defaultChecked />
+                      <span className="text-sm font-medium text-[#6C2DFF]">1년 계약 시 월 광고료</span>
+                    </div>
+                    <div className="text-base font-bold text-[#6C2DFF]">— (VAT별도)</div>
+                  </div>
+                </div>
+                <button className="mt-4 h-12 w-full rounded-xl bg-[#6C2DFF] text-white font-semibold">
+                  아파트 담기
+                </button>
+              </div>
+
+              {/* 상세정보 (모두 표기) */}
+              <div className="rounded-2xl border border-[#E5E7EB] bg-white">
+                <div className="px-4 py-3 text-base font-semibold text-black border-b border-[#F3F4F6]">상세정보</div>
+                <dl className="px-4 py-2 text-sm">
+                  <Row label="상품명">
+                    <span className="text-[#6C2DFF] font-semibold">{selected.productName || "—"}</span>
+                    <button className="ml-2 inline-flex h-7 px-2 rounded border border-[#E5E7EB] text-xs">상세보기</button>
+                  </Row>
+                  <Row label="세대수">{fmt(selected.households, "세대")}</Row>
+                  <Row label="거주인원">{fmt(selected.residents, "명")}</Row>
+                  <Row label="모니터 수량">{fmt(selected.monitors, "대")}</Row>
+                  <Row label="월 송출횟수">{fmt(selected.monthlyImpressions, "회")}</Row>
+                  <Row label="운영 시간">{selected.hours || "—"}</Row>
+                  <Row label="주소">{selected.address || "—"}</Row>
+                </dl>
+              </div>
+            </div>
+          </div>
+        </aside>
+      )}
+    </>
   );
 }
 
+/* 내부 전용: 상세정보 행 */
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between py-3 border-b border-[#F3F4F6] last:border-b-0">
+      <dt className="text-[#6B7280]">{label}</dt>
+      <dd className="text-black text-right max-w-[55%] truncate">{children}</dd>
+    </div>
+  );
+}
