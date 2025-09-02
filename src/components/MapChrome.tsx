@@ -1,33 +1,40 @@
 // src/components/MapChrome.tsx
 import React, { useEffect, useState } from "react";
 
-// 2탭에 표시할 최소 정보 타입
+// 2탭에 표시할 데이터 타입
 export type SelectedApt = {
-  name: string;
-  address?: string;
+  name: string;               // 단지명
+  address?: string;           // 주소
+  productName?: string;       // 상품명
+  households?: number;        // 세대수
+  residents?: number;         // 거주인원
+  monitors?: number;          // 모니터수량
+  monthlyImpressions?: number;// 월 송출횟수
+  hours?: string;             // 운영시간
   lat: number;
   lng: number;
+  // (필요시) price, discountedPrice 등을 추가해도 됨
 };
 
 type Props = {
-  selected?: SelectedApt | null;          // 선택된 단지 (없으면 2탭 숨김)
-  onCloseSelected?: () => void;           // 2탭 닫기 콜백
-  onSearch?: (query: string) => void;     // 검색 실행 콜백 (부모가 처리)
-  initialQuery?: string;                  // 초기 표시할 검색어 (?q 값)
+  selected?: SelectedApt | null;      // 선택된 단지 (없으면 2탭 숨김)
+  onCloseSelected?: () => void;       // 2탭 닫기
+  onSearch?: (query: string) => void; // 검색 실행
+  initialQuery?: string;              // 초기 검색어 (?q)
 };
 
 export default function MapChrome({ selected, onCloseSelected, onSearch, initialQuery }: Props) {
   const [query, setQuery] = useState(initialQuery || "");
-
-  useEffect(() => {
-    setQuery(initialQuery || "");
-  }, [initialQuery]);
+  useEffect(() => { setQuery(initialQuery || ""); }, [initialQuery]);
 
   const runSearch = () => {
     const q = query.trim();
     if (!q) return;
     onSearch?.(q);
   };
+
+  const fmt = (n?: number, suffix = "") =>
+    typeof n === "number" && !Number.isNaN(n) ? n.toLocaleString() + (suffix ? ` ${suffix}` : "") : "—";
 
   return (
     <>
@@ -122,26 +129,31 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
         <aside className="hidden md:block fixed top-16 bottom-0 left-[360px] w-[360px] z-[60] pointer-events-none" data-tab="2">
           <div className="h-full px-6 py-5">
             <div className="pointer-events-auto flex flex-col gap-4">
+              {/* 썸네일 (샘플 이미지) */}
               <div className="rounded-2xl overflow-hidden border border-[#E5E7EB] bg-[#F3F4F6]">
                 <div className="aspect-[4/3] w-full bg-[url('https://images.unsplash.com/photo-1512917774080-9991f1c4c750?q=80&w=1600&auto=format&fit=crop')] bg-cover bg-center" />
               </div>
 
-              <div className="flex items-start justify-between">
-                <div>
+              {/* 타이틀/메타 + 닫기 */}
+              <div>
+                <div className="flex items-start justify-between">
                   <div className="text-xl font-bold text-black">{selected.name}</div>
-                  {selected.address && <div className="mt-1 text-sm text-[#6B7280]">{selected.address}</div>}
+                  <button
+                    onClick={onCloseSelected}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB]"
+                    aria-label="닫기"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" fill="none">
+                      <path d="M6 6L18 18M6 18L18 6" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                  </button>
                 </div>
-                <button
-                  onClick={onCloseSelected}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB]"
-                  aria-label="닫기"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" fill="none">
-                    <path d="M6 6L18 18M6 18L18 6" strokeWidth="2" strokeLinecap="round" />
-                  </svg>
-                </button>
+                <div className="mt-1 text-sm text-[#6B7280]">
+                  {fmt(selected.households, "세대")} · {fmt(selected.residents, "거주인원")}
+                </div>
               </div>
 
+              {/* 가격 영역 (데모: 값 없으면 '—') */}
               <div className="rounded-2xl border border-[#E5E7EB] bg-white p-4">
                 <div className="flex items-center justify-between">
                   <div className="text-[#6B7280]">월 광고료</div>
@@ -156,20 +168,25 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
                     <div className="text-base font-bold text-[#6C2DFF]">— (VAT별도)</div>
                   </div>
                 </div>
-                <button className="mt-4 h-12 w-full rounded-xl bg-[#6C2DFF] text-white font-semibold">아파트 담기</button>
+                <button className="mt-4 h-12 w-full rounded-xl bg-[#6C2DFF] text-white font-semibold">
+                  아파트 담기
+                </button>
               </div>
 
+              {/* 상세정보 */}
               <div className="rounded-2xl border border-[#E5E7EB] bg-white">
                 <div className="px-4 py-3 text-base font-semibold text-black border-b border-[#F3F4F6]">상세정보</div>
                 <dl className="px-4 py-2 text-sm">
-                  <div className="flex items-center justify-between py-3 border-b border-[#F3F4F6]">
-                    <dt className="text-[#6B7280]">주소</dt>
-                    <dd className="text-black text-right max-w-[55%] truncate">{selected.address || "—"}</dd>
-                  </div>
-                  <div className="flex items-center justify-between py-3">
-                    <dt className="text-[#6B7280]">좌표</dt>
-                    <dd className="text-black">{selected.lat.toFixed(5)}, {selected.lng.toFixed(5)}</dd>
-                  </div>
+                  <Row label="상품명">
+                    <span className="text-[#6C2DFF] font-semibold">{selected.productName || "—"}</span>
+                    <button className="ml-2 inline-flex h-7 px-2 rounded border border-[#E5E7EB] text-xs">상세보기</button>
+                  </Row>
+                  <Row label="세대수">{fmt(selected.households, "세대")}</Row>
+                  <Row label="거주인원">{fmt(selected.residents, "명")}</Row>
+                  <Row label="모니터 수량">{fmt(selected.monitors, "대")}</Row>
+                  <Row label="월 송출횟수">{fmt(selected.monthlyImpressions, "회")}</Row>
+                  <Row label="운영 시간">{selected.hours || "—"}</Row>
+                  <Row label="주소">{selected.address || "—"}</Row>
                 </dl>
               </div>
             </div>
@@ -177,5 +194,15 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
         </aside>
       )}
     </>
+  );
+}
+
+/* 내부 전용: 상세정보 행 */
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between py-3 border-b border-[#F3F4F6] last:border-b-0">
+      <dt className="text-[#6B7280]">{label}</dt>
+      <dd className="text-black text-right max-w-[55%] truncate">{children}</dd>
+    </div>
   );
 }
