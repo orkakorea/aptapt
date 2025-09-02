@@ -1,7 +1,6 @@
 // src/components/MapChrome.tsx
 import React, { useEffect, useState } from "react";
 
-// 2탭에 표시할 데이터 타입
 export type SelectedApt = {
   name: string;               // 단지명
   address?: string;           // 주소
@@ -11,16 +10,17 @@ export type SelectedApt = {
   monitors?: number;          // 모니터수량
   monthlyImpressions?: number;// 월 송출횟수
   hours?: string;             // 운영시간
+  monthlyFee?: number;        // 월 광고료 (VAT별도)
+  monthlyFeeY1?: number;      // 1년 계약 시 월 광고료 (VAT별도)
   lat: number;
   lng: number;
-  // (필요시) price, discountedPrice 등을 추가해도 됨
 };
 
 type Props = {
-  selected?: SelectedApt | null;      // 선택된 단지 (없으면 2탭 숨김)
-  onCloseSelected?: () => void;       // 2탭 닫기
-  onSearch?: (query: string) => void; // 검색 실행
-  initialQuery?: string;              // 초기 검색어 (?q)
+  selected?: SelectedApt | null;
+  onCloseSelected?: () => void;
+  onSearch?: (query: string) => void;
+  initialQuery?: string;
 };
 
 export default function MapChrome({ selected, onCloseSelected, onSearch, initialQuery }: Props) {
@@ -33,8 +33,11 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
     onSearch?.(q);
   };
 
-  const fmt = (n?: number, suffix = "") =>
-    typeof n === "number" && !Number.isNaN(n) ? n.toLocaleString() + (suffix ? ` ${suffix}` : "") : "—";
+  const fmtNum = (n?: number, unit = "") =>
+    typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() + unit : "—";
+
+  const fmtWon = (n?: number) =>
+    typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() : "—";
 
   return (
     <>
@@ -45,18 +48,18 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
         </div>
       </div>
 
-      {/* 1탭(좌측 패널) */}
+      {/* 1탭 */}
       <aside className="hidden md:block fixed top-16 bottom-0 left-0 w-[360px] z-[60] pointer-events-none" data-tab="1">
         <div className="h-full px-6 py-5">
           <div className="pointer-events-auto flex flex-col gap-4">
-            {/* 칩들 */}
+            {/* 칩 */}
             <div className="flex items-center gap-2">
               <span className="inline-flex h-8 items-center rounded-full border border-[#E5E7EB] bg-white px-3 text-xs text-[#111827]">시·군·구 단위</span>
               <span className="inline-flex h-8 items-center rounded-full border border-[#E5E7EB] bg-white px-3 text-xs text-[#111827]">패키지 문의</span>
               <span className="inline-flex h-8 items-center rounded-full bg-[#6C2DFF] px-3 text-xs text-white">1551 - 1810</span>
             </div>
 
-            {/* 검색 입력 (동작 연결) */}
+            {/* 검색 */}
             <div className="relative">
               <input
                 value={query}
@@ -78,22 +81,7 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
               </button>
             </div>
 
-            {/* 날짜 선택 */}
-            <div className="space-y-2">
-              <div className="text-sm font-semibold text-black">송출 희망일</div>
-              <button
-                type="button"
-                className="w-full h-12 rounded-[10px] border border-[#E5E7EB] bg-white flex items-center justify-between px-3 text-sm text-[#111827]"
-              >
-                <span className="text-[#757575]">날짜를 선택하세요</span>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                  <rect x="3" y="5" width="18" height="16" rx="2" stroke="#757575" strokeWidth="1.5" />
-                  <path d="M8 3V7M16 3V7M3 10H21" stroke="#757575" strokeWidth="1.5" strokeLinecap="round" />
-                </svg>
-              </button>
-            </div>
-
-            {/* 총 비용 */}
+            {/* 총 비용 (디자인 자리만) */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <div className="text-sm font-semibold text-black">
@@ -106,7 +94,7 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
               </div>
             </div>
 
-            {/* 빈 장바구니 카드 */}
+            {/* 빈 카드 */}
             <div className="rounded-2xl border border-[#E5E7EB] bg-white p-5">
               <div className="h-60 rounded-xl border border-[#E5E7EB] bg-[#FAFAFA] flex flex-col items-center justify-center text-[#6B7280]">
                 <svg width="40" height="40" viewBox="0 0 24 24" fill="#6C2DFF" className="mb-2">
@@ -119,45 +107,47 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
                 </div>
               </div>
             </div>
-
           </div>
         </div>
       </aside>
 
-      {/* 2탭(선택 상세) */}
+      {/* 2탭 */}
       {selected && (
         <aside className="hidden md:block fixed top-16 bottom-0 left-[360px] w-[360px] z-[60] pointer-events-none" data-tab="2">
           <div className="h-full px-6 py-5">
             <div className="pointer-events-auto flex flex-col gap-4">
-              {/* 썸네일 (샘플 이미지) */}
+              {/* 썸네일 */}
               <div className="rounded-2xl overflow-hidden border border-[#E5E7EB] bg-[#F3F4F6]">
                 <div className="aspect-[4/3] w-full bg-[url('https://images.unsplash.com/photo-1512917774080-9991f1c4c750?q=80&w=1600&auto=format&fit=crop')] bg-cover bg-center" />
               </div>
 
-              {/* 타이틀/메타 + 닫기 */}
-              <div>
-                <div className="flex items-start justify-between">
-                  <div className="text-xl font-bold text-black">{selected.name}</div>
-                  <button
-                    onClick={onCloseSelected}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB]"
-                    aria-label="닫기"
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" fill="none">
-                      <path d="M6 6L18 18M6 18L18 6" strokeWidth="2" strokeLinecap="round" />
-                    </svg>
-                  </button>
+              {/* 타이틀 + 메타 + 닫기 */}
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="text-xl font-bold text-black truncate">{selected.name}</div>
+                  {/* 🔹 작은 회색 글씨: 세대수 · 거주인원 (주소는 숨김) */}
+                  <div className="mt-1 text-sm text-[#6B7280]">
+                    {fmtNum(selected.households, "세대")} · {fmtNum(selected.residents, "명")}
+                  </div>
                 </div>
-                <div className="mt-1 text-sm text-[#6B7280]">
-                  {fmt(selected.households, "세대")} · {fmt(selected.residents, "거주인원")}
-                </div>
+                <button
+                  onClick={onCloseSelected}
+                  className="ml-3 inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB]"
+                  aria-label="닫기"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" fill="none">
+                    <path d="M6 6L18 18M6 18L18 6" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
+                </button>
               </div>
 
-              {/* 가격 영역 (데모: 값 없으면 '—') */}
+              {/* 가격 */}
               <div className="rounded-2xl border border-[#E5E7EB] bg-white p-4">
                 <div className="flex items-center justify-between">
                   <div className="text-[#6B7280]">월 광고료</div>
-                  <div className="text-lg font-semibold text-black">— (VAT별도)</div>
+                  <div className="text-lg font-semibold text-black">
+                    {fmtWon(selected.monthlyFee)} <span className="font-normal text-[#111827]">(VAT별도)</span>
+                  </div>
                 </div>
                 <div className="mt-4 rounded-xl border border-[#C8B6FF] bg-[#F4F0FB] p-3">
                   <div className="flex items-center justify-between">
@@ -165,7 +155,9 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
                       <input type="checkbox" className="accent-[#6C2DFF]" defaultChecked />
                       <span className="text-sm font-medium text-[#6C2DFF]">1년 계약 시 월 광고료</span>
                     </div>
-                    <div className="text-base font-bold text-[#6C2DFF]">— (VAT별도)</div>
+                    <div className="text-base font-bold text-[#6C2DFF]">
+                      {fmtWon(selected.monthlyFeeY1)} <span className="font-medium text-[#6C2DFF]">(VAT별도)</span>
+                    </div>
                   </div>
                 </div>
                 <button className="mt-4 h-12 w-full rounded-xl bg-[#6C2DFF] text-white font-semibold">
@@ -181,10 +173,10 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
                     <span className="text-[#6C2DFF] font-semibold">{selected.productName || "—"}</span>
                     <button className="ml-2 inline-flex h-7 px-2 rounded border border-[#E5E7EB] text-xs">상세보기</button>
                   </Row>
-                  <Row label="세대수">{fmt(selected.households, "세대")}</Row>
-                  <Row label="거주인원">{fmt(selected.residents, "명")}</Row>
-                  <Row label="모니터 수량">{fmt(selected.monitors, "대")}</Row>
-                  <Row label="월 송출횟수">{fmt(selected.monthlyImpressions, "회")}</Row>
+                  <Row label="세대수">{fmtNum(selected.households, "세대")}</Row>
+                  <Row label="거주인원">{fmtNum(selected.residents, "명")}</Row>
+                  <Row label="모니터 수량">{fmtNum(selected.monitors, "대")}</Row>
+                  <Row label="월 송출횟수">{fmtNum(selected.monthlyImpressions, "회")}</Row>
                   <Row label="운영 시간">{selected.hours || "—"}</Row>
                   <Row label="주소">{selected.address || "—"}</Row>
                 </dl>
@@ -197,7 +189,6 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
   );
 }
 
-/* 내부 전용: 상세정보 행 */
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between py-3 border-b border-[#F3F4F6] last:border-b-0">
