@@ -157,23 +157,23 @@ export default function MapPage() {
     const reqId = Date.now();
     lastReqIdRef.current = reqId;
 
-    // ① 뷰에서 가져오기: raw_places_for_map (겹침 해소 lat_j/lng_j 포함)
-    const { data, error } = await client
-      .from("raw_places_for_map")
-      .select(`
-        id, 단지명, 상품명, 주소, geocode_status,
-        lat, lng, lat_j, lng_j
-      `)
-      .not("lat_j", "is", null).not("lng_j", "is", null)
-      .gte("lat_j", sw.getLat()).lte("lat_j", ne.getLat())
-      .gte("lng_j", sw.getLng()).lte("lng_j", ne.getLng())
-      .limit(5000); // 필요 시 조정 (DISTINCT / single 금지)
+    // ✅ 바꿔 넣기: 한글 컬럼은 "따옴표"로 감싸기 + rows 캐스팅
+const { data, error } = await client
+  .from("raw_places_for_map")
+  .select(`id, "단지명", "상품명", "주소", geocode_status, lat, lng, lat_j, lng_j`)
+  .not("lat_j", "is", null).not("lng_j", "is", null)
+  .gte("lat_j", sw.getLat()).lte("lat_j", ne.getLat())
+  .gte("lng_j", sw.getLng()).lte("lng_j", ne.getLng())
+  .limit(5000);
 
-    if (error) {
-      console.error("Supabase select(view) error:", error.message);
-      return;
-    }
-    if (reqId !== lastReqIdRef.current) return;
+if (error) {
+  console.error("Supabase select(view) error:", error.message);
+  return;
+}
+if (reqId !== lastReqIdRef.current) return;
+
+const rows = (data ?? []) as PlaceRow[];
+
 
     // ② 마커 생성
     const rows: PlaceRow[] = data || [];
