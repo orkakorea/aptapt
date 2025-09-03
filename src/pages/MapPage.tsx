@@ -10,8 +10,15 @@ const FALLBACK_KAKAO_KEY = "a53075efe7a2256480b8650cec67ebae";
 function getSupabase(): SupabaseClient | null {
   const url = (import.meta as any).env?.VITE_SUPABASE_URL as string | undefined;
   const key = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string | undefined;
-  if (!url || !key) { console.warn("[MapPage] Supabase env missing:", { url, hasKey: !!key }); return null; }
-  try { return createClient(url, key); } catch { return null; }
+  if (!url || !key) {
+    console.warn("[MapPage] Supabase env missing:", { url, hasKey: !!key });
+    return null;
+  }
+  try {
+    return createClient(url, key);
+  } catch {
+    return null;
+  }
 }
 
 // ---------- Kakao loader (HTTPS) ----------
@@ -23,13 +30,17 @@ function loadKakao(): Promise<any> {
   return new Promise((resolve, reject) => {
     const id = "kakao-maps-sdk";
     if (document.getElementById(id)) {
-      const tryLoad = () => (w.kakao?.maps ? resolve(w.kakao) : setTimeout(tryLoad, 50));
+      const tryLoad = () =>
+        (w.kakao?.maps ? resolve(w.kakao) : setTimeout(tryLoad, 50));
       return tryLoad();
     }
     const s = document.createElement("script");
     s.id = id;
     s.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${key}&autoload=false&libraries=services,clusterer`;
-    s.onload = () => { if (!w.kakao) return reject(new Error("kakao object not found")); w.kakao.maps.load(() => resolve(w.kakao)); };
+    s.onload = () => {
+      if (!w.kakao) return reject(new Error("kakao object not found"));
+      w.kakao.maps.load(() => resolve(w.kakao));
+    };
     s.onerror = () => reject(new Error("Failed to load Kakao Maps SDK"));
     document.head.appendChild(s);
   });
@@ -42,7 +53,8 @@ function readQuery() {
 }
 function writeQuery(v: string) {
   const u = new URL(window.location.href);
-  if (v) u.searchParams.set("q", v); else u.searchParams.delete("q");
+  if (v) u.searchParams.set("q", v);
+  else u.searchParams.delete("q");
   window.history.replaceState(null, "", u.toString());
 }
 
@@ -104,16 +116,21 @@ export default function MapPage() {
         mapRef.current.style.minHeight = "300px";
         mapRef.current.style.minWidth = "300px";
 
-        const center = new kakao.maps.LatLng(37.5665, 126.9780);
+        const center = new kakao.maps.LatLng(37.5665, 126.978);
         map = new kakao.maps.Map(mapRef.current, { center, level: 6 });
         mapObjRef.current = map;
 
         placesRef.current = new kakao.maps.services.Places();
         clustererRef.current = new kakao.maps.MarkerClusterer({
-          map, averageCenter: true, minLevel: 6, disableClickZoom: false,
+          map,
+          averageCenter: true,
+          minLevel: 6,
+          disableClickZoom: false,
         });
 
-        kakao.maps.event.addListener(map, "idle", () => debounceIdle(loadMarkersInBounds, 300));
+        kakao.maps.event.addListener(map, "idle", () =>
+          debounceIdle(loadMarkersInBounds, 300)
+        );
 
         setTimeout(() => map && map.relayout(), 0);
         loadMarkersInBounds();
@@ -157,51 +174,104 @@ export default function MapPage() {
     const reqId = Date.now();
     lastReqIdRef.current = reqId;
 
-    // ✅ 바꿔 넣기: 한글 컬럼은 "따옴표"로 감싸기 + rows 캐스팅
-const { data, error } = await client
-  .from("raw_places_for_map")
-  .select(`id, "단지명", "상품명", "주소", geocode_status, lat, lng, lat_j, lng_j`)
-  .not("lat_j", "is", null).not("lng_j", "is", null)
-  .gte("lat_j", sw.getLat()).lte("lat_j", ne.getLat())
-  .gte("lng_j", sw.getLng()).lte("lng_j", ne.getLng())
-  .limit(5000);
+    // 뷰(raw_places_for_map)에서 데이터 가져오기
+    const { data, error } = await client
+      .from("raw_places_for_map")
+      .select(`id, "단지명", "상품명", "주소", geocode_status, lat, lng, lat_j, lng_j`)
+      .not("lat_j", "is", null)
+      .not("lng_j", "is", null)
+      .gte("lat_j", sw.getLat())
+      .lte("lat_j", ne.getLat())
+      .gte("lng_j", sw.getLng())
+      .lte("lng_j", ne.getLng())
+      .limit(5000); // 필요 시 조정 (DISTINCT / single 금지)
 
-if (error) {
-  console.error("Supabase select(view) error:", error.message);
-  return;
-}
-if (reqId !== lastReqIdRef.current) return;
+    if (error) {
+      console.error("Supabase select(view) error:", error.message);
+      return;
+    }
+    if (reqId !== lastReqIdRef.current) return;
 
-const rows = (data ?? []) as PlaceRow[];
+    const records = (data ?? []) as PlaceRow[];
 
+    // 기존 마커 제거 후 생성
+    if (clustererRef.current) {
+      clustererRef.current.clear();
+    }
 
-    // ② 마커 생성
-    const rows: PlaceRow[] = data || [];
-    const markers = rows.map((row) => {
-      const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
-      const address = getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
-      const productName = getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName"]) || "";
+    const markers = records.map((row) => {
+      const name =
+        getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
+      const address =
+        getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
+      const productName =
+        getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName"]) ||
+        "";
 
-      const households = toNumLoose(getField(row, [
-        "세대수", "세대 수", "세대", "가구수", "가구 수", "세대수(가구)", "households"
-      ]));
-      const residents = toNumLoose(getField(row, [
-        "거주인원", "거주 인원", "인구수", "총인구", "입주민수", "거주자수", "residents"
-      ]));
-      const monitors = toNumLoose(getField(row, [
-        "모니터수량", "모니터 수량", "모니터대수", "엘리베이터TV수", "monitors"
-      ]));
-      const monthlyImpressions = toNumLoose(getField(row, [
-        "월 송출횟수", "월송출횟수", "월 송출 횟수", "월송출", "노출수(월)", "monthlyImpressions"
-      ]));
+      const households = toNumLoose(
+        getField(row, [
+          "세대수",
+          "세대 수",
+          "세대",
+          "가구수",
+          "가구 수",
+          "세대수(가구)",
+          "households",
+        ])
+      );
+      const residents = toNumLoose(
+        getField(row, [
+          "거주인원",
+          "거주 인원",
+          "인구수",
+          "총인구",
+          "입주민수",
+          "거주자수",
+          "residents",
+        ])
+      );
+      const monitors = toNumLoose(
+        getField(row, [
+          "모니터수량",
+          "모니터 수량",
+          "모니터대수",
+          "엘리베이터TV수",
+          "monitors",
+        ])
+      );
+      const monthlyImpressions = toNumLoose(
+        getField(row, [
+          "월 송출횟수",
+          "월송출횟수",
+          "월 송출 횟수",
+          "월송출",
+          "노출수(월)",
+          "monthlyImpressions",
+        ])
+      );
       const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
 
-      const monthlyFee = toNumLoose(getField(row, [
-        "월 광고료", "월광고료", "월 광고비", "월비용", "월요금", "month_fee", "monthlyFee"
-      ]));
-      const monthlyFeeY1 = toNumLoose(getField(row, [
-        "1년 계약 시 월 광고료", "1년계약시월광고료", "연간월광고료", "할인 월 광고료", "연간_월광고료", "monthlyFeeY1"
-      ]));
+      const monthlyFee = toNumLoose(
+        getField(row, [
+          "월 광고료",
+          "월광고료",
+          "월 광고비",
+          "월비용",
+          "월요금",
+          "month_fee",
+          "monthlyFee",
+        ])
+      );
+      const monthlyFeeY1 = toNumLoose(
+        getField(row, [
+          "1년 계약 시 월 광고료",
+          "1년계약시월광고료",
+          "연간월광고료",
+          "할인 월 광고료",
+          "연간_월광고료",
+          "monthlyFeeY1",
+        ])
+      );
 
       const lat = (row.lat_j ?? row.lat)!;
       const lng = (row.lng_j ?? row.lng)!;
@@ -211,10 +281,18 @@ const rows = (data ?? []) as PlaceRow[];
 
       kakao.maps.event.addListener(marker, "click", () => {
         const sel: SelectedApt = {
-          name, address, productName,
-          households, residents, monitors, monthlyImpressions, hours,
-          monthlyFee, monthlyFeeY1,
-          lat, lng,
+          name,
+          address,
+          productName,
+          households,
+          residents,
+          monitors,
+          monthlyImpressions,
+          hours,
+          monthlyFee,
+          monthlyFeeY1,
+          lat,
+          lng,
         };
         setSelected(sel);
       });
@@ -222,10 +300,8 @@ const rows = (data ?? []) as PlaceRow[];
       return marker;
     });
 
-    // ③ 클러스터러에 반영
-    if (clustererRef.current) {
-      clustererRef.current.clear();
-      if (markers.length) clustererRef.current.addMarkers(markers);
+    if (clustererRef.current && markers.length) {
+      clustererRef.current.addMarkers(markers);
     }
   }
 
@@ -237,7 +313,8 @@ const rows = (data ?? []) as PlaceRow[];
     places.keywordSearch(query, (results: any[], status: string) => {
       if (status !== kakao.maps.services.Status.OK || !results?.length) return;
       const first = results[0];
-      const lat = Number(first.y), lng = Number(first.x);
+      const lat = Number(first.y),
+        lng = Number(first.x);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
       const latlng = new kakao.maps.LatLng(lat, lng);
       mapObjRef.current.setLevel(4);
@@ -245,14 +322,23 @@ const rows = (data ?? []) as PlaceRow[];
       loadMarkersInBounds();
     });
   }
-  function handleSearch(q: string) { writeQuery(q); runPlaceSearch(q); }
-  function closeSelected() { setSelected(null); }
+  function handleSearch(q: string) {
+    writeQuery(q);
+    runPlaceSearch(q);
+  }
+  function closeSelected() {
+    setSelected(null);
+  }
 
   const mapLeftClass = selected ? "md:left-[720px]" : "md:left-[360px]";
 
   return (
     <div className="w-screen h-[100dvh] bg-white">
-      <div ref={mapRef} className={`fixed top-16 left-0 right-0 bottom-0 z-[10] ${mapLeftClass}`} aria-label="map" />
+      <div
+        ref={mapRef}
+        className={`fixed top-16 left-0 right-0 bottom-0 z-[10] ${mapLeftClass}`}
+        aria-label="map"
+      />
       <MapChrome
         selected={selected}
         onCloseSelected={closeSelected}
