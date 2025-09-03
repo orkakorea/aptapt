@@ -12,4 +12,4 @@ This directory contains product-related assets and files.
 Files in this directory can be accessed via:
 ```
 /products/filename.ext
-```
+```1
