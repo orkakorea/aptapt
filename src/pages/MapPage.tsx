@@ -62,6 +62,19 @@ function getField(obj: any, keys: string[]): any {
   return undefined;
 }
 
+// ---------- types ----------
+type PlaceRow = {
+  id: number;
+  단지명?: string | null;
+  상품명?: string | null;
+  주소?: string | null;
+  geocode_status?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  lat_j?: number | null; // view에서 제공(겹침 해소)
+  lng_j?: number | null; // view에서 제공(겹침 해소)
+};
+
 export default function MapPage() {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const mapObjRef = useRef<any>(null);
@@ -127,7 +140,7 @@ export default function MapPage() {
     if ((window as any).kakao?.maps && m) setTimeout(() => m.relayout(), 0);
   }, [selected]);
 
-  // 바운드 내 마커
+  // 바운드 내 마커 로드 (중복 제거 금지 / 뷰 사용 / lat_j/lng_j 우선)
   async function loadMarkersInBounds() {
     const kakao = (window as KakaoNS).kakao;
     const map = mapObjRef.current;
@@ -144,23 +157,27 @@ export default function MapPage() {
     const reqId = Date.now();
     lastReqIdRef.current = reqId;
 
-    // 전체 컬럼 조회 후 안전 매핑
-    let { data, error } = await client
-      .from("raw_places")
-      .select("*")
-      .not("lat", "is", null).not("lng", "is", null)
-      .gte("lat", sw.getLat()).lte("lat", ne.getLat())
-      .gte("lng", sw.getLng()).lte("lng", ne.getLng())
-      .limit(2000);
+    // ① 뷰에서 가져오기: raw_places_for_map (겹침 해소 lat_j/lng_j 포함)
+    const { data, error } = await client
+      .from("raw_places_for_map")
+      .select(`
+        id, 단지명, 상품명, 주소, geocode_status,
+        lat, lng, lat_j, lng_j
+      `)
+      .not("lat_j", "is", null).not("lng_j", "is", null)
+      .gte("lat_j", sw.getLat()).lte("lat_j", ne.getLat())
+      .gte("lng_j", sw.getLng()).lte("lng_j", ne.getLng())
+      .limit(5000); // 필요 시 조정 (DISTINCT / single 금지)
 
     if (error) {
-      console.error("Supabase select(*) error:", error.message);
+      console.error("Supabase select(view) error:", error.message);
       return;
     }
     if (reqId !== lastReqIdRef.current) return;
 
-    const markers = (data || []).map((row: any) => {
-      // --- 필드 매핑 (키 후보 넉넉히) ---
+    // ② 마커 생성
+    const rows: PlaceRow[] = data || [];
+    const markers = rows.map((row) => {
       const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
       const address = getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
       const productName = getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName"]) || "";
@@ -186,7 +203,10 @@ export default function MapPage() {
         "1년 계약 시 월 광고료", "1년계약시월광고료", "연간월광고료", "할인 월 광고료", "연간_월광고료", "monthlyFeeY1"
       ]));
 
-      const pos = new kakao.maps.LatLng(row.lat, row.lng);
+      const lat = (row.lat_j ?? row.lat)!;
+      const lng = (row.lng_j ?? row.lng)!;
+
+      const pos = new kakao.maps.LatLng(lat, lng);
       const marker = new kakao.maps.Marker({ position: pos, title: name });
 
       kakao.maps.event.addListener(marker, "click", () => {
@@ -194,7 +214,7 @@ export default function MapPage() {
           name, address, productName,
           households, residents, monitors, monthlyImpressions, hours,
           monthlyFee, monthlyFeeY1,
-          lat: row.lat, lng: row.lng,
+          lat, lng,
         };
         setSelected(sel);
       });
@@ -202,6 +222,7 @@ export default function MapPage() {
       return marker;
     });
 
+    // ③ 클러스터러에 반영
     if (clustererRef.current) {
       clustererRef.current.clear();
       if (markers.length) clustererRef.current.addMarkers(markers);
