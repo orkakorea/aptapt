@@ -1,18 +1,31 @@
 // src/components/MapChrome.tsx
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 
 export type SelectedApt = {
-  name: string;               // 단지명
-  address?: string;           // 주소
-  productName?: string;       // 상품명
-  households?: number;        // 세대수
-  residents?: number;         // 거주인원
-  monitors?: number;          // 모니터수량
-  monthlyImpressions?: number;// 월 송출횟수
-  hours?: string;             // 운영시간
-  monthlyFee?: number;        // 월 광고료 (VAT별도)
-  monthlyFeeY1?: number;      // 1년 계약 시 월 광고료 (VAT별도)
-  imageUrl?: string;          // DB 이미지 URL(있으면 최우선)
+  // 기본 정보
+  name: string;                // 단지명
+  address?: string;            // 주소
+
+  // 상품/운영 정보
+  productName?: string;        // 상품명
+  installLocation?: string;    // 설치 위치 (예: EV 내부)
+  monitors?: number;           // 모니터 수량
+  monthlyImpressions?: number; // 월 송출횟수
+  costPerPlay?: number;        // 송출 1회당 비용
+  hours?: string;              // 운영 시간 (예: am06:00 ~ pm12:00)
+
+  // 지표
+  households?: number;         // 세대수
+  residents?: number;          // 거주인원
+
+  // 가격
+  monthlyFee?: number;         // 월 광고료 (VAT별도)
+  monthlyFeeY1?: number;       // 1년 계약 시 월 광고료 (VAT별도)
+
+  // 이미지
+  imageUrl?: string;           // 썸네일로 사용할 이미지 URL(없으면 PLACEHOLDER)
+  
+  // 좌표 (선택/하이라이트 용으로 유지)
   lat: number;
   lng: number;
 };
@@ -24,43 +37,7 @@ type Props = {
   initialQuery?: string;
 };
 
-/** ✅ 임시 우회: 정적 에셋 베이스 (ENV > /products/) */
-const ASSET_BASE = (import.meta as any).env?.VITE_ASSET_BASE || "/products/";
 const PLACEHOLDER = "/placeholder.svg";
-
-/** 상품명 → 파일명 매핑 (지금 레포에 있는 파일명 기준) */
-const PRODUCT_IMAGE_MAP: { match: (n: string) => boolean; file: string }[] = [
-  // 엘리베이터 TV
-  {
-    match: (n) =>
-      n.includes("엘리베이터tv") || n.includes("elevatortv") || n.includes("elevator"),
-    file: "elevator-tv.png",
-  },
-  // 타운보드 L / S (레포 파일명이 townbord-*.png 인 점 주의)
-  {
-    match: (n) =>
-      n.includes("타운보드l") || n.includes("townboardl") || n.includes("townbord-a"),
-    file: "townbord-a.png",
-  },
-  {
-    match: (n) =>
-      n.includes("타운보드s") || n.includes("townboards") || n.includes("townbord-b"),
-    file: "townbord-b.png",
-  },
-  // 하이포스트
-  { match: (n) => n.includes("하이포스트") || n.includes("hipost") || n.includes("hi-post"), file: "hi-post.png" },
-  // 공간/거실 이미지
-  { match: (n) => n.includes("스페이스") || n.includes("space") || n.includes("living"), file: "space-living.png" },
-  // 미디어 미팅 (두 장 중 하나 우선)
-  { match: (n) => n.includes("미디어") || n.includes("media"), file: "media-meet-a.png" },
-];
-
-function fileByProductName(productName?: string): string | undefined {
-  if (!productName) return;
-  const norm = productName.replace(/\s+/g, "").toLowerCase();
-  const hit = PRODUCT_IMAGE_MAP.find((r) => r.match(norm));
-  return hit ? `${ASSET_BASE}${hit.file}` : undefined;
-}
 
 export default function MapChrome({ selected, onCloseSelected, onSearch, initialQuery }: Props) {
   const [query, setQuery] = useState(initialQuery || "");
@@ -77,66 +54,7 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
   const fmtWon = (n?: number) =>
     typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() : "—";
 
-  // ---------- 로드뷰(있으면 사용, 없으면 이미지 폴백) ----------
-  const roadviewRef = useRef<HTMLDivElement | null>(null);
-  const [rvReady, setRvReady] = useState(false);
-  const [rvErr, setRvErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    setRvReady(false);
-    setRvErr(null);
-    const w = window as any;
-    const kakao = w?.kakao;
-    if (!selected || !kakao?.maps?.Roadview || !roadviewRef.current) return;
-
-    const container = roadviewRef.current;
-    container.innerHTML = "";
-
-    const rv = new kakao.maps.Roadview(container);
-    const rvClient = new kakao.maps.RoadviewClient();
-    const pos = new kakao.maps.LatLng(selected.lat, selected.lng);
-
-    const radii = [50, 100, 200, 400];
-    let canceled = false;
-
-    function tryFind(i: number) {
-      if (canceled) return;
-      if (i >= radii.length) {
-        setRvReady(false);
-        setRvErr("no pano");
-        return;
-      }
-      rvClient.getNearestPanoId(pos, radii[i], (panoId: number | null) => {
-        if (canceled) return;
-        if (!panoId) return tryFind(i + 1);
-        try {
-          rv.setPanoId(panoId, pos);
-          setRvReady(true);
-          setTimeout(() => {
-            try { rv.relayout(); } catch {}
-          }, 0);
-        } catch (e: any) {
-          setRvReady(false);
-          setRvErr(e?.message || "rv set failed");
-        }
-      });
-    }
-    tryFind(0);
-
-    const onResize = () => { try { rv.relayout(); } catch {} };
-    window.addEventListener("resize", onResize);
-    return () => {
-      canceled = true;
-      window.removeEventListener("resize", onResize);
-    };
-  }, [selected?.lat, selected?.lng]);
-
-  // ✅ 최종 썸네일: DB imageUrl > 상품명 매핑(ASSET_BASE) > 플레이스홀더/Unsplash
-  const fallbackImg =
-    selected?.imageUrl ||
-    fileByProductName(selected?.productName) ||
-    PLACEHOLDER ||
-    "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?q=80&w=1600&auto=format&fit=crop";
+  const thumb = selected?.imageUrl || PLACEHOLDER;
 
   return (
     <>
@@ -210,18 +128,19 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
         </div>
       </aside>
 
-      {/* 2탭 (오른쪽) */}
+      {/* 2탭 (오른쪽 상세 패널) */}
       {selected && (
         <aside className="hidden md:block fixed top-16 bottom-0 left-[360px] w-[360px] z-[60] pointer-events-none" data-tab="2">
           <div className="h-full px-6 py-5">
             <div className="pointer-events-auto flex flex-col gap-4">
-              {/* 썸네일: 로드뷰 > 이미지 폴백 */}
+              {/* 썸네일: 단일 이미지 (로드뷰/매핑 제거) */}
               <div className="rounded-2xl overflow-hidden border border-[#E5E7EB] bg-[#F3F4F6]">
                 <div className="relative w-full aspect-[4/3]">
-                  <div ref={roadviewRef} className={`absolute inset-0 ${rvReady ? "" : "hidden"}`} aria-label="roadview" />
-                  {!rvReady && (
-                    <img src={fallbackImg} alt="" className="absolute inset-0 w-full h-full object-cover" />
-                  )}
+                  <img
+                    src={thumb}
+                    alt=""
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
                 </div>
               </div>
 
@@ -244,48 +163,50 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
                 </button>
               </div>
 
-              {/* 가격 */}
-              <div className="rounded-2xl border border-[#E5E7EB] bg-white p-4">
-                <div className="flex items-center justify-between">
+              {/* 가격 박스 (디자인 스펙 맞춤) */}
+              <div className="rounded-2xl border border-[#E5E7EB] bg-white p-0 overflow-hidden">
+                <div className="flex items-center justify-between px-4 h-14 border-b border-[#F3F4F6]">
                   <div className="text-[#6B7280]">월 광고료</div>
                   <div className="text-lg font-semibold text-black">
                     {fmtWon(selected.monthlyFee)} <span className="font-normal text-[#111827]">(VAT별도)</span>
                   </div>
                 </div>
-                <div className="mt-4 rounded-xl border border-[#C8B6FF] bg-[#F4F0FB] p-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
+
+                <div className="m-4 rounded-xl border border-[#7C3AED] text-[#7C3AED]">
+                  <label className="flex items-center justify-between px-3 h-12">
+                    <span className="flex items-center gap-2">
                       <input type="checkbox" className="accent-[#6C2DFF]" defaultChecked />
-                      <span className="text-sm font-medium text-[#6C2DFF]">1년 계약 시 월 광고료</span>
-                    </div>
-                    <div className="text-base font-bold text-[#6C2DFF]">
-                      {fmtWon(selected.monthlyFeeY1)} <span className="font-medium text-[#6C2DFF]">(VAT별도)</span>
-                    </div>
-                  </div>
+                      <span className="text-sm font-medium">1년 계약 시 월 광고료</span>
+                    </span>
+                    <span className="text-base font-bold">
+                      {fmtWon(selected.monthlyFeeY1)} <span className="font-medium">(VAT별도)</span>
+                    </span>
+                  </label>
                 </div>
-                <button className="mt-4 h-12 w-full rounded-xl bg-[#6C2DFF] text-white font-semibold">아파트 담기</button>
+
+                <div className="px-4 pb-4">
+                  <button className="h-12 w-full rounded-xl bg-[#6C2DFF] text-white font-semibold">아파트 담기</button>
+                </div>
               </div>
 
-              {/* 상세정보 */}
-              <div className="rounded-2xl border border-[#E5E7EB] bg-white">
+              {/* 상세정보 (이미지 스펙의 칼럼 순서/명칭) */}
+              <div className="rounded-2xl border border-[#E5E7EB] bg-white overflow-hidden">
                 <div className="px-4 py-3 text-base font-semibold text-black border-b border-[#F3F4F6]">상세정보</div>
                 <dl className="px-4 py-2 text-sm">
                   <Row label="상품명">
                     <span className="text-[#6C2DFF] font-semibold">{selected.productName || "—"}</span>
-                    <button className="ml-2 inline-flex h-7 px-2 rounded border border-[#E5E7EB] text-xs">상세보기</button>
+                    <button className="ml-2 inline-flex h-8 px-3 items-center rounded border border-[#E5E7EB] text-xs bg-white hover:bg-[#F9FAFB]">
+                      상세보기
+                    </button>
                   </Row>
-                  <Row label="세대수">{fmtNum(selected.households, "세대")}</Row>
-                  <Row label="거주인원">{fmtNum(selected.residents, "명")}</Row>
+                  <Row label="설치 위치">{selected.installLocation || "—"}</Row>
                   <Row label="모니터 수량">{fmtNum(selected.monitors, "대")}</Row>
                   <Row label="월 송출횟수">{fmtNum(selected.monthlyImpressions, "회")}</Row>
+                  <Row label="송출 1회당 비용">{fmtNum(selected.costPerPlay, "원")}</Row>
                   <Row label="운영 시간">{selected.hours || "—"}</Row>
                   <Row label="주소">{selected.address || "—"}</Row>
                 </dl>
               </div>
-
-              {!rvReady && rvErr && (
-                <div className="text-xs text-[#9CA3AF] px-1">주변 로드뷰가 없어 준비된 이미지를 표시했습니다.</div>
-              )}
             </div>
           </div>
         </aside>
@@ -302,3 +223,4 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
     </div>
   );
 }
+
