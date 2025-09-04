@@ -26,36 +26,42 @@ type Props = {
   initialQuery?: string;
 };
 
-/** 정적 에셋 베이스 (Vite: public 폴더는 루트로 서빙) */
-const ASSET_BASE = (import.meta as any).env?.VITE_ASSET_BASE || "/products/";
+/** 정적 에셋 베이스 (Vite: public은 루트로 서빙됨) */
+const PRIMARY_ASSET_BASE =
+  (import.meta as any).env?.VITE_ASSET_BASE || "/products/";
+/** 선택적 대체 베이스(예: GitHub Raw) — 없으면 사용 안 함
+ * 예) VITE_ASSET_BASE_FALLBACK="https://raw.githubusercontent.com/orkakorea/aptapt/main/public/products/"
+ */
+const FALLBACK_ASSET_BASE =
+  (import.meta as any).env?.VITE_ASSET_BASE_FALLBACK || "";
+
 const PLACEHOLDER = "/placeholder.svg";
 
-/** ✅ 상품명 키워드 → 깃허브에 있는 실제 파일명으로 매핑
- *  public/products/ 에 커밋된 파일 목록(스샷 기준):
- *  - elevator-tv.png
- *  - hi-post.png
- *  - media-meet-a.png / media-meet-b.png
- *  - space-living.png
- *  - townbord-a.png  (타운보드 L)
- *  - townbord-b.png  (타운보드 S)
+/** 상품명 키워드 → 실제 파일명(깃에 있는 이름)
+ * public/products/:
+ * - elevator-tv.png
+ * - hi-post.png
+ * - media-meet-a.png / media-meet-b.png
+ * - space-living.png
+ * - townbord-a.png (타운보드 L)
+ * - townbord-b.png (타운보드 S)
  */
 const PRODUCT_IMAGE_MAP: { keywords: string[]; file: string }[] = [
   { keywords: ["엘리베이터tv", "elevatortv", "elevator"], file: "elevator-tv.png" },
-  { keywords: ["타운보드l", "타운보드 l", "townboardl", "townboard l", "tbl", "townbord-a"], file: "townbord-a.png" },
-  { keywords: ["타운보드s", "타운보드 s", "townboards", "townboard s", "tbs", "townbord-b"], file: "townbord-b.png" },
+  { keywords: ["타운보드l", "타운보드l형", "townboardl", "tbl", "townbord-a"], file: "townbord-a.png" },
+  { keywords: ["타운보드s", "타운보드s형", "townboards", "tbs", "townbord-b"], file: "townbord-b.png" },
   { keywords: ["하이포스트", "hipost", "hi-post"], file: "hi-post.png" },
   { keywords: ["스페이스", "space", "거실", "living"], file: "space-living.png" },
   { keywords: ["미디어", "media"], file: "media-meet-a.png" },
 ];
 
-/** 상품명으로 썸네일 파일 경로 찾기 */
 function fileByProductName(productName?: string): string | undefined {
   if (!productName) return;
   const norm = productName.replace(/\s+/g, "").toLowerCase();
   const hit = PRODUCT_IMAGE_MAP.find(({ keywords }) =>
     keywords.some((k) => norm.includes(k.replace(/\s+/g, "").toLowerCase()))
   );
-  return hit ? `${ASSET_BASE}${hit.file}` : undefined;
+  return hit?.file;
 }
 
 export default function MapChrome({ selected, onCloseSelected, onSearch, initialQuery }: Props) {
@@ -76,9 +82,11 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
   const fmtWon = (n?: number) =>
     typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() : "—";
 
-  // 최종 썸네일: DB > 상품명 매칭 > 플레이스홀더
-  const matched = fileByProductName(selected?.productName);
-  const thumb = selected?.imageUrl || matched || PLACEHOLDER;
+  // 썸네일: DB > 상품명 매칭(로컬) > (옵션)대체베이스 > 플레이스홀더
+  const matchedFile = fileByProductName(selected?.productName);
+  const initialThumb =
+    selected?.imageUrl ||
+    (matchedFile ? PRIMARY_ASSET_BASE + matchedFile : PLACEHOLDER);
 
   return (
     <>
@@ -162,17 +170,30 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
           {/* 작은 모니터에서도 스크롤 가능 */}
           <div className="h-full px-6 py-5 max-h-[calc(100vh-4rem)] overflow-y-auto">
             <div className="pointer-events-auto flex flex-col gap-4">
-              {/* 썸네일: DB > 상품매칭 > 플레이스홀더. 파일 없으면 onError로 폴백 */}
+              {/* 썸네일 */}
               <div className="rounded-2xl overflow-hidden border border-[#E5E7EB] bg-[#F3F4F6]">
                 <div className="relative w-full aspect-[4/3]">
                   <img
-                    src={thumb}
+                    src={initialThumb}
                     alt={selected.productName || ""}
                     onError={(e) => {
                       const img = e.currentTarget;
-                      if (img.src.endsWith(PLACEHOLDER)) return;
-                      img.onerror = null;
-                      img.src = PLACEHOLDER;
+                      // 1) 로컬 베이스 실패 시, 2) 설정된 대체 베이스가 있고 아직 시도 전이면 거기로 재시도
+                      if (
+                        matchedFile &&
+                        FALLBACK_ASSET_BASE &&
+                        !img.src.startsWith(FALLBACK_ASSET_BASE) &&
+                        !img.src.endsWith(PLACEHOLDER)
+                      ) {
+                        img.onerror = null;
+                        img.src = FALLBACK_ASSET_BASE + matchedFile;
+                        return;
+                      }
+                      // 최종 폴백: 플레이스홀더
+                      if (!img.src.endsWith(PLACEHOLDER)) {
+                        img.onerror = null;
+                        img.src = PLACEHOLDER;
+                      }
                     }}
                     className="absolute inset-0 w-full h-full object-cover"
                   />
@@ -200,30 +221,27 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
                 </button>
               </div>
 
-              {/* 가격 박스 */}
-              <div className="rounded-2xl border border-[#E5E7EB] bg-white p-0 overflow-hidden">
-                {/* 월 광고료 행 */}
-                <div className="flex items-center justify-between px-4 h-14 border-b border-[#F3F4F6] bg-[#F6F7FB]">
-                  <div className="text-[#6B7280]">월 광고료</div>
-                  <div className="text-lg font-semibold text-black">
-                    {fmtWon(selected.monthlyFee)} <span className="font-normal text-[#111827]">(VAT별도)</span>
-                  </div>
-                </div>
-
-                {/* 1년 계약 시 월 광고료 - 스샷 #3 스타일 (체크박스 제거, 연보라 배경+보라 텍스트) */}
-                <div className="mx-4 my-4 rounded-xl border border-[#7C3AED] bg-[#F4F0FB]">
-                  <div className="flex items-center justify-between px-3 h-12 text-[#7C3AED]">
-                    <span className="text-sm font-medium">1년 계약 시 월 광고료</span>
-                    <span className="text-base font-bold">
-                      {fmtWon(selected.monthlyFeeY1)} <span className="font-medium">(VAT별도)</span>
-                    </span>
-                  </div>
-                </div>
-
-                <div className="px-4 pb-4">
-                  <button className="h-12 w-full rounded-xl bg-[#6C2DFF] text-white font-semibold">아파트 담기</button>
+              {/* ───── 가격 영역: 큰 네모 래퍼 제거, 스샷 #2 스타일 ───── */}
+              {/* 월 광고료 (회색 박스) */}
+              <div className="rounded-2xl bg-[#F6F7FB] h-14 px-5 flex items-center justify-between">
+                <div className="text-[#6B7280]">월 광고료</div>
+                <div className="text-lg font-semibold text-black">
+                  {fmtWon(selected.monthlyFee)} <span className="font-normal text-[#111827]">(VAT별도)</span>
                 </div>
               </div>
+
+              {/* 1년 계약 시 월 광고료 (연보라 배경 + 보라 테두리) */}
+              <div className="rounded-2xl border border-[#7C3AED] bg-[#F4F0FB] h-14 px-4 flex items-center justify-between text-[#7C3AED]">
+                <span className="text-sm font-medium">1년 계약 시 월 광고료</span>
+                <span className="text-base font-bold">
+                  {fmtWon(selected.monthlyFeeY1)} <span className="font-medium">(VAT별도)</span>
+                </span>
+              </div>
+
+              {/* 담기 버튼 */}
+              <button className="mt-1 h-12 w-full rounded-xl bg-[#6C2DFF] text-white font-semibold">
+                아파트 담기
+              </button>
 
               {/* 상세정보 */}
               <div className="rounded-2xl border border-[#E5E7EB] bg-white overflow-hidden">
@@ -260,7 +278,8 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   return (
     <div className="flex items-start justify-between py-3 border-b border-[#F3F4F6] last:border-b-0">
       <dt className="text-[#6B7280]">{label}</dt>
-      <dd className="text-black text-right leading-relaxed max-w={[60 as any] + '%'} whitespace-pre-wrap break-words">
+      {/* 줄임표 제거 + 줄바꿈/단어줄바꿈 허용 */}
+      <dd className="text-black text-right leading-relaxed max-w-[60%] whitespace-pre-wrap break-words">
         {children}
       </dd>
     </div>
