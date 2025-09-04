@@ -25,7 +25,7 @@ export type SelectedApt = {
   // 이미지
   imageUrl?: string;           // 썸네일로 사용할 이미지 URL(없으면 PLACEHOLDER)
   
-  // 좌표 (선택/하이라이트 용으로 유지)
+  // 좌표
   lat: number;
   lng: number;
 };
@@ -49,8 +49,11 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
     onSearch?.(q);
   };
 
+  // 숫자 + 단위 사이 1칸 공백
   const fmtNum = (n?: number, unit = "") =>
-    typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() + unit : "—";
+    typeof n === "number" && Number.isFinite(n)
+      ? n.toLocaleString() + (unit ? " " + unit : "")
+      : "—";
   const fmtWon = (n?: number) =>
     typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() : "—";
 
@@ -130,10 +133,15 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
 
       {/* 2탭 (오른쪽 상세 패널) */}
       {selected && (
-        <aside className="hidden md:block fixed top-16 bottom-0 left-[360px] w-[360px] z-[60] pointer-events-none" data-tab="2">
-          <div className="h-full px-6 py-5">
+        <aside
+          className="hidden md:block fixed top-16 left-[360px] z-[60] w-[360px] pointer-events-none"
+          data-tab="2"
+          style={{ bottom: 0 }}
+        >
+          {/* 작은 모니터에서도 스크롤 가능하도록 최대 높이 & 오버플로우 처리 */}
+          <div className="h-full px-6 py-5 max-h-[calc(100vh-4rem)] overflow-y-auto">
             <div className="pointer-events-auto flex flex-col gap-4">
-              {/* 썸네일: 단일 이미지 (로드뷰/매핑 제거) */}
+              {/* 썸네일: 단일 이미지 */}
               <div className="rounded-2xl overflow-hidden border border-[#E5E7EB] bg-[#F3F4F6]">
                 <div className="relative w-full aspect-[4/3]">
                   <img
@@ -147,7 +155,10 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
               {/* 타이틀 + 메타 + 닫기 */}
               <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  <div className="text-xl font-bold text-black truncate">{selected.name}</div>
+                  {/* 줄임표 제거 → 줄바꿈 가능 */}
+                  <div className="text-xl font-bold text-black whitespace-pre-wrap break-words">
+                    {selected.name}
+                  </div>
                   <div className="mt-1 text-sm text-[#6B7280]">
                     {fmtNum(selected.households, "세대")} · {fmtNum(selected.residents, "명")}
                   </div>
@@ -163,7 +174,7 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
                 </button>
               </div>
 
-              {/* 가격 박스 (디자인 스펙 맞춤) */}
+              {/* 가격 박스 */}
               <div className="rounded-2xl border border-[#E5E7EB] bg-white p-0 overflow-hidden">
                 <div className="flex items-center justify-between px-4 h-14 border-b border-[#F3F4F6]">
                   <div className="text-[#6B7280]">월 광고료</div>
@@ -189,22 +200,33 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
                 </div>
               </div>
 
-              {/* 상세정보 (이미지 스펙의 칼럼 순서/명칭) */}
+              {/* 상세정보 */}
               <div className="rounded-2xl border border-[#E5E7EB] bg-white overflow-hidden">
                 <div className="px-4 py-3 text-base font-semibold text-black border-b border-[#F3F4F6]">상세정보</div>
                 <dl className="px-4 py-2 text-sm">
+                  {/* 상품명: 상세보기 버튼 제거, 줄바꿈 허용 */}
                   <Row label="상품명">
-                    <span className="text-[#6C2DFF] font-semibold">{selected.productName || "—"}</span>
-                    <button className="ml-2 inline-flex h-8 px-3 items-center rounded border border-[#E5E7EB] text-xs bg-white hover:bg-[#F9FAFB]">
-                      상세보기
-                    </button>
+                    <span className="text-[#6C2DFF] font-semibold whitespace-pre-wrap break-words">
+                      {selected.productName || "—"}
+                    </span>
                   </Row>
-                  <Row label="설치 위치">{selected.installLocation || "—"}</Row>
+
+                  <Row label="설치 위치">
+                    <span className="whitespace-pre-wrap break-words">{selected.installLocation || "—"}</span>
+                  </Row>
+
+                  {/* 단위 공백 적용: fmtNum이 이미 처리 */}
                   <Row label="모니터 수량">{fmtNum(selected.monitors, "대")}</Row>
                   <Row label="월 송출횟수">{fmtNum(selected.monthlyImpressions, "회")}</Row>
                   <Row label="송출 1회당 비용">{fmtNum(selected.costPerPlay, "원")}</Row>
-                  <Row label="운영 시간">{selected.hours || "—"}</Row>
-                  <Row label="주소">{selected.address || "—"}</Row>
+
+                  <Row label="운영 시간">
+                    <span className="whitespace-pre-wrap break-words">{selected.hours || "—"}</span>
+                  </Row>
+
+                  <Row label="주소">
+                    <span className="whitespace-pre-wrap break-words">{selected.address || "—"}</span>
+                  </Row>
                 </dl>
               </div>
             </div>
@@ -217,9 +239,12 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between py-3 border-b border-[#F3F4F6] last:border-b-0">
+    <div className="flex items-start justify-between py-3 border-b border-[#F3F4F6] last:border-b-0">
       <dt className="text-[#6B7280]">{label}</dt>
-      <dd className="text-black text-right max-w-[55%] truncate">{children}</dd>
+      {/* 줄임표(truncate) 제거 + 줄바꿈/단어줄바꿈 허용 */}
+      <dd className="text-black text-right leading-relaxed max-w-[60%] whitespace-pre-wrap break-words">
+        {children}
+      </dd>
     </div>
   );
 }
