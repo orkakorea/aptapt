@@ -62,30 +62,36 @@ function getField(obj: any, keys: string[]): any {
   }
   return undefined;
 }
+function expandBounds(bounds: any, pad = 0.05) {
+  // pad는 위경도 degree 단위(약 5~6km 정도)
+  const sw = bounds.getSouthWest();
+  const ne = bounds.getNorthEast();
+  return {
+    minLat: sw.getLat() - pad,
+    maxLat: ne.getLat() + pad,
+    minLng: sw.getLng() - pad,
+    maxLng: ne.getLng() + pad,
+  };
+}
 
 // ---------- types ----------
 type PlaceRow = {
   id: number;
-
-  // 표기 가능한 모든 한글/영문 변형을 최소 커버 (테이블에 있는 이름 우선)
   단지명?: string | null;
   상품명?: string | null;
   설치위치?: string | null;
-  세대수?: string | null | number;
-  거주인원?: string | null | number;
-  모니터수량?: string | null | number;
-  월송출횟수?: string | null | number;
-  월광고료?: string | null | number;
-  ["1회당 송출비용"]?: string | null | number;
+  세대수?: string | number | null;
+  거주인원?: string | number | null;
+  모니터수량?: string | number | null;
+  월송출횟수?: string | number | null;
+  월광고료?: string | number | null;
+  ["1회당 송출비용"]?: string | number | null;
   운영시간?: string | null;
   주소?: string | null;
-
-  imageUrl?: string | null;     // 있으면 사용 (없어도 무관)
+  imageUrl?: string | null;
   geocode_status?: string | null;
   lat?: number | null;
   lng?: number | null;
-
-  // 여유 키 (스키마 변동 대비)
   [key: string]: any;
 };
 
@@ -226,17 +232,14 @@ export default function MapPage() {
 
         spiderRef.current = new SpiderController(map, clustererRef.current);
 
-        // 클러스터 클릭 시 한 단계 줌인
         kakao.maps.event.addListener(clustererRef.current, "clusterclick", (cluster: any) => {
           const m = mapObjRef.current; if (!m) return;
           m.setLevel(Math.max(m.getLevel() - 1, 1), { anchor: cluster.getCenter() });
         });
 
-        // 스파이더 해제 트리거
         kakao.maps.event.addListener(map, "zoom_changed", () => spiderRef.current?.unspiderfy());
         kakao.maps.event.addListener(map, "dragstart", () => spiderRef.current?.unspiderfy());
         kakao.maps.event.addListener(map, "click", () => spiderRef.current?.unspiderfy());
-
         kakao.maps.event.addListener(map, "idle", () => debounceIdle(loadMarkersInBounds, 300));
 
         setTimeout(() => map && map.relayout(), 0);
@@ -264,29 +267,10 @@ export default function MapPage() {
     if ((window as any).kakao?.maps && m) setTimeout(() => m.relayout(), 0);
   }, [selected]);
 
-  // 바운드 내 마커 로드 (★ 핵심: 재로딩 전에 반드시 unspiderfy)
-  async function loadMarkersInBounds() {
-    const kakao = (window as KakaoNS).kakao;
-    const map = mapObjRef.current;
-    if (!map) return;
-
-    spiderRef.current?.unspiderfy();
-
-    const bounds = map.getBounds();
-    if (!bounds) return;
-    const sw = bounds.getSouthWest();
-    const ne = bounds.getNorthEast();
-
-    const client = getSupabase();
-    if (!client) return;
-
-    const reqId = Date.now();
-    lastReqIdRef.current = reqId;
-
-    // ★ 필요한 칼럼 전부 셀렉트 (한국어 컬럼명은 큰따옴표로 감싸기)
-    const { data, error } = await client
-      .from("raw_places")
-      .select(`
+  // ------- 데이터 로드 공통 루틴 -------
+  async function fetchPlacesInBox(client: SupabaseClient, box: {minLat:number,maxLat:number,minLng:number,maxLng:number}, withCostPerPlay = true) {
+    const cols = withCostPerPlay
+      ? `
         id,
         "단지명",
         "상품명",
@@ -303,28 +287,94 @@ export default function MapPage() {
         geocode_status,
         lat,
         lng
-      `)
+      `
+      : `
+        id,
+        "단지명",
+        "상품명",
+        "설치위치",
+        "세대수",
+        "거주인원",
+        "모니터수량",
+        "월송출횟수",
+        "월광고료",
+        "운영시간",
+        "주소",
+        imageUrl,
+        geocode_status,
+        lat,
+        lng
+      `;
+
+    const q = client
+      .from("raw_places")
+      .select(cols)
       .not("lat", "is", null)
       .not("lng", "is", null)
-      .gte("lat", sw.getLat()).lte("lat", ne.getLat())
-      .gte("lng", sw.getLng()).lte("lng", ne.getLng())
+      .gte("lat", box.minLat).lte("lat", box.maxLat)
+      .gte("lng", box.minLng).lte("lng", box.maxLng)
       .limit(5000);
 
-    if (error) { console.error("Supabase select(raw_places) error:", error.message); return; }
-    if (reqId !== lastReqIdRef.current) return;
+    const { data, error } = await q;
+    return { data: (data ?? []) as PlaceRow[], error };
+  }
 
-    const records = (data ?? []) as PlaceRow[];
+  // 바운드 내 마커 로드
+  async function loadMarkersInBounds() {
+    const kakao = (window as KakaoNS).kakao;
+    const map = mapObjRef.current;
+    if (!map) return;
 
-    // 클러스터 초기화
+    // 중복/유령 마커 방지
+    spiderRef.current?.unspiderfy();
     if (clustererRef.current) clustererRef.current.clear();
+
+    const bounds = map.getBounds();
+    if (!bounds) return;
+    const padBox = expandBounds(bounds, 0); // 기본 박스
+
+    const client = getSupabase();
+    if (!client) return;
+
+    const reqId = Date.now();
+    lastReqIdRef.current = reqId;
+
+    console.log("[MapPage] loadMarkersInBounds start", {
+      latRange: [padBox.minLat, padBox.maxLat],
+      lngRange: [padBox.minLng, padBox.maxLng],
+    });
+
+    // 1차 시도: 전체 칼럼(특히 "1회당 송출비용" 포함)
+    let { data, error } = await fetchPlacesInBox(client, padBox, true);
+    if (error) {
+      console.warn('[MapPage] select with "1회당 송출비용" failed, retrying without it →', error.message);
+      // 2차 시도: 문제 컬럼 제외 재시도
+      const r = await fetchPlacesInBox(client, padBox, false);
+      data = r.data; error = r.error;
+    }
+
+    if (reqId !== lastReqIdRef.current) return;
+    if (error) { console.error("Supabase select(raw_places) error:", error.message); return; }
+
+    // 0건이면 바운드를 살짝 확장해서 한 번 더 시도
+    if (!data.length) {
+      const expanded = expandBounds(bounds, 0.12); // 약 12~15km 확장
+      console.log("[MapPage] 0 rows. retry with expanded bounds", expanded);
+      const r2 = await fetchPlacesInBox(client, expanded, true);
+      if (r2.error) console.warn("[MapPage] expanded select error:", r2.error.message);
+      data = r2.data || [];
+    }
+
+    console.log("[MapPage] rows:", data.length);
 
     // 마커 생성 + 같은 좌표 그룹핑
     const markers: KMarker[] = [];
     const groups = new Map<string, KMarker[]>();
     const keyOf = (lat: number, lng: number) => `${lat.toFixed(7)},${lng.toFixed(7)}`;
 
-    records.forEach((row) => {
-      const lat = row.lat!, lng = row.lng!;
+    data.forEach((row) => {
+      if (row.lat == null || row.lng == null) return;
+      const lat = Number(row.lat), lng = Number(row.lng);
       const pos = new kakao.maps.LatLng(lat, lng);
       const marker: KMarker = new kakao.maps.Marker({ position: pos, title: row.단지명 || "" });
       marker.__basePos = pos;
@@ -335,44 +385,28 @@ export default function MapPage() {
       groups.get(marker.__baseKey)!.push(marker);
 
       kakao.maps.event.addListener(marker, "click", () => {
-        // --- 필드 매핑: 테이블 명칭 우선, 유사명은 보조 키로 커버 ---
         const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
         const address = getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
         const productName = getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName"]) || "";
-
         const installLocation = getField(row, ["설치위치", "설치 위치", "installLocation"]) || "";
-
         const households = toNumLoose(getField(row, ["세대수","세대 수","세대","가구수","가구 수","세대수(가구)","households"]));
         const residents = toNumLoose(getField(row, ["거주인원","거주 인원","인구수","총인구","입주민수","거주자수","residents"]));
         const monitors = toNumLoose(getField(row, ["모니터수량","모니터 수량","모니터대수","엘리베이터TV수","monitors"]));
         const monthlyImpressions = toNumLoose(getField(row, ["월송출횟수","월 송출횟수","월 송출 횟수","월송출","노출수(월)","monthlyImpressions"]));
-
         const monthlyFee = toNumLoose(getField(row, ["월광고료","월 광고료","월 광고비","월비용","월요금","month_fee","monthlyFee"]));
         const monthlyFeeY1 = toNumLoose(getField(row, ["1년 계약 시 월 광고료","1년계약시월광고료","연간월광고료","할인 월 광고료","연간_월광고료","monthlyFeeY1"]));
         const costPerPlay = toNumLoose(getField(row, ["1회당 송출비용","송출 1회당 비용","costPerPlay"]));
-
         const hours = getField(row, ["운영시간","운영 시간","hours"]) || "";
         const imageUrl = getField(row, ["imageUrl", "이미지", "썸네일", "thumbnail"]) || undefined;
 
         const sel: SelectedApt = {
-          name,
-          address,
-          productName,
-          installLocation,
-          households,
-          residents,
-          monitors,
-          monthlyImpressions,
-          costPerPlay,
-          hours,
-          monthlyFee,
-          monthlyFeeY1,
-          imageUrl,
-          lat,
-          lng,
+          name, address, productName, installLocation,
+          households, residents, monitors, monthlyImpressions,
+          costPerPlay, hours, monthlyFee, monthlyFeeY1,
+          imageUrl, lat, lng,
         };
-
         setSelected(sel);
+
         // 같은 위치 그룹을 부드럽게 펼치기
         spiderRef.current?.spiderfy(marker.__baseKey!);
       });
@@ -384,7 +418,9 @@ export default function MapPage() {
     spiderRef.current?.setGroups(groups);
 
     // 클러스터에 추가
-    if (clustererRef.current && markers.length) clustererRef.current.addMarkers(markers);
+    if (clustererRef.current && markers.length) {
+      clustererRef.current.addMarkers(markers);
+    }
   }
 
   // Places 검색 → 이동
@@ -420,4 +456,3 @@ export default function MapPage() {
     </div>
   );
 }
-
