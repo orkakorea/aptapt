@@ -1,215 +1,304 @@
 // src/components/MapChrome.tsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
-/** DB에서 선택된 행을 MapPage가 넘겨주는 타입 (N-매핑 주석 참고) */
 export type SelectedApt = {
-  // N1
-  name: string | null | undefined;              // 단지명
-  // N2
-  productName?: string | null;                  // 상품명
-  // N4~N11
-  households?: number | null;                   // 세대수
-  residents?: number | null;                    // 거주인원
-  monitors?: number | null;                     // 모니터수량
-  monthlyImpressions?: number | null;           // 월 송출횟수
-  monthlyFee?: number | null;                   // 월 광고료 (VAT 별도)
-  monthlyFeeY1?: number | null;                 // 1년 계약 시 월 광고료 (VAT 별도)
-  perPlayCost?: number | null;                  // 1회당 송출비용
-  hours?: string | null;                        // 운영시간
-  address?: string | null;                      // 주소
-  // 기타
-  imageUrl?: string | null;                     // 썸네일(없으면 플레이스홀더)
+  name: string;               // 단지명
+  address?: string;           // 주소
+  productName?: string;       // 상품명
+  households?: number;        // 세대수
+  residents?: number;         // 거주인원
+  monitors?: number;          // 모니터수량
+  monthlyImpressions?: number;// 월 송출횟수
+  hours?: string;             // 운영시간
+  monthlyFee?: number;        // 월 광고료 (VAT별도)
+  monthlyFeeY1?: number;      // 1년 계약 시 월 광고료 (VAT별도)
+  imageUrl?: string;          // DB 이미지 URL(있으면 최우선)
   lat: number;
   lng: number;
 };
 
 type Props = {
-  selected: SelectedApt | null;
-  onCloseSelected: () => void;
-  onSearch: (q: string) => void;
+  selected?: SelectedApt | null;
+  onCloseSelected?: () => void;
+  onSearch?: (query: string) => void;
   initialQuery?: string;
 };
 
-function fmtNum(n?: number | null, unit?: string) {
-  if (n === null || n === undefined || Number.isNaN(n)) return "—";
-  const s = n.toLocaleString("ko-KR");
-  return unit ? `${s} ${unit}` : s;
-}
-function fmtWon(n?: number | null) {
-  if (n === null || n === undefined || Number.isNaN(n)) return "—";
-  return `${n.toLocaleString("ko-KR")} 원`;
+/** ✅ 임시 우회: 정적 에셋 베이스 (ENV > /products/) */
+const ASSET_BASE = (import.meta as any).env?.VITE_ASSET_BASE || "/products/";
+const PLACEHOLDER = "/placeholder.svg";
+
+/** 상품명 → 파일명 매핑 (지금 레포에 있는 파일명 기준) */
+const PRODUCT_IMAGE_MAP: { match: (n: string) => boolean; file: string }[] = [
+  // 엘리베이터 TV
+  {
+    match: (n) =>
+      n.includes("엘리베이터tv") || n.includes("elevatortv") || n.includes("elevator"),
+    file: "elevator-tv.png",
+  },
+  // 타운보드 L / S (레포 파일명이 townbord-*.png 인 점 주의)
+  {
+    match: (n) =>
+      n.includes("타운보드l") || n.includes("townboardl") || n.includes("townbord-a"),
+    file: "townbord-a.png",
+  },
+  {
+    match: (n) =>
+      n.includes("타운보드s") || n.includes("townboards") || n.includes("townbord-b"),
+    file: "townbord-b.png",
+  },
+  // 하이포스트
+  { match: (n) => n.includes("하이포스트") || n.includes("hipost") || n.includes("hi-post"), file: "hi-post.png" },
+  // 공간/거실 이미지
+  { match: (n) => n.includes("스페이스") || n.includes("space") || n.includes("living"), file: "space-living.png" },
+  // 미디어 미팅 (두 장 중 하나 우선)
+  { match: (n) => n.includes("미디어") || n.includes("media"), file: "media-meet-a.png" },
+];
+
+function fileByProductName(productName?: string): string | undefined {
+  if (!productName) return;
+  const norm = productName.replace(/\s+/g, "").toLowerCase();
+  const hit = PRODUCT_IMAGE_MAP.find((r) => r.match(norm));
+  return hit ? `${ASSET_BASE}${hit.file}` : undefined;
 }
 
 export default function MapChrome({ selected, onCloseSelected, onSearch, initialQuery }: Props) {
-  const [useAnnual, setUseAnnual] = useState(true);
+  const [query, setQuery] = useState(initialQuery || "");
+  useEffect(() => setQuery(initialQuery || ""), [initialQuery]);
+
+  const runSearch = () => {
+    const q = query.trim();
+    if (!q) return;
+    onSearch?.(q);
+  };
+
+  const fmtNum = (n?: number, unit = "") =>
+    typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() + unit : "—";
+  const fmtWon = (n?: number) =>
+    typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() : "—";
+
+  // ---------- 로드뷰(있으면 사용, 없으면 이미지 폴백) ----------
+  const roadviewRef = useRef<HTMLDivElement | null>(null);
+  const [rvReady, setRvReady] = useState(false);
+  const [rvErr, setRvErr] = useState<string | null>(null);
 
   useEffect(() => {
-    // 선택 변경 시: 1년가가 있으면 기본 선택, 없으면 일반가
-    setUseAnnual(Boolean(selected?.monthlyFeeY1));
-  }, [selected]);
+    setRvReady(false);
+    setRvErr(null);
+    const w = window as any;
+    const kakao = w?.kakao;
+    if (!selected || !kakao?.maps?.Roadview || !roadviewRef.current) return;
 
-  const activePriceText = useMemo(() => {
-    const n = (useAnnual ? selected?.monthlyFeeY1 : selected?.monthlyFee) ?? null;
-    return fmtWon(n);
-  }, [useAnnual, selected?.monthlyFee, selected?.monthlyFeeY1]);
+    const container = roadviewRef.current;
+    container.innerHTML = "";
 
-  // 좌측 고정 패널 (MapPage가 지도 left를 360/720으로 밀어줌)
+    const rv = new kakao.maps.Roadview(container);
+    const rvClient = new kakao.maps.RoadviewClient();
+    const pos = new kakao.maps.LatLng(selected.lat, selected.lng);
+
+    const radii = [50, 100, 200, 400];
+    let canceled = false;
+
+    function tryFind(i: number) {
+      if (canceled) return;
+      if (i >= radii.length) {
+        setRvReady(false);
+        setRvErr("no pano");
+        return;
+      }
+      rvClient.getNearestPanoId(pos, radii[i], (panoId: number | null) => {
+        if (canceled) return;
+        if (!panoId) return tryFind(i + 1);
+        try {
+          rv.setPanoId(panoId, pos);
+          setRvReady(true);
+          setTimeout(() => {
+            try { rv.relayout(); } catch {}
+          }, 0);
+        } catch (e: any) {
+          setRvReady(false);
+          setRvErr(e?.message || "rv set failed");
+        }
+      });
+    }
+    tryFind(0);
+
+    const onResize = () => { try { rv.relayout(); } catch {} };
+    window.addEventListener("resize", onResize);
+    return () => {
+      canceled = true;
+      window.removeEventListener("resize", onResize);
+    };
+  }, [selected?.lat, selected?.lng]);
+
+  // ✅ 최종 썸네일: DB imageUrl > 상품명 매핑(ASSET_BASE) > 플레이스홀더/Unsplash
+  const fallbackImg =
+    selected?.imageUrl ||
+    fileByProductName(selected?.productName) ||
+    PLACEHOLDER ||
+    "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?q=80&w=1600&auto=format&fit=crop";
+
   return (
-    <aside className="fixed top-16 left-0 bottom-0 z-[20] w-full md:w-[720px] bg-white border-r border-neutral-200 overflow-y-auto">
-      {/* 검색바 (옵션) */}
-      <div className="px-4 pt-3 pb-2 border-b border-neutral-100 flex gap-2">
-        <input
-          defaultValue={initialQuery}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") onSearch((e.target as HTMLInputElement).value);
-          }}
-          placeholder="지역/아파트 검색"
-          className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none focus:border-violet-500"
-        />
-        <button
-          onClick={() => {
-            const el = document.querySelector<HTMLInputElement>("aside input");
-            onSearch(el?.value || "");
-          }}
-          className="px-3 py-2 text-sm rounded-lg bg-violet-600 text-white"
-        >
-          검색
-        </button>
+    <>
+      {/* 상단 바 */}
+      <div className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-[#E5E7EB] z-[60]">
+        <div className="h-full flex items-center px-6">
+          <div className="text-xl font-bold text-black">응답하라-입주민이여</div>
+        </div>
       </div>
 
-      {/* 선택 상세 */}
-      {selected ? (
-        <div className="px-5 py-5 space-y-16">
-          {/* 헤더 + 미디어 */}
-          <section>
-            <div className="relative w-full aspect-[16/9] rounded-xl overflow-hidden bg-neutral-100">
-              {selected.imageUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={selected.imageUrl}
-                  alt={selected.name ?? ""}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="w-full h-full bg-neutral-100" />
-              )}
+      {/* 1탭 (왼쪽 고정) */}
+      <aside className="hidden md:block fixed top-16 bottom-0 left-0 w-[360px] z-[60] pointer-events-none" data-tab="1">
+        <div className="h-full px-6 py-5">
+          <div className="pointer-events-auto flex flex-col gap-4">
+            {/* 칩 */}
+            <div className="flex items-center gap-2">
+              <span className="inline-flex h-8 items-center rounded-full border border-[#E5E7EB] bg-white px-3 text-xs text-[#111827]">시·군·구 단위</span>
+              <span className="inline-flex h-8 items-center rounded-full border border-[#E5E7EB] bg-white px-3 text-xs text-[#111827]">패키지 문의</span>
+              <span className="inline-flex h-8 items-center rounded-full bg-[#6C2DFF] px-3 text-xs text-white">1551 - 1810</span>
+            </div>
+
+            {/* 검색 */}
+            <div className="relative">
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && runSearch()}
+                className="w-full h-12 rounded-[10px] border border-[#E5E7EB] bg-white pl-4 pr-12 text-sm placeholder:text-[#757575] outline-none focus:ring-2 focus:ring-[#C7B8FF]"
+                placeholder="지역명, 아파트 이름, 단지명, 건물명을 입력해주세요"
+              />
               <button
-                onClick={onCloseSelected}
-                className="absolute top-3 right-3 w-9 h-9 rounded-full bg-white/90 shadow flex items-center justify-center text-neutral-700 hover:bg-white"
-                aria-label="close"
-                title="닫기"
+                type="button"
+                onClick={runSearch}
+                className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-8 w-8 items-center justify-center rounded-md bg-[#6C2DFF]"
+                aria-label="검색"
               >
-                ×
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <circle cx="11" cy="11" r="7" stroke="white" strokeWidth="2" />
+                  <path d="M20 20L17 17" stroke="white" strokeWidth="2" strokeLinecap="round" />
+                </svg>
               </button>
             </div>
 
-            <div className="mt-4">
-              {/* N1 단지명 */}
-              <h1 className="text-2xl font-extrabold tracking-tight">
-                {selected.name ?? "—"}
-              </h1>
-              {/* N4 · N5 */}
-              <p className="mt-1 text-neutral-500">
-                {fmtNum(selected.households, "세대")} · 거주인원 {fmtNum(selected.residents, "명")}
-              </p>
+            {/* 총 비용 (자리만) */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold text-black">
+                  총 비용 <span className="text-xs text-[#757575]">(VAT별도)</span>
+                </div>
+                <div className="text-xs text-[#757575]">총 0건</div>
+              </div>
+              <div className="h-10 rounded-[10px] bg-[#F4F0FB] flex items-center px-3 text-sm font-semibold text-[#6C2DFF]">
+                0원 (VAT별도)
+              </div>
             </div>
 
-            {/* 가격 카드 */}
-            <div className="mt-6 rounded-xl border border-neutral-200 overflow-hidden">
-              {/* 일반 월 광고료 (비활성 스타일) */}
-              <div className="px-4 py-4 bg-neutral-50 flex items-center justify-between">
-                <div className="text-neutral-600">월 광고료</div>
-                <div className="text-neutral-500">{fmtWon(selected.monthlyFee)} <span className="text-neutral-400">(VAT별도)</span></div>
+            {/* 빈 카드 */}
+            <div className="rounded-2xl border border-[#E5E7EB] bg-white p-5">
+              <div className="h-60 rounded-xl border border-[#E5E7EB] bg-[#FAFAFA] flex flex-col items-center justify-center text-[#6B7280]">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="#6C2DFF" className="mb-2">
+                  <path d="M3 21V8a1 1 0 0 1 1-1h6V4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v17H3Z" opacity=".2" />
+                  <path d="M3 21V8a1 1 0 0 1 1-1h6V4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v17" fill="none" stroke="#6C2DFF" strokeWidth="1.5"/>
+                  <path d="M6 10h2M6 13h2M6 16h2M13 7h2M13 10h2M13 13h2M13 16h2" stroke="#6C2DFF" strokeWidth="1.5" strokeLinecap="round"/>
+                </svg>
+                <div className="text-sm text-center leading-relaxed">
+                  광고를 원하는<br/>아파트단지를 담아주세요!
+                </div>
               </div>
-              {/* 1년 계약 시 월 광고료 (선택 가능) */}
-              <label className="px-4 py-4 flex items-center justify-between gap-3 border-t border-neutral-200 cursor-pointer">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={useAnnual}
-                    onChange={(e) => setUseAnnual(e.target.checked)}
-                    className="w-4 h-4 accent-violet-600"
-                  />
-                  <span className="font-medium">1년 계약 시 월 광고료</span>
-                </div>
-                <div className="text-violet-600 font-semibold">
-                  {fmtWon(selected.monthlyFeeY1)} <span className="text-neutral-400 font-normal">(VAT별도)</span>
-                </div>
-              </label>
+            </div>
+          </div>
+        </div>
+      </aside>
 
-              {/* 담기 버튼 */}
-              <div className="px-4 pb-4">
+      {/* 2탭 (오른쪽) */}
+      {selected && (
+        <aside className="hidden md:block fixed top-16 bottom-0 left-[360px] w-[360px] z-[60] pointer-events-none" data-tab="2">
+          <div className="h-full px-6 py-5">
+            <div className="pointer-events-auto flex flex-col gap-4">
+              {/* 썸네일: 로드뷰 > 이미지 폴백 */}
+              <div className="rounded-2xl overflow-hidden border border-[#E5E7EB] bg-[#F3F4F6]">
+                <div className="relative w-full aspect-[4/3]">
+                  <div ref={roadviewRef} className={`absolute inset-0 ${rvReady ? "" : "hidden"}`} aria-label="roadview" />
+                  {!rvReady && (
+                    <img src={fallbackImg} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                  )}
+                </div>
+              </div>
+
+              {/* 타이틀 + 메타 + 닫기 */}
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="text-xl font-bold text-black truncate">{selected.name}</div>
+                  <div className="mt-1 text-sm text-[#6B7280]">
+                    {fmtNum(selected.households, "세대")} · {fmtNum(selected.residents, "명")}
+                  </div>
+                </div>
                 <button
-                  className="mt-3 w-full h-12 rounded-xl bg-violet-600 text-white font-semibold hover:bg-violet-700 transition"
-                  onClick={() => {
-                    // 필요한 액션이 있으면 여기서 처리
-                    console.log("담기:", { selected, useAnnual, price: activePriceText });
-                  }}
+                  onClick={onCloseSelected}
+                  className="ml-3 inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB]"
+                  aria-label="닫기"
                 >
-                  아파트 담기
+                  <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" fill="none">
+                    <path d="M6 6L18 18M6 18L18 6" strokeWidth="2" strokeLinecap="round" />
+                  </svg>
                 </button>
               </div>
-            </div>
-          </section>
 
-          {/* 상세정보 */}
-          <section>
-            <h2 className="text-lg font-bold mb-3">상세정보</h2>
-            <div className="divide-y divide-neutral-200 rounded-xl border border-neutral-200 overflow-hidden">
-              {/* N2 상품명 */}
-              <div className="px-4 py-3 flex items-center justify-between">
-                <div className="text-neutral-500">상품명</div>
-                <div className="flex items-center gap-3">
-                  <span className="font-semibold text-violet-600 max-w-[220px] truncate">{selected.productName ?? "—"}</span>
-                  <button className="px-3 py-1.5 text-sm rounded-md border border-neutral-300 hover:bg-neutral-50">
-                    상세보기
-                  </button>
+              {/* 가격 */}
+              <div className="rounded-2xl border border-[#E5E7EB] bg-white p-4">
+                <div className="flex items-center justify-between">
+                  <div className="text-[#6B7280]">월 광고료</div>
+                  <div className="text-lg font-semibold text-black">
+                    {fmtWon(selected.monthlyFee)} <span className="font-normal text-[#111827]">(VAT별도)</span>
+                  </div>
                 </div>
+                <div className="mt-4 rounded-xl border border-[#C8B6FF] bg-[#F4F0FB] p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <input type="checkbox" className="accent-[#6C2DFF]" defaultChecked />
+                      <span className="text-sm font-medium text-[#6C2DFF]">1년 계약 시 월 광고료</span>
+                    </div>
+                    <div className="text-base font-bold text-[#6C2DFF]">
+                      {fmtWon(selected.monthlyFeeY1)} <span className="font-medium text-[#6C2DFF]">(VAT별도)</span>
+                    </div>
+                  </div>
+                </div>
+                <button className="mt-4 h-12 w-full rounded-xl bg-[#6C2DFF] text-white font-semibold">아파트 담기</button>
               </div>
 
-              {/* N6 모니터 수량 */}
-              <div className="px-4 py-3 flex items-center justify-between">
-                <div className="text-neutral-500">모니터 수량</div>
-                <div className="font-semibold">{fmtNum(selected.monitors, "대")}</div>
+              {/* 상세정보 */}
+              <div className="rounded-2xl border border-[#E5E7EB] bg-white">
+                <div className="px-4 py-3 text-base font-semibold text-black border-b border-[#F3F4F6]">상세정보</div>
+                <dl className="px-4 py-2 text-sm">
+                  <Row label="상품명">
+                    <span className="text-[#6C2DFF] font-semibold">{selected.productName || "—"}</span>
+                    <button className="ml-2 inline-flex h-7 px-2 rounded border border-[#E5E7EB] text-xs">상세보기</button>
+                  </Row>
+                  <Row label="세대수">{fmtNum(selected.households, "세대")}</Row>
+                  <Row label="거주인원">{fmtNum(selected.residents, "명")}</Row>
+                  <Row label="모니터 수량">{fmtNum(selected.monitors, "대")}</Row>
+                  <Row label="월 송출횟수">{fmtNum(selected.monthlyImpressions, "회")}</Row>
+                  <Row label="운영 시간">{selected.hours || "—"}</Row>
+                  <Row label="주소">{selected.address || "—"}</Row>
+                </dl>
               </div>
 
-              {/* N7 월 송출횟수 */}
-              <div className="px-4 py-3 flex items-center justify-between">
-                <div className="text-neutral-500">월 송출횟수</div>
-                <div className="font-semibold">{fmtNum(selected.monthlyImpressions, "회")}</div>
-              </div>
-
-              {/* N8 월 광고료 */}
-              <div className="px-4 py-3 flex items-center justify-between">
-                <div className="text-neutral-500">월 광고료</div>
-                <div className="font-semibold">{fmtWon(selected.monthlyFee)}</div>
-              </div>
-
-              {/* N9 1회 당 송출비용 */}
-              <div className="px-4 py-3 flex items-center justify-between">
-                <div className="text-neutral-500">1회 당 송출비용</div>
-                <div className="font-semibold">{fmtWon(selected.perPlayCost)}</div>
-              </div>
-
-              {/* N10 운영 시간 */}
-              <div className="px-4 py-3 flex items-center justify-between">
-                <div className="text-neutral-500">운영 시간</div>
-                <div className="font-semibold">{selected.hours ?? "—"}</div>
-              </div>
-
-              {/* N11 주소 */}
-              <div className="px-4 py-3 flex items-center justify-between">
-                <div className="text-neutral-500">주소</div>
-                <div className="font-semibold max-w-[420px] truncate">{selected.address ?? "—"}</div>
-              </div>
+              {!rvReady && rvErr && (
+                <div className="text-xs text-[#9CA3AF] px-1">주변 로드뷰가 없어 준비된 이미지를 표시했습니다.</div>
+              )}
             </div>
-          </section>
-        </div>
-      ) : (
-        // 선택 없을 때 간단 가이드
-        <div className="p-6 text-sm text-neutral-500">지도의 마커를 클릭하면 상세 정보가 여기에 나타납니다.</div>
+          </div>
+        </aside>
       )}
-    </aside>
+    </>
   );
 }
 
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between py-3 border-b border-[#F3F4F6] last:border-b-0">
+      <dt className="text-[#6B7280]">{label}</dt>
+      <dd className="text-black text-right max-w-[55%] truncate">{children}</dd>
+    </div>
+  );
+}
