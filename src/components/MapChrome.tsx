@@ -4,8 +4,8 @@ import React, { useEffect, useState } from "react";
 export type SelectedApt = {
   name: string;                // 단지명
   address?: string;            // 주소
-  productName?: string;        // 상품명
-  installLocation?: string;    // 설치 위치
+  productName?: string;        // 상품명 (예: TOWNBORD, MEDIAMEET, ELEVATOR TV ...)
+  installLocation?: string;    // 설치 위치 (예: EV 내부, EV 대기공간)
   monitors?: number;           // 모니터 수량
   monthlyImpressions?: number; // 월 송출횟수
   costPerPlay?: number;        // 송출 1회당 비용
@@ -13,7 +13,7 @@ export type SelectedApt = {
   households?: number;         // 세대수
   residents?: number;          // 거주인원
   monthlyFee?: number;         // 월 광고료 (VAT별도)
-  monthlyFeeY1?: number;       // 1년 계약 시 월 광고료 (VAT별도)
+  monthlyFeeY1?: number;       // 1년 계약 시 월 광고료 (DB 값이 있으면 표시 우선)
   imageUrl?: string;           // DB 썸네일
   lat: number;
   lng: number;
@@ -26,48 +26,113 @@ type Props = {
   initialQuery?: string;
 };
 
-/** 정적 에셋 베이스 (Vite: public은 루트로 서빙됨) */
+/** 정적 에셋 경로 */
 const PRIMARY_ASSET_BASE =
   (import.meta as any).env?.VITE_ASSET_BASE || "/products/";
-/** 선택적 대체 베이스(예: GitHub Raw) — 없으면 사용 안 함 */
 const FALLBACK_ASSET_BASE =
   (import.meta as any).env?.VITE_ASSET_BASE_FALLBACK || "";
-
 const PLACEHOLDER = "/placeholder.svg";
 
-/** 일반 키워드 → 파일 매핑 (특수 케이스 제외) */
-const PRODUCT_IMAGE_MAP: { keywords: string[]; file: string }[] = [
-  { keywords: ["엘리베이터tv", "elevatortv", "elevator"], file: "elevator-tv.png" },
-  // 타운보드/미디어밋은 설치위치에 따라 분기하므로 여기선 기본 매핑을 넣지 않음
-  { keywords: ["하이포스트", "hipost", "hi-post"], file: "hi-post.png" },
-  { keywords: ["스페이스", "space", "거실", "living"], file: "space-living.png" },
-];
-
-/** 문자열 정규화(공백 제거 + 소문자) */
+/** 문자열 정규화 */
 const norm = (s?: string) => (s ? s.replace(/\s+/g, "").toLowerCase() : "");
 
-/** 상품명/설치위치로 썸네일 파일 결정 */
+/** 썸네일 매핑(상품+설치위치 분기) */
 function resolveProductFile(productName?: string, installLocation?: string): string | undefined {
   const pn = norm(productName);
-  const loc = norm(installLocation); // "ev내부" / "ev대기공간" 등을 기대
+  const loc = norm(installLocation);
 
-  // 1) TOWNBORD: 설치위치에 따라 a/b
+  // TOWNBORD: 설치위치로 L/S 분기
   if (pn.includes("townbord") || pn.includes("townboard") || pn.includes("타운보드")) {
-    if (loc.includes("ev내부")) return "townbord-a.png";
-    if (loc.includes("ev대기공간")) return "townbord-b.png";
+    if (loc.includes("ev내부")) return "townbord-a.png";       // L
+    if (loc.includes("ev대기공간")) return "townbord-b.png";   // S
   }
 
-  // 2) MEDIAMEET: 설치위치에 따라 a/b
+  // MEDIAMEET: a/b 무관히 존재 (설치위치 따라 a/b 썸네일)
   if (pn.includes("mediameet") || pn.includes("media-meet") || pn.includes("미디어")) {
     if (loc.includes("ev내부")) return "media-meet-a.png";
     if (loc.includes("ev대기공간")) return "media-meet-b.png";
+    return "media-meet-a.png";
   }
 
-  // 3) 그 외: 일반 키워드 매핑
-  const hit = PRODUCT_IMAGE_MAP.find(({ keywords }) =>
-    keywords.some((k) => pn.includes(norm(k)))
-  );
-  return hit?.file;
+  if (pn.includes("엘리베이터tv") || pn.includes("elevatortv") || pn.includes("elevator"))
+    return "elevator-tv.png";
+  if (pn.includes("hipost") || pn.includes("hi-post") || pn.includes("하이포스트"))
+    return "hi-post.png";
+  if (pn.includes("spaceliving") || pn.includes("스페이스") || pn.includes("living"))
+    return "space-living.png";
+
+  return undefined;
+}
+
+/** ----- 할인 정책 -----
+ * 기본값은 아래 객체, 환경변수 VITE_DISCOUNT_POLICY_JSON 로 JSON을 주면 덮어씀.
+ *   키: 제품 타입
+ *     - "ELEVATOR TV"
+ *     - "TOWNBORD_L" / "TOWNBORD_S"
+ *     - "MEDIA MEET"
+ *     - "HI-POST"
+ *     - "SPACE LIVING"
+ *   값: 0.3 => 30% 할인
+ */
+const DEFAULT_DISCOUNT_POLICY: Record<string, number> = {
+  "ELEVATOR TV": 0.20,
+  "TOWNBORD_S": 0.20,
+  "TOWNBORD_L": 0.30,
+  "MEDIA MEET": 0.30,
+  "HI-POST": 0.10,
+  "SPACE LIVING": 0.30,
+};
+function loadDiscountPolicy(): Record<string, number> {
+  const raw = (import.meta as any).env?.VITE_DISCOUNT_POLICY_JSON as string | undefined;
+  if (!raw) return DEFAULT_DISCOUNT_POLICY;
+  try {
+    const parsed = JSON.parse(raw);
+    return { ...DEFAULT_DISCOUNT_POLICY, ...parsed };
+  } catch {
+    console.warn("[discount] Failed to parse VITE_DISCOUNT_POLICY_JSON, using defaults");
+    return DEFAULT_DISCOUNT_POLICY;
+  }
+}
+const DISCOUNT_POLICY = loadDiscountPolicy();
+
+/** 제품 타입 분류: 할인 정책 키로 변환 */
+function classifyProductForDiscount(productName?: string, installLocation?: string): string | undefined {
+  const pn = norm(productName);
+  const loc = norm(installLocation);
+
+  if (pn.includes("elevatortv") || pn.includes("엘리베이터tv") || pn.includes("elevator"))
+    return "ELEVATOR TV";
+
+  if (pn.includes("townbord") || pn.includes("townboard") || pn.includes("타운보드")) {
+    if (loc.includes("ev내부")) return "TOWNBORD_L";
+    if (loc.includes("ev대기공간")) return "TOWNBORD_S";
+    // 위치 미지정시 보수적으로 S로 간주
+    return "TOWNBORD_S";
+  }
+
+  if (pn.includes("mediameet") || pn.includes("media-meet") || pn.includes("미디어"))
+    return "MEDIA MEET";
+
+  if (pn.includes("hipost") || pn.includes("hi-post") || pn.includes("하이포스트"))
+    return "HI-POST";
+
+  if (pn.includes("spaceliving") || pn.includes("스페이스") || pn.includes("living"))
+    return "SPACE LIVING";
+
+  return undefined;
+}
+
+/** 월 광고료와 분류로 1년가 계산 */
+function calcYearlyMonthlyFee(baseMonthly?: number, productName?: string, installLocation?: string): number | undefined {
+  if (typeof baseMonthly !== "number" || !Number.isFinite(baseMonthly)) return undefined;
+  const key = classifyProductForDiscount(productName, installLocation);
+  if (!key) return undefined;
+  const rate = DISCOUNT_POLICY[key];
+  if (typeof rate !== "number") return undefined;
+  // 기본 공식: 월광고료 × (1 - 할인율)
+  const discounted = baseMonthly * (1 - rate);
+  // 통일감을 위해 원단위 반올림
+  return Math.round(discounted);
 }
 
 export default function MapChrome({ selected, onCloseSelected, onSearch, initialQuery }: Props) {
@@ -88,11 +153,17 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
   const fmtWon = (n?: number) =>
     typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() : "—";
 
-  // 썸네일: DB > 상품명+설치위치 분기(로컬) > (옵션)대체베이스 > 플레이스홀더
+  // 썸네일: DB > 상품/위치 분기 > (옵션)대체베이스 > 플레이스홀더
   const matchedFile = resolveProductFile(selected?.productName, selected?.installLocation);
   const initialThumb =
     selected?.imageUrl ||
     (matchedFile ? PRIMARY_ASSET_BASE + matchedFile : PLACEHOLDER);
+
+  // 1년가 계산: DB 값이 있으면 우선, 없으면 정책으로 계산
+  const computedY1 =
+    typeof selected?.monthlyFeeY1 === "number" && Number.isFinite(selected.monthlyFeeY1)
+      ? selected.monthlyFeeY1
+      : calcYearlyMonthlyFee(selected?.monthlyFee, selected?.productName, selected?.installLocation);
 
   return (
     <>
@@ -184,7 +255,6 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
                     alt={selected.productName || ""}
                     onError={(e) => {
                       const img = e.currentTarget;
-                      // 로컬 실패 시 폴백 베이스가 있으면 재시도
                       if (
                         matchedFile &&
                         FALLBACK_ASSET_BASE &&
@@ -195,7 +265,6 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
                         img.src = FALLBACK_ASSET_BASE + matchedFile;
                         return;
                       }
-                      // 최종 폴백
                       if (!img.src.endsWith(PLACEHOLDER)) {
                         img.onerror = null;
                         img.src = PLACEHOLDER;
@@ -235,10 +304,11 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
                 </div>
               </div>
 
+              {/* 1년 계약 시 월 광고료 (정책 기반 계산값) */}
               <div className="rounded-2xl border border-[#7C3AED] bg-[#F4F0FB] h-14 px-4 flex items-center justify-between text-[#7C3AED]">
                 <span className="text-sm font-medium">1년 계약 시 월 광고료</span>
                 <span className="text-base font-bold">
-                  {fmtWon(selected.monthlyFeeY1)} <span className="font-medium">(VAT별도)</span>
+                  {fmtWon(computedY1)} <span className="font-medium">(VAT별도)</span>
                 </span>
               </div>
 
@@ -287,3 +357,4 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
     </div>
   );
 }
+
