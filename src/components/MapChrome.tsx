@@ -2,30 +2,19 @@
 import React, { useEffect, useState } from "react";
 
 export type SelectedApt = {
-  // 기본 정보
   name: string;                // 단지명
   address?: string;            // 주소
-
-  // 상품/운영 정보
   productName?: string;        // 상품명
   installLocation?: string;    // 설치 위치
   monitors?: number;           // 모니터 수량
   monthlyImpressions?: number; // 월 송출횟수
   costPerPlay?: number;        // 송출 1회당 비용
   hours?: string;              // 운영 시간
-
-  // 지표
   households?: number;         // 세대수
   residents?: number;          // 거주인원
-
-  // 가격
   monthlyFee?: number;         // 월 광고료 (VAT별도)
   monthlyFeeY1?: number;       // 1년 계약 시 월 광고료 (VAT별도)
-
-  // 이미지
   imageUrl?: string;           // DB 썸네일
-
-  // 좌표
   lat: number;
   lng: number;
 };
@@ -37,19 +26,23 @@ type Props = {
   initialQuery?: string;
 };
 
-/** 정적 에셋 베이스 (Vite: public 폴더는 루트로 서빙됨) */
+/** 정적 에셋 베이스 (Vite: public 폴더는 루트로 서빙) */
 const ASSET_BASE = (import.meta as any).env?.VITE_ASSET_BASE || "/products/";
 const PLACEHOLDER = "/placeholder.svg";
 
-/** ✅ 상품명 키워드 → 이미지 파일 매핑
- *  - 좌측 키워드는 공백제거/소문자 기준으로 includes 매칭
- *  - 파일은 public/products/ 에 넣고 GitHub로 커밋
- *  - 필요시 자유롭게 추가/수정
+/** ✅ 상품명 키워드 → 깃허브에 있는 실제 파일명으로 매핑
+ *  public/products/ 에 커밋된 파일 목록(스샷 기준):
+ *  - elevator-tv.png
+ *  - hi-post.png
+ *  - media-meet-a.png / media-meet-b.png
+ *  - space-living.png
+ *  - townbord-a.png  (타운보드 L)
+ *  - townbord-b.png  (타운보드 S)
  */
 const PRODUCT_IMAGE_MAP: { keywords: string[]; file: string }[] = [
   { keywords: ["엘리베이터tv", "elevatortv", "elevator"], file: "elevator-tv.png" },
-  { keywords: ["타운보드l", "townboardl", "townboard l", "tbl"], file: "townboard-l.png" },
-  { keywords: ["타운보드s", "townboards", "townboard s", "tbs"], file: "townboard-s.png" },
+  { keywords: ["타운보드l", "타운보드 l", "townboardl", "townboard l", "tbl", "townbord-a"], file: "townbord-a.png" },
+  { keywords: ["타운보드s", "타운보드 s", "townboards", "townboard s", "tbs", "townbord-b"], file: "townbord-b.png" },
   { keywords: ["하이포스트", "hipost", "hi-post"], file: "hi-post.png" },
   { keywords: ["스페이스", "space", "거실", "living"], file: "space-living.png" },
   { keywords: ["미디어", "media"], file: "media-meet-a.png" },
@@ -75,7 +68,7 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
     onSearch?.(q);
   };
 
-  // 숫자 + 단위 사이 1칸 공백
+  // 숫자 + 단위 사이 공백 1칸
   const fmtNum = (n?: number, unit = "") =>
     typeof n === "number" && Number.isFinite(n)
       ? n.toLocaleString() + (unit ? " " + unit : "")
@@ -169,12 +162,12 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
           {/* 작은 모니터에서도 스크롤 가능 */}
           <div className="h-full px-6 py-5 max-h-[calc(100vh-4rem)] overflow-y-auto">
             <div className="pointer-events-auto flex flex-col gap-4">
-              {/* 썸네일: DB > 상품매칭 > 플레이스홀더. 파일 없으면 onError로 플레이스홀더 폴백 */}
+              {/* 썸네일: DB > 상품매칭 > 플레이스홀더. 파일 없으면 onError로 폴백 */}
               <div className="rounded-2xl overflow-hidden border border-[#E5E7EB] bg-[#F3F4F6]">
                 <div className="relative w-full aspect-[4/3]">
                   <img
                     src={thumb}
-                    alt=""
+                    alt={selected.productName || ""}
                     onError={(e) => {
                       const img = e.currentTarget;
                       if (img.src.endsWith(PLACEHOLDER)) return;
@@ -209,23 +202,22 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
 
               {/* 가격 박스 */}
               <div className="rounded-2xl border border-[#E5E7EB] bg-white p-0 overflow-hidden">
-                <div className="flex items-center justify-between px-4 h-14 border-b border-[#F3F4F6]">
+                {/* 월 광고료 행 */}
+                <div className="flex items-center justify-between px-4 h-14 border-b border-[#F3F4F6] bg-[#F6F7FB]">
                   <div className="text-[#6B7280]">월 광고료</div>
                   <div className="text-lg font-semibold text-black">
                     {fmtWon(selected.monthlyFee)} <span className="font-normal text-[#111827]">(VAT별도)</span>
                   </div>
                 </div>
 
-                <div className="m-4 rounded-xl border border-[#7C3AED] text-[#7C3AED]">
-                  <label className="flex items-center justify-between px-3 h-12">
-                    <span className="flex items-center gap-2">
-                      <input type="checkbox" className="accent-[#6C2DFF]" defaultChecked />
-                      <span className="text-sm font-medium">1년 계약 시 월 광고료</span>
-                    </span>
+                {/* 1년 계약 시 월 광고료 - 스샷 #3 스타일 (체크박스 제거, 연보라 배경+보라 텍스트) */}
+                <div className="mx-4 my-4 rounded-xl border border-[#7C3AED] bg-[#F4F0FB]">
+                  <div className="flex items-center justify-between px-3 h-12 text-[#7C3AED]">
+                    <span className="text-sm font-medium">1년 계약 시 월 광고료</span>
                     <span className="text-base font-bold">
                       {fmtWon(selected.monthlyFeeY1)} <span className="font-medium">(VAT별도)</span>
                     </span>
-                  </label>
+                  </div>
                 </div>
 
                 <div className="px-4 pb-4">
@@ -237,25 +229,20 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
               <div className="rounded-2xl border border-[#E5E7EB] bg-white overflow-hidden">
                 <div className="px-4 py-3 text-base font-semibold text-black border-b border-[#F3F4F6]">상세정보</div>
                 <dl className="px-4 py-2 text-sm">
-                  {/* 상품명: 줄바꿈 허용 */}
                   <Row label="상품명">
                     <span className="text-[#6C2DFF] font-semibold whitespace-pre-wrap break-words">
                       {selected.productName || "—"}
                     </span>
                   </Row>
-
                   <Row label="설치 위치">
                     <span className="whitespace-pre-wrap break-words">{selected.installLocation || "—"}</span>
                   </Row>
-
                   <Row label="모니터 수량">{fmtNum(selected.monitors, "대")}</Row>
                   <Row label="월 송출횟수">{fmtNum(selected.monthlyImpressions, "회")}</Row>
                   <Row label="송출 1회당 비용">{fmtNum(selected.costPerPlay, "원")}</Row>
-
                   <Row label="운영 시간">
                     <span className="whitespace-pre-wrap break-words">{selected.hours || "—"}</span>
                   </Row>
-
                   <Row label="주소">
                     <span className="whitespace-pre-wrap break-words">{selected.address || "—"}</span>
                   </Row>
@@ -273,8 +260,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   return (
     <div className="flex items-start justify-between py-3 border-b border-[#F3F4F6] last:border-b-0">
       <dt className="text-[#6B7280]">{label}</dt>
-      {/* 줄임표 제거 + 줄바꿈/단어줄바꿈 허용 */}
-      <dd className="text-black text-right leading-relaxed max-w-[60%] whitespace-pre-wrap break-words">
+      <dd className="text-black text-right leading-relaxed max-w={[60 as any] + '%'} whitespace-pre-wrap break-words">
         {children}
       </dd>
     </div>
