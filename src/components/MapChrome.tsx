@@ -1,18 +1,37 @@
 // src/components/MapChrome.tsx
 import React, { useEffect, useRef, useState } from "react";
 
+/** ─────────────────────────────────────────────────────────
+ * N열 매핑 (테이블 열 순서 그대로)
+ * N1 = 단지명
+ * N2 = 상품명
+ * N3 = 설치위치
+ * N4 = 세대수
+ * N5 = 거주인원
+ * N6 = 모니터 수량
+ * N7 = 월 송출횟수
+ * N8 = 월 광고료
+ * N9 = 1회 당 송출비용
+ * N10 = 운영시간
+ * N11 = 주소
+ * ───────────────────────────────────────────────────────── */
+
 export type SelectedApt = {
-  name: string;               // 단지명
-  address?: string;           // 주소
-  productName?: string;       // 상품명
-  households?: number;        // 세대수
-  residents?: number;         // 거주인원
-  monitors?: number;          // 모니터수량
-  monthlyImpressions?: number;// 월 송출횟수
-  hours?: string;             // 운영시간
-  monthlyFee?: number;        // 월 광고료 (VAT별도)
-  monthlyFeeY1?: number;      // 1년 계약 시 월 광고료 (VAT별도)
-  imageUrl?: string;          // DB 이미지 URL(있으면 최우선)
+  name: string;                // N1
+  productName?: string;        // N2
+  installLocation?: string;    // N3
+  households?: number;         // N4
+  residents?: number;          // N5
+  monitors?: number;           // N6
+  monthlyImpressions?: number; // N7
+  monthlyFee?: number;         // N8
+  costPerPlay?: number;        // N9
+  hours?: string;              // N10
+  address?: string;            // N11
+
+  // 추가 필드
+  monthlyFeeY1?: number;       // 1년 계약 시 월 광고료 (없으면 monthlyFee 그대로)
+  imageUrl?: string;           // DB 이미지 URL(있으면 최우선)
   lat: number;
   lng: number;
 };
@@ -28,30 +47,13 @@ type Props = {
 const ASSET_BASE = (import.meta as any).env?.VITE_ASSET_BASE || "/products/";
 const PLACEHOLDER = "/placeholder.svg";
 
-/** 상품명 → 파일명 매핑 (지금 레포에 있는 파일명 기준) */
+/** 상품명 → 파일명 매핑 (레포 내 파일명 기준) */
 const PRODUCT_IMAGE_MAP: { match: (n: string) => boolean; file: string }[] = [
-  // 엘리베이터 TV
-  {
-    match: (n) =>
-      n.includes("엘리베이터tv") || n.includes("elevatortv") || n.includes("elevator"),
-    file: "elevator-tv.png",
-  },
-  // 타운보드 L / S (레포 파일명이 townbord-*.png 인 점 주의)
-  {
-    match: (n) =>
-      n.includes("타운보드l") || n.includes("townboardl") || n.includes("townbord-a"),
-    file: "townbord-a.png",
-  },
-  {
-    match: (n) =>
-      n.includes("타운보드s") || n.includes("townboards") || n.includes("townbord-b"),
-    file: "townbord-b.png",
-  },
-  // 하이포스트
-  { match: (n) => n.includes("하이포스트") || n.includes("hipost") || n.includes("hi-post"), file: "hi-post.png" },
-  // 공간/거실 이미지
+  { match: (n) => n.includes("엘리베이터tv") || n.includes("elevatortv") || n.includes("elevator"), file: "elevator-tv.png" },
+  { match: (n) => n.includes("타운보드l") || n.includes("townboardl") || n.includes("townbord-a"), file: "townbord-a.png" },
+  { match: (n) => n.includes("타운보드s") || n.includes("townboards") || n.includes("townbord-b"), file: "townbord-b.png" },
+  { match: (n) => n.includes("하イ포스트") || n.includes("하이포스트") || n.includes("hipost") || n.includes("hi-post"), file: "hi-post.png" },
   { match: (n) => n.includes("스페이스") || n.includes("space") || n.includes("living"), file: "space-living.png" },
-  // 미디어 미팅 (두 장 중 하나 우선)
   { match: (n) => n.includes("미디어") || n.includes("media"), file: "media-meet-a.png" },
 ];
 
@@ -62,22 +64,14 @@ function fileByProductName(productName?: string): string | undefined {
   return hit ? `${ASSET_BASE}${hit.file}` : undefined;
 }
 
-export default function MapChrome({ selected, onCloseSelected, onSearch, initialQuery }: Props) {
-  const [query, setQuery] = useState(initialQuery || "");
-  useEffect(() => setQuery(initialQuery || ""), [initialQuery]);
+/** 숫자/화폐 포맷 */
+const fmtNum = (n?: number, unit = "") =>
+  typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() + unit : "—";
+const fmtWon = (n?: number) =>
+  typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() : "—";
 
-  const runSearch = () => {
-    const q = query.trim();
-    if (!q) return;
-    onSearch?.(q);
-  };
-
-  const fmtNum = (n?: number, unit = "") =>
-    typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() + unit : "—";
-  const fmtWon = (n?: number) =>
-    typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() : "—";
-
-  // ---------- 로드뷰(있으면 사용, 없으면 이미지 폴백) ----------
+/** 선택행 → 썸네일 결정 (로드뷰 없을 때 폴백) */
+function useRoadview(selected?: SelectedApt | null) {
   const roadviewRef = useRef<HTMLDivElement | null>(null);
   const [rvReady, setRvReady] = useState(false);
   const [rvErr, setRvErr] = useState<string | null>(null);
@@ -131,12 +125,57 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
     };
   }, [selected?.lat, selected?.lng]);
 
+  return { roadviewRef, rvReady, rvErr };
+}
+
+/** (선택) N열 배열 한 줄을 SelectedApt로 매핑하는 헬퍼 */
+export function selectedAptFromN(row: (string | number | null | undefined)[]) : SelectedApt {
+  const num = (v: any) => {
+    if (v === null || v === undefined || v === "") return undefined;
+    const n = typeof v === "number" ? v : Number(String(v).replace(/[^\d.-]/g, ""));
+    return Number.isFinite(n) ? n : undefined;
+  };
+  return {
+    name: String(row[0] ?? ""),                     // N1
+    productName: row[1]?.toString(),                // N2
+    installLocation: row[2]?.toString(),            // N3
+    households: num(row[3]),                        // N4
+    residents: num(row[4]),                         // N5
+    monitors: num(row[5]),                          // N6
+    monthlyImpressions: num(row[6]),                // N7
+    monthlyFee: num(row[7]),                        // N8
+    costPerPlay: num(row[8]),                       // N9
+    hours: row[9]?.toString(),                      // N10
+    address: row[10]?.toString(),                   // N11
+    // 아래 3개는 별도 소스에서 채워 넣어야 함
+    lat: num((row as any).lat) ?? 0,
+    lng: num((row as any).lng) ?? 0,
+    imageUrl: (row as any).imageUrl,
+    monthlyFeeY1: num((row as any).monthlyFeeY1),
+  };
+}
+
+export default function MapChrome({ selected, onCloseSelected, onSearch, initialQuery }: Props) {
+  const [query, setQuery] = useState(initialQuery || "");
+  useEffect(() => setQuery(initialQuery || ""), [initialQuery]);
+
+  const runSearch = () => {
+    const q = query.trim();
+    if (!q) return;
+    onSearch?.(q);
+  };
+
+  const { roadviewRef, rvReady, rvErr } = useRoadview(selected);
+
   // ✅ 최종 썸네일: DB imageUrl > 상품명 매핑(ASSET_BASE) > 플레이스홀더/Unsplash
   const fallbackImg =
     selected?.imageUrl ||
     fileByProductName(selected?.productName) ||
     PLACEHOLDER ||
     "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?q=80&w=1600&auto=format&fit=crop";
+
+  // 1년 계약가 미입력 시 월 광고료와 동일 표시
+  const y1Fee = selected?.monthlyFeeY1 ?? selected?.monthlyFee;
 
   return (
     <>
@@ -225,61 +264,69 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
                 </div>
               </div>
 
-              {/* 타이틀 + 메타 + 닫기 */}
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="text-xl font-bold text-black truncate">{selected.name}</div>
-                  <div className="mt-1 text-sm text-[#6B7280]">
-                    {fmtNum(selected.households, "세대")} · {fmtNum(selected.residents, "명")}
-                  </div>
-                </div>
-                <button
-                  onClick={onCloseSelected}
-                  className="ml-3 inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB]"
-                  aria-label="닫기"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" fill="none">
-                    <path d="M6 6L18 18M6 18L18 6" strokeWidth="2" strokeLinecap="round" />
-                  </svg>
-                </button>
-              </div>
-
-              {/* 가격 */}
-              <div className="rounded-2xl border border-[#E5E7EB] bg-white p-4">
-                <div className="flex items-center justify-between">
-                  <div className="text-[#6B7280]">월 광고료</div>
-                  <div className="text-lg font-semibold text-black">
-                    {fmtWon(selected.monthlyFee)} <span className="font-normal text-[#111827]">(VAT별도)</span>
-                  </div>
-                </div>
-                <div className="mt-4 rounded-xl border border-[#C8B6FF] bg-[#F4F0FB] p-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <input type="checkbox" className="accent-[#6C2DFF]" defaultChecked />
-                      <span className="text-sm font-medium text-[#6C2DFF]">1년 계약 시 월 광고료</span>
-                    </div>
-                    <div className="text-base font-bold text-[#6C2DFF]">
-                      {fmtWon(selected.monthlyFeeY1)} <span className="font-medium text-[#6C2DFF]">(VAT별도)</span>
-                    </div>
-                  </div>
-                </div>
-                <button className="mt-4 h-12 w-full rounded-xl bg-[#6C2DFF] text-white font-semibold">아파트 담기</button>
-              </div>
-
-              {/* 상세정보 */}
+              {/* 타이틀 + 서브메타 + 닫기 (스크린샷2 레이아웃) */}
               <div className="rounded-2xl border border-[#E5E7EB] bg-white">
-                <div className="px-4 py-3 text-base font-semibold text-black border-b border-[#F3F4F6]">상세정보</div>
-                <dl className="px-4 py-2 text-sm">
+                <div className="px-4 pt-4 pb-2 flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="text-xl font-extrabold text-black truncate">{selected.name || "N1"}</div>
+                    <div className="mt-2 text-base text-[#6B7280]">
+                      {fmtNum(selected.households, " 세대")} · 거주인원 {fmtNum(selected.residents, "명")}
+                    </div>
+                  </div>
+                  <button
+                    onClick={onCloseSelected}
+                    className="ml-3 inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB]"
+                    aria-label="닫기"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" fill="none">
+                      <path d="M6 6L18 18M6 18L18 6" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                </div>
+
+                {/* 가격 섹션 */}
+                <div className="px-4 pb-4">
+                  <div className="h-12 rounded-xl bg-[#F3F4F6] text-[#6B7280] flex items-center px-4 text-base font-medium">
+                    월 광고료
+                    <div className="ml-auto text-right text-black font-semibold">
+                      {fmtWon(selected.monthlyFee)} <span className="font-normal text-[#111827]">(VAT별도)</span>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 rounded-xl border border-[#6C2DFF] bg-white">
+                    <div className="flex items-center justify-between px-4 h-12">
+                      <label className="flex items-center gap-2">
+                        <input type="checkbox" className="accent-[#6C2DFF]" defaultChecked />
+                        <span className="text-base font-medium text-[#6C2DFF]">1년 계약 시 월 광고료</span>
+                      </label>
+                      <div className="text-base font-bold text-[#6C2DFF]">
+                        {fmtWon(y1Fee)} <span className="font-medium">(VAT별도)</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button className="mt-4 h-12 w-full rounded-xl bg-[#6C2DFF] text-white font-semibold">
+                    아파트 담기
+                  </button>
+                </div>
+
+                {/* 구분선 */}
+                <div className="h-px bg-[#E5E7EB]" />
+
+                {/* 상세정보 */}
+                <div className="px-4 py-3 text-base font-semibold text-black">상세정보</div>
+                <dl className="px-4 pb-4 text-base">
                   <Row label="상품명">
-                    <span className="text-[#6C2DFF] font-semibold">{selected.productName || "—"}</span>
-                    <button className="ml-2 inline-flex h-7 px-2 rounded border border-[#E5E7EB] text-xs">상세보기</button>
+                    <span className="text-[#6C2DFF] font-semibold">{selected.productName ?? "N2"}</span>
+                    <button className="ml-2 inline-flex h-8 px-3 rounded border border-[#E5E7EB] text-sm bg-white hover:bg-[#F9FAFB]">상세보기</button>
                   </Row>
-                  <Row label="세대수">{fmtNum(selected.households, "세대")}</Row>
-                  <Row label="거주인원">{fmtNum(selected.residents, "명")}</Row>
-                  <Row label="모니터 수량">{fmtNum(selected.monitors, "대")}</Row>
-                  <Row label="월 송출횟수">{fmtNum(selected.monthlyImpressions, "회")}</Row>
-                  <Row label="운영 시간">{selected.hours || "—"}</Row>
-                  <Row label="주소">{selected.address || "—"}</Row>
+                  <Row label="설치 위치">{selected.installLocation ?? "N3"}</Row>
+                  <Row label="모니터 수량">{fmtNum(selected.monitors, " 대")}</Row>
+                  <Row label="월 송출횟수">{fmtNum(selected.monthlyImpressions, " 회")}</Row>
+                  <Row label="월 광고료">{fmtWon(selected.monthlyFee)} 원</Row>
+                  <Row label="1회 당 송출비용">{fmtWon(selected.costPerPlay)} 원</Row>
+                  <Row label="운영 시간">{selected.hours ?? "N10"}</Row>
+                  <Row label="주소">{selected.address ?? "N11"}</Row>
                 </dl>
               </div>
 
@@ -296,8 +343,8 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between py-3 border-b border-[#F3F4F6] last:border-b-0">
-      <dt className="text-[#6B7280]">{label}</dt>
+    <div className="flex items-center justify-between py-4 border-b border-[#F3F4F6] last:border-b-0">
+      <dt className="text-[#111827] font-semibold">{label}</dt>
       <dd className="text-black text-right max-w-[55%] truncate">{children}</dd>
     </div>
   );
