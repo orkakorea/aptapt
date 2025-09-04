@@ -8,11 +8,11 @@ export type SelectedApt = {
 
   // 상품/운영 정보
   productName?: string;        // 상품명
-  installLocation?: string;    // 설치 위치 (예: EV 내부)
+  installLocation?: string;    // 설치 위치
   monitors?: number;           // 모니터 수량
   monthlyImpressions?: number; // 월 송출횟수
   costPerPlay?: number;        // 송출 1회당 비용
-  hours?: string;              // 운영 시간 (예: am06:00 ~ pm12:00)
+  hours?: string;              // 운영 시간
 
   // 지표
   households?: number;         // 세대수
@@ -23,8 +23,8 @@ export type SelectedApt = {
   monthlyFeeY1?: number;       // 1년 계약 시 월 광고료 (VAT별도)
 
   // 이미지
-  imageUrl?: string;           // 썸네일로 사용할 이미지 URL(없으면 PLACEHOLDER)
-  
+  imageUrl?: string;           // DB 썸네일
+
   // 좌표
   lat: number;
   lng: number;
@@ -37,7 +37,33 @@ type Props = {
   initialQuery?: string;
 };
 
+/** 정적 에셋 베이스 (Vite: public 폴더는 루트로 서빙됨) */
+const ASSET_BASE = (import.meta as any).env?.VITE_ASSET_BASE || "/products/";
 const PLACEHOLDER = "/placeholder.svg";
+
+/** ✅ 상품명 키워드 → 이미지 파일 매핑
+ *  - 좌측 키워드는 공백제거/소문자 기준으로 includes 매칭
+ *  - 파일은 public/products/ 에 넣고 GitHub로 커밋
+ *  - 필요시 자유롭게 추가/수정
+ */
+const PRODUCT_IMAGE_MAP: { keywords: string[]; file: string }[] = [
+  { keywords: ["엘리베이터tv", "elevatortv", "elevator"], file: "elevator-tv.png" },
+  { keywords: ["타운보드l", "townboardl", "townboard l", "tbl"], file: "townboard-l.png" },
+  { keywords: ["타운보드s", "townboards", "townboard s", "tbs"], file: "townboard-s.png" },
+  { keywords: ["하이포스트", "hipost", "hi-post"], file: "hi-post.png" },
+  { keywords: ["스페이스", "space", "거실", "living"], file: "space-living.png" },
+  { keywords: ["미디어", "media"], file: "media-meet-a.png" },
+];
+
+/** 상품명으로 썸네일 파일 경로 찾기 */
+function fileByProductName(productName?: string): string | undefined {
+  if (!productName) return;
+  const norm = productName.replace(/\s+/g, "").toLowerCase();
+  const hit = PRODUCT_IMAGE_MAP.find(({ keywords }) =>
+    keywords.some((k) => norm.includes(k.replace(/\s+/g, "").toLowerCase()))
+  );
+  return hit ? `${ASSET_BASE}${hit.file}` : undefined;
+}
 
 export default function MapChrome({ selected, onCloseSelected, onSearch, initialQuery }: Props) {
   const [query, setQuery] = useState(initialQuery || "");
@@ -57,7 +83,9 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
   const fmtWon = (n?: number) =>
     typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() : "—";
 
-  const thumb = selected?.imageUrl || PLACEHOLDER;
+  // 최종 썸네일: DB > 상품명 매칭 > 플레이스홀더
+  const matched = fileByProductName(selected?.productName);
+  const thumb = selected?.imageUrl || matched || PLACEHOLDER;
 
   return (
     <>
@@ -138,15 +166,21 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
           data-tab="2"
           style={{ bottom: 0 }}
         >
-          {/* 작은 모니터에서도 스크롤 가능하도록 최대 높이 & 오버플로우 처리 */}
+          {/* 작은 모니터에서도 스크롤 가능 */}
           <div className="h-full px-6 py-5 max-h-[calc(100vh-4rem)] overflow-y-auto">
             <div className="pointer-events-auto flex flex-col gap-4">
-              {/* 썸네일: 단일 이미지 */}
+              {/* 썸네일: DB > 상품매칭 > 플레이스홀더. 파일 없으면 onError로 플레이스홀더 폴백 */}
               <div className="rounded-2xl overflow-hidden border border-[#E5E7EB] bg-[#F3F4F6]">
                 <div className="relative w-full aspect-[4/3]">
                   <img
                     src={thumb}
                     alt=""
+                    onError={(e) => {
+                      const img = e.currentTarget;
+                      if (img.src.endsWith(PLACEHOLDER)) return;
+                      img.onerror = null;
+                      img.src = PLACEHOLDER;
+                    }}
                     className="absolute inset-0 w-full h-full object-cover"
                   />
                 </div>
@@ -155,7 +189,6 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
               {/* 타이틀 + 메타 + 닫기 */}
               <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  {/* 줄임표 제거 → 줄바꿈 가능 */}
                   <div className="text-xl font-bold text-black whitespace-pre-wrap break-words">
                     {selected.name}
                   </div>
@@ -204,7 +237,7 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
               <div className="rounded-2xl border border-[#E5E7EB] bg-white overflow-hidden">
                 <div className="px-4 py-3 text-base font-semibold text-black border-b border-[#F3F4F6]">상세정보</div>
                 <dl className="px-4 py-2 text-sm">
-                  {/* 상품명: 상세보기 버튼 제거, 줄바꿈 허용 */}
+                  {/* 상품명: 줄바꿈 허용 */}
                   <Row label="상품명">
                     <span className="text-[#6C2DFF] font-semibold whitespace-pre-wrap break-words">
                       {selected.productName || "—"}
@@ -215,7 +248,6 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
                     <span className="whitespace-pre-wrap break-words">{selected.installLocation || "—"}</span>
                   </Row>
 
-                  {/* 단위 공백 적용: fmtNum이 이미 처리 */}
                   <Row label="모니터 수량">{fmtNum(selected.monitors, "대")}</Row>
                   <Row label="월 송출횟수">{fmtNum(selected.monthlyImpressions, "회")}</Row>
                   <Row label="송출 1회당 비용">{fmtNum(selected.costPerPlay, "원")}</Row>
@@ -241,11 +273,10 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   return (
     <div className="flex items-start justify-between py-3 border-b border-[#F3F4F6] last:border-b-0">
       <dt className="text-[#6B7280]">{label}</dt>
-      {/* 줄임표(truncate) 제거 + 줄바꿈/단어줄바꿈 허용 */}
+      {/* 줄임표 제거 + 줄바꿈/단어줄바꿈 허용 */}
       <dd className="text-black text-right leading-relaxed max-w-[60%] whitespace-pre-wrap break-words">
         {children}
       </dd>
     </div>
   );
 }
-
