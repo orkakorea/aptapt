@@ -1,316 +1,366 @@
-// src/components/MapChrome.tsx
+// src/pages/MapPage.tsx
 import React, { useEffect, useRef, useState } from "react";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import MapChrome, { SelectedApt } from "../components/MapChrome";
 
-/** N열(테이블 열 순서)
- * N1 단지명, N2 상품명, N3 설치위치, N4 세대수, N5 거주인원
- * N6 모니터 수량, N7 월 송출횟수, N8 월 광고료, N9 1회 당 송출비용
- * N10 운영시간, N11 주소
- */
-export type SelectedApt = {
-  name: string;                // N1
-  productName?: string;        // N2
-  installLocation?: string;    // N3
-  households?: number;         // N4
-  residents?: number;          // N5
-  monitors?: number;           // N6
-  monthlyImpressions?: number; // N7
-  monthlyFee?: number;         // N8
-  costPerPlay?: number;        // N9
-  hours?: string;              // N10
-  address?: string;            // N11
-  monthlyFeeY1?: number;       // (옵션) 1년 계약 시 월 광고료
-  imageUrl?: string;
-  lat: number;
-  lng: number;
-};
+type KakaoNS = typeof window & { kakao: any };
+const FALLBACK_KAKAO_KEY = "a53075efe7a2256480b8650cec67ebae";
 
-type Props = {
-  selected?: SelectedApt | null;
-  onCloseSelected?: () => void;
-  onSearch?: (query: string) => void;
-  initialQuery?: string;
-};
-
-const PLACEHOLDER = "/placeholder.svg";
-
-const fmtNum = (n?: number, unit = "") =>
-  typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() + unit : "—";
-const fmtWon = (n?: number) =>
-  typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() : "—";
-
-/** 카카오 로드뷰 */
-function useRoadview(selected?: SelectedApt | null) {
-  const roadviewRef = useRef<HTMLDivElement | null>(null);
-  const [rvReady, setRvReady] = useState(false);
-  const [rvErr, setRvErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    setRvReady(false);
-    setRvErr(null);
-    const w = window as any;
-    const kakao = w?.kakao;
-    if (!selected || !kakao?.maps?.Roadview || !roadviewRef.current) return;
-
-    const container = roadviewRef.current;
-    container.innerHTML = "";
-
-    const rv = new kakao.maps.Roadview(container);
-    const rvClient = new kakao.maps.RoadviewClient();
-    const pos = new kakao.maps.LatLng(selected.lat, selected.lng);
-
-    const radii = [50, 100, 200, 400];
-    let canceled = false;
-
-    function tryFind(i: number) {
-      if (canceled) return;
-      if (i >= radii.length) {
-        setRvReady(false);
-        setRvErr("no pano");
-        return;
-      }
-      rvClient.getNearestPanoId(pos, radii[i], (panoId: number | null) => {
-        if (canceled) return;
-        if (!panoId) return tryFind(i + 1);
-        try {
-          rv.setPanoId(panoId, pos);
-          setRvReady(true);
-          setTimeout(() => {
-            try { rv.relayout(); } catch {}
-          }, 0);
-        } catch (e: any) {
-          setRvReady(false);
-          setRvErr(e?.message || "rv set failed");
-        }
-      });
-    }
-    tryFind(0);
-
-    const onResize = () => { try { rv.relayout(); } catch {} };
-    window.addEventListener("resize", onResize);
-    return () => {
-      canceled = true;
-      window.removeEventListener("resize", onResize);
-    };
-  }, [selected?.lat, selected?.lng]);
-
-  return { roadviewRef, rvReady, rvErr };
+// ---------- Supabase ----------
+function getSupabase(): SupabaseClient | null {
+  const url = (import.meta as any).env?.VITE_SUPABASE_URL as string | undefined;
+  const key = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string | undefined;
+  if (!url || !key) {
+    console.warn("[MapPage] Supabase env missing:", { url, hasKey: !!key });
+    return null;
+  }
+  try { return createClient(url, key); } catch { return null; }
 }
 
-export default function MapChrome({ selected, onCloseSelected, onSearch, initialQuery }: Props) {
-  const [query, setQuery] = useState(initialQuery || "");
-  useEffect(() => setQuery(initialQuery || ""), [initialQuery]);
+// ---------- Kakao loader (HTTPS) ----------
+function loadKakao(): Promise<any> {
+  const w = window as any;
+  if (w.kakao?.maps) return Promise.resolve(w.kakao);
+  const envKey = (import.meta as any).env?.VITE_KAKAO_JS_KEY as string | undefined;
+  const key = envKey && envKey.trim() ? envKey : FALLBACK_KAKAO_KEY;
+  return new Promise((resolve, reject) => {
+    const id = "kakao-maps-sdk";
+    if (document.getElementById(id)) {
+      const tryLoad = () => (w.kakao?.maps ? resolve(w.kakao) : setTimeout(tryLoad, 50));
+      return tryLoad();
+    }
+    const s = document.createElement("script");
+    s.id = id;
+    s.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${key}&autoload=false&libraries=services,clusterer`;
+    s.onload = () => { if (!w.kakao) return reject(new Error("kakao object not found")); w.kakao.maps.load(() => resolve(w.kakao)); };
+    s.onerror = () => reject(new Error("Failed to load Kakao Maps SDK"));
+    document.head.appendChild(s);
+  });
+}
 
-  const runSearch = () => {
-    const q = query.trim();
-    if (!q) return;
-    onSearch?.(q);
+// ---------- helpers ----------
+function readQuery() {
+  const u = new URL(window.location.href);
+  return (u.searchParams.get("q") || "").trim();
+}
+function writeQuery(v: string) {
+  const u = new URL(window.location.href);
+  if (v) u.searchParams.set("q", v); else u.searchParams.delete("q");
+  window.history.replaceState(null, "", u.toString());
+}
+function toNumLoose(v: any): number | undefined {
+  if (v === null || v === undefined) return undefined;
+  if (typeof v === "number") return Number.isFinite(v) ? v : undefined;
+  const cleaned = String(v).replace(/[^0-9.-]/g, "");
+  if (!cleaned) return undefined;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : undefined;
+}
+function getField(obj: any, keys: string[]): any {
+  for (const k of keys) {
+    if (k in obj && obj[k] != null && obj[k] !== "") return obj[k];
+  }
+  return undefined;
+}
+
+// ---------- types ----------
+type PlaceRow = {
+  id: number;
+  단지명?: string | null;
+  상품명?: string | null;
+  주소?: string | null;
+  geocode_status?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+};
+
+// ---------- Spiderfy Controller ----------
+type KMarker = any & { __baseKey?: string; __basePos?: any; __row?: PlaceRow };
+class SpiderController {
+  private map: any;
+  private clusterer: any;
+  private groups: Map<string, KMarker[]> = new Map();
+  private activeKey: string | null = null;
+  private activeLines: any[] = [];
+  private animating = false;
+
+  constructor(map: any, clusterer: any) {
+    this.map = map;
+    this.clusterer = clusterer;
+  }
+  setGroups(groups: Map<string, KMarker[]>) { this.groups = groups; }
+
+  /** 외부에서 안전하게 호출 가능: 스파이더 상태를 원위치로 */
+  unspiderfy = () => {
+    if (!this.activeKey) return;
+    const markers = this.groups.get(this.activeKey) || [];
+    this.activeLines.forEach((ln) => ln.setMap(null));
+    this.activeLines = [];
+    markers.forEach((m) => {
+      if (!m.__basePos) return;
+      m.setPosition(m.__basePos);
+      m.setMap(null); // 개별 마커 숨기기
+    });
+    if (markers.length) this.clusterer.addMarkers(markers); // 클러스터 관리로 복귀
+    this.activeKey = null;
   };
 
-  const { roadviewRef, rvReady, rvErr } = useRoadview(selected);
+  spiderfy = (key: string) => {
+    if (this.animating) return;
+    if (this.activeKey === key) return; // 이미 같은 그룹이면 무시
+    this.unspiderfy();
 
-  const fallbackImg =
-    selected?.imageUrl ||
-    PLACEHOLDER ||
-    "https://images.unsplash.com/photo-1512917774080-9991f1c4c750?q=80&w=1600&auto=format&fit=crop";
+    const markers = this.groups.get(key) || [];
+    if (markers.length <= 1) return;
 
-  const y1Fee = selected?.monthlyFeeY1 ?? selected?.monthlyFee;
+    this.clusterer.removeMarkers(markers); // 클러스터에서 분리
+    const proj = this.map.getProjection();
+    const center = markers[0].__basePos;
+    const cpt = proj.containerPointFromCoords(center);
 
-  return (
-    <>
-      {/* 상단 바 */}
-      <div className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-[#E5E7EB] z-[60] font-[Pretendard]">
-        <div className="h-full flex items-center px-6">
-          <div className="text-xl font-bold text-black">응답하라-입주민이여</div>
-        </div>
-      </div>
+    const N = markers.length;
+    const ringRadiusPx = Math.max(26, Math.min(60, 18 + N * 1.5));
+    const twoRings = N > 14;
+    const innerCount = twoRings ? Math.ceil(N * 0.45) : 0;
+    const outerCount = twoRings ? N - innerCount : N;
 
-      {/* 1탭 (왼쪽 고정) — 복구 */}
-      <aside className="hidden md:block fixed top-16 bottom-0 left-0 w-[360px] z-[60] pointer-events-none font-[Pretendard]" data-tab="1">
-        <div className="h-full px-6 py-5">
-          <div className="pointer-events-auto flex flex-col gap-4">
-            {/* 칩 */}
-            <div className="flex items-center gap-2">
-              <span className="inline-flex h-8 items-center rounded-full border border-[#E5E7EB] bg-white px-3 text-xs text-[#111827]">시·군·구 단위</span>
-              <span className="inline-flex h-8 items-center rounded-full border border-[#E5E7EB] bg-white px-3 text-xs text-[#111827]">패키지 문의</span>
-              <span className="inline-flex h-8 items-center rounded-full bg-[#6C2DFF] px-3 text-xs text-white">1551 - 1810</span>
-            </div>
+    const mkTarget = (idx: number, count: number, radius: number) => {
+      const angle = (2 * Math.PI * idx) / count;
+      return new (window as any).kakao.maps.Point(
+        cpt.x + Math.cos(angle) * radius,
+        cpt.y + Math.sin(angle) * radius
+      );
+    };
 
-            {/* 검색 */}
-            <div className="relative">
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && runSearch()}
-                className="w-full h-12 rounded-[10px] border border-[#E5E7EB] bg-white pl-4 pr-12 text-sm placeholder:text-[#757575] outline-none focus:ring-2 focus:ring-[#C7B8FF]"
-                placeholder="지역명, 아파트 이름, 단지명, 건물명을 입력해주세요"
-              />
-              <button
-                type="button"
-                onClick={runSearch}
-                className="absolute right-2 top-1/2 -translate-y-1/2 inline-flex h-8 w-8 items-center justify-center rounded-md bg-[#6C2DFF]"
-                aria-label="검색"
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                  <circle cx="11" cy="11" r="7" stroke="white" strokeWidth="2" />
-                  <path d="M20 20L17 17" stroke="white" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              </button>
-            </div>
+    const targets: { marker: KMarker; toPt: any }[] = [];
+    for (let i = 0; i < outerCount; i++) targets.push({ marker: markers[i], toPt: mkTarget(i, outerCount, ringRadiusPx) });
+    for (let j = 0; j < innerCount; j++) targets.push({ marker: markers[outerCount + j], toPt: mkTarget(j, innerCount, Math.max(16, ringRadiusPx * 0.6)) });
 
-            {/* 총 비용 (자리만) */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-semibold text-black">
-                  총 비용 <span className="text-xs text-[#757575]">(VAT별도)</span>
-                </div>
-                <div className="text-xs text-[#757575]">총 0건</div>
-              </div>
-              <div className="h-10 rounded-[10px] bg-[#F4F0FB] flex items-center px-3 text-sm font-semibold text-[#6C2DFF]">
-                0원 (VAT별도)
-              </div>
-            </div>
+    const duration = 180; const t0 = performance.now();
+    this.animating = true;
+    markers.forEach((m) => m.setMap(this.map)); // 개별 마커 보여주기
 
-            {/* 빈 카드 */}
-            <div className="rounded-2xl border border-[#E5E7EB] bg-white p-5">
-              <div className="h-60 rounded-xl border border-[#E5E7EB] bg-[#FAFAFA] flex flex-col items-center justify-center text-[#6B7280]">
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="#6C2DFF" className="mb-2">
-                  <path d="M3 21V8a1 1 0 0 1 1-1h6V4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v17H3Z" opacity=".2" />
-                  <path d="M3 21V8a1 1 0 0 1 1-1h6V4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v17" fill="none" stroke="#6C2DFF" strokeWidth="1.5"/>
-                  <path d="M6 10h2M6 13h2M6 16h2M13 7h2M13 10h2M13 13h2M13 16h2" stroke="#6C2DFF" strokeWidth="1.5" strokeLinecap="round"/>
-                </svg>
-                <div className="text-sm text-center leading-relaxed">
-                  광고를 원하는<br/>아파트단지를 담아주세요!
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </aside>
+    const step = (now: number) => {
+      const t = Math.min(1, (now - t0) / duration);
+      const e = 1 - Math.pow(1 - t, 3);
 
-      {/* 2탭 (오른쪽) */}
-      {selected && (
-        <aside className="hidden md:block fixed top-16 bottom-0 left-[360px] w-[360px] z-[60] pointer-events-none font-[Pretendard]" data-tab="2">
-          {/* 스크롤 가능 */}
-          <div className="h-full px-6 py-5 pointer-events-auto overflow-y-auto">
-            <div className="flex flex-col gap-4">
-              {/* 썸네일 */}
-              <div className="rounded-2xl overflow-hidden border border-[#E5E7EB] bg-[#F3F4F6]">
-                <div className="relative w-full aspect-[4/3]">
-                  <div ref={roadviewRef} className={`absolute inset-0 ${rvReady ? "" : "hidden"}`} aria-label="roadview" />
-                  {!rvReady && (
-                    <img src={fallbackImg} alt="" className="absolute inset-0 w-full h-full object-cover" />
-                  )}
-                </div>
-              </div>
+      this.activeLines.forEach((ln) => ln.setMap(null));
+      this.activeLines = [];
 
-              {/* 상세 카드 */}
-              <div className="rounded-2xl border border-[#E5E7EB] bg-white">
-                {/* 타이틀 + 닫기 */}
-                <div className="px-4 pt-4 flex items-start justify-between">
-                  <div className="flex-1 pr-3">
-                    <div className="text-xl font-extrabold text-black truncate">
-                      {selected.name || "N1"}
-                    </div>
-                    {/* 타이틀 아래 N4/N5 메타 */}
-                    <div className="mt-1 text-sm text-[#6B7280]">
-                      {fmtNum(selected.households, " 세대")} · 거주인원 {fmtNum(selected.residents, "명")}
-                    </div>
-                  </div>
-                  <button
-                    onClick={onCloseSelected}
-                    className="ml-3 inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB]"
-                    aria-label="닫기"
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" fill="none">
-                      <path d="M6 6L18 18M6 18L18 6" strokeWidth="2" strokeLinecap="round" />
-                    </svg>
-                  </button>
-                </div>
+      targets.forEach(({ marker, toPt }) => {
+        const fromPt = proj.containerPointFromCoords(center);
+        const curPt = new (window as any).kakao.maps.Point(
+          fromPt.x + (toPt.x - fromPt.x) * e,
+          fromPt.y + (toPt.y - fromPt.y) * e
+        );
+        const curPos = proj.coordsFromContainerPoint(curPt);
+        marker.setPosition(curPos);
 
-                {/* 가격 */}
-                <div className="px-4 pb-4">
-                  <div className="h-12 rounded-xl bg-[#F3F4F6] flex items-center px-4">
-                    <span className="text-[#6B7280] text-base">월 광고료</span>
-                    <div className="ml-auto text-right">
-                      <span className="text-black text-lg font-semibold">
-                        {fmtWon(selected.monthlyFee)}
-                      </span>
-                      <span className="ml-1 text-[#111827] text-base">(VAT별도)</span>
-                    </div>
-                  </div>
+        const leg = new (window as any).kakao.maps.Polyline({
+          path: [center, curPos],
+          strokeWeight: 1.5, strokeColor: "#555", strokeOpacity: 0.6, strokeStyle: "solid",
+        });
+        leg.setMap(this.map);
+        this.activeLines.push(leg);
+      });
 
-                  {/* 한 줄로 / 조금 작게 */}
-                  <div className="mt-3 rounded-xl border border-[#6C2DFF] bg-white">
-                    <label className="flex items-center justify-between px-4 h-11 cursor-pointer whitespace-nowrap">
-                      <span className="flex items-center gap-2">
-                        <input type="checkbox" className="accent-[#6C2DFF]" defaultChecked />
-                        <span className="text-sm font-medium text-[#6C2DFF]">
-                          1년 계약 시 월 광고료
-                        </span>
-                      </span>
-                      <span className="text-sm font-bold text-[#6C2DFF]">
-                        {fmtWon(y1Fee)} <span className="ml-1 font-medium">(VAT별도)</span>
-                      </span>
-                    </label>
-                  </div>
-
-                  <button className="mt-4 h-12 w-full rounded-xl bg-[#6C2DFF] text-white font-semibold">
-                    아파트 담기
-                  </button>
-                </div>
-
-                {/* 상세정보 */}
-                <div className="h-px bg-[#E5E7EB]" />
-                <div className="px-4 py-3 text-base font-semibold text-black">상세정보</div>
-
-                {/* 상품명 N2: 왼쪽, 크게 & Bold, 한 줄(필요 시 줄바꿈 허용) */}
-                <div className="px-4">
-                  <div className="text-[#6C2DFF] font-bold text-lg whitespace-normal break-words">
-                    {selected.productName ?? "N2"}
-                  </div>
-                </div>
-
-                <dl className="px-4 pb-4 text-base">
-                  {/* 요청: '월 광고료' 행 삭제됨 */}
-                  <Row label="설치 위치" strong>{selected.installLocation ?? "N3"}</Row>
-                  <Row label="모니터 수량" strong>{fmtNum(selected.monitors, " 대")}</Row>
-                  <Row label="월 송출횟수" strong>{fmtNum(selected.monthlyImpressions, " 회")}</Row>
-                  <Row label="1회 당 송출비용" strong>{fmtWon(selected.costPerPlay)}</Row>
-                  <Row label="운영 시간" strong>{selected.hours ?? "N10"}</Row>
-                  {/* 주소: 풀네임 표기(줄바꿈 허용) */}
-                  <Row label="주소" strong>
-                    <span className="whitespace-normal break-words">{selected.address ?? "N11"}</span>
-                  </Row>
-                </dl>
-              </div>
-
-              {!rvReady && rvErr && (
-                <div className="text-xs text-[#9CA3AF] px-1">주변 로드뷰가 없어 준비된 이미지를 표시했습니다.</div>
-              )}
-            </div>
-          </div>
-        </aside>
-      )}
-    </>
-  );
+      if (t < 1) requestAnimationFrame(step);
+      else { this.animating = false; this.activeKey = key; }
+    };
+    requestAnimationFrame(step);
+  };
 }
 
-/** 상세정보 라인: label Bold, 값은 우측(주소/상품명은 별도 처리) */
-function Row({
-  label,
-  children,
-  strong,
-}: {
-  label: string;
-  children: React.ReactNode;
-  strong?: boolean;
-}) {
+export default function MapPage() {
+  const mapRef = useRef<HTMLDivElement | null>(null);
+  const mapObjRef = useRef<any>(null);
+  const clustererRef = useRef<any>(null);
+  const placesRef = useRef<any>(null);
+  const spiderRef = useRef<SpiderController | null>(null);
+  const lastReqIdRef = useRef<number>(0);
+  const idleTimer = useRef<number | null>(null);
+
+  const [selected, setSelected] = useState<SelectedApt | null>(null);
+  const [initialQ, setInitialQ] = useState("");
+  const [kakaoError, setKakaoError] = useState<string | null>(null);
+
+  function debounceIdle(fn: () => void, ms = 300) {
+    if (idleTimer.current) window.clearTimeout(idleTimer.current);
+    idleTimer.current = window.setTimeout(fn, ms);
+  }
+
+  // init kakao map
+  useEffect(() => {
+    let resizeHandler: any;
+    let map: any;
+
+    loadKakao()
+      .then((kakao) => {
+        setKakaoError(null);
+        if (!mapRef.current) return;
+        mapRef.current.style.minHeight = "300px";
+        mapRef.current.style.minWidth = "300px";
+
+        const center = new kakao.maps.LatLng(37.5665, 126.978);
+        map = new kakao.maps.Map(mapRef.current, { center, level: 6 });
+        mapObjRef.current = map;
+
+        placesRef.current = new kakao.maps.services.Places();
+        clustererRef.current = new kakao.maps.MarkerClusterer({
+          map, averageCenter: true, minLevel: 6, disableClickZoom: true, gridSize: 80,
+        });
+
+        spiderRef.current = new SpiderController(map, clustererRef.current);
+
+        // 클러스터 클릭 시 한 단계 줌인
+        kakao.maps.event.addListener(clustererRef.current, "clusterclick", (cluster: any) => {
+          const m = mapObjRef.current; if (!m) return;
+          m.setLevel(Math.max(m.getLevel() - 1, 1), { anchor: cluster.getCenter() });
+        });
+
+        // 스파이더 해제 트리거
+        kakao.maps.event.addListener(map, "zoom_changed", () => spiderRef.current?.unspiderfy());
+        kakao.maps.event.addListener(map, "dragstart", () => spiderRef.current?.unspiderfy());
+        kakao.maps.event.addListener(map, "click", () => spiderRef.current?.unspiderfy());
+
+        kakao.maps.event.addListener(map, "idle", () => debounceIdle(loadMarkersInBounds, 300));
+
+        setTimeout(() => map && map.relayout(), 0);
+        loadMarkersInBounds();
+
+        const q0 = readQuery();
+        setInitialQ(q0);
+        if (q0) runPlaceSearch(q0);
+
+        resizeHandler = () => map && map.relayout();
+        window.addEventListener("resize", resizeHandler);
+      })
+      .catch((err) => {
+        console.error("[KakaoMap] load error:", err);
+        setKakaoError(err?.message || String(err));
+      });
+
+    return () => window.removeEventListener("resize", resizeHandler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 2탭 열고 닫을 때 레이아웃 보정
+  useEffect(() => {
+    const m = mapObjRef.current;
+    if ((window as any).kakao?.maps && m) setTimeout(() => m.relayout(), 0);
+  }, [selected]);
+
+  // 바운드 내 마커 로드 (★ 핵심: 재로딩 전에 반드시 unspiderfy)
+  async function loadMarkersInBounds() {
+    const kakao = (window as KakaoNS).kakao;
+    const map = mapObjRef.current;
+    if (!map) return;
+
+    // ✅ 중복/유령 마커 방지: 새 마커 만들기 전에 원복
+    spiderRef.current?.unspiderfy();
+
+    const bounds = map.getBounds();
+    if (!bounds) return;
+    const sw = bounds.getSouthWest();
+    const ne = bounds.getNorthEast();
+
+    const client = getSupabase();
+    if (!client) return;
+
+    const reqId = Date.now();
+    lastReqIdRef.current = reqId;
+
+    const { data, error } = await client
+      .from("raw_places")
+      .select(`id, "단지명", "상품명", "주소", geocode_status, lat, lng`)
+      .not("lat", "is", null)
+      .not("lng", "is", null)
+      .gte("lat", sw.getLat()).lte("lat", ne.getLat())
+      .gte("lng", sw.getLng()).lte("lng", ne.getLng())
+      .limit(5000);
+
+    if (error) { console.error("Supabase select(raw_places) error:", error.message); return; }
+    if (reqId !== lastReqIdRef.current) return;
+
+    const records = (data ?? []) as PlaceRow[];
+
+    // 클러스터 초기화
+    if (clustererRef.current) clustererRef.current.clear();
+
+    // 마커 생성 + 같은 좌표 그룹핑
+    const markers: KMarker[] = [];
+    const groups = new Map<string, KMarker[]>();
+    const keyOf = (lat: number, lng: number) => `${lat.toFixed(7)},${lng.toFixed(7)}`;
+
+    records.forEach((row) => {
+      const lat = row.lat!, lng = row.lng!;
+      const pos = new kakao.maps.LatLng(lat, lng);
+      const marker: KMarker = new kakao.maps.Marker({ position: pos, title: row.단지명 || "" });
+      marker.__basePos = pos;
+      marker.__row = row;
+      marker.__baseKey = keyOf(lat, lng);
+
+      if (!groups.has(marker.__baseKey)) groups.set(marker.__baseKey, []);
+      groups.get(marker.__baseKey)!.push(marker);
+
+      kakao.maps.event.addListener(marker, "click", () => {
+        const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
+        const address = getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
+        const productName = getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName"]) || "";
+        const households = toNumLoose(getField(row, ["세대수","세대 수","세대","가구수","가구 수","세대수(가구)","households"]));
+        const residents = toNumLoose(getField(row, ["거주인원","거주 인원","인구수","총인구","입주민수","거주자수","residents"]));
+        const monitors = toNumLoose(getField(row, ["모니터수량","모니터 수량","모니터대수","엘리베이터TV수","monitors"]));
+        const monthlyImpressions = toNumLoose(getField(row, ["월 송출횟수","월송출횟수","월 송출 횟수","월송출","노출수(월)","monthlyImpressions"]));
+        const hours = getField(row, ["운영시간","운영 시간","hours"]) || "";
+        const monthlyFee = toNumLoose(getField(row, ["월 광고료","월광고료","월 광고비","월비용","월요금","month_fee","monthlyFee"]));
+        const monthlyFeeY1 = toNumLoose(getField(row, ["1년 계약 시 월 광고료","1년계약시월광고료","연간월광고료","할인 월 광고료","연간_월광고료","monthlyFeeY1"]));
+
+        setSelected({ name, address, productName, households, residents, monitors, monthlyImpressions, hours, monthlyFee, monthlyFeeY1, lat, lng });
+
+        // 같은 위치 그룹을 부드럽게 펼치기
+        spiderRef.current?.spiderfy(marker.__baseKey!);
+      });
+
+      markers.push(marker);
+    });
+
+    // 스파이더용 그룹 등록
+    spiderRef.current?.setGroups(groups);
+
+    // 클러스터에 추가
+    if (clustererRef.current && markers.length) clustererRef.current.addMarkers(markers);
+  }
+
+  // Places 검색 → 이동
+  function runPlaceSearch(query: string) {
+    const kakao = (window as KakaoNS).kakao;
+    const places = placesRef.current;
+    if (!places) return;
+    places.keywordSearch(query, (results: any[], status: string) => {
+      if (status !== kakao.maps.services.Status.OK || !results?.length) return;
+      const first = results[0];
+      const lat = Number(first.y), lng = Number(first.x);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      const latlng = new kakao.maps.LatLng(lat, lng);
+      mapObjRef.current.setLevel(4);
+      mapObjRef.current.setCenter(latlng);
+      loadMarkersInBounds();
+    });
+  }
+  function handleSearch(q: string) { writeQuery(q); runPlaceSearch(q); }
+  function closeSelected() { setSelected(null); }
+
+  const mapLeftClass = selected ? "md:left-[720px]" : "md:left-[360px]";
+
   return (
-    <div className="flex items-center justify-between py-4 border-b border-[#E5E7EB] last:border-b-0">
-      <dt className={`text-[#111827] ${strong ? "font-bold" : "font-semibold"}`}>{label}</dt>
-      <dd className="text-black text-right max-w-[58%] leading-6 whitespace-normal break-words">
-        {children}
-      </dd>
+    <div className="w-screen h-[100dvh] bg-white">
+      <div ref={mapRef} className={`fixed top-16 left-0 right-0 bottom-0 z-[10] ${mapLeftClass}`} aria-label="map" />
+      <MapChrome selected={selected} onCloseSelected={closeSelected} onSearch={handleSearch} initialQuery={initialQ} />
+      {kakaoError && (
+        <div className="fixed bottom-4 right-4 z-[100] rounded-lg bg-red-600 text-white px-3 py-2 text-sm shadow">
+          Kakao SDK 로드 오류: {kakaoError}
+        </div>
+      )}
     </div>
   );
 }
