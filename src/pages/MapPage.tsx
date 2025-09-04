@@ -14,11 +14,7 @@ function getSupabase(): SupabaseClient | null {
     console.warn("[MapPage] Supabase env missing:", { url, hasKey: !!key });
     return null;
   }
-  try {
-    return createClient(url, key);
-  } catch {
-    return null;
-  }
+  try { return createClient(url, key); } catch { return null; }
 }
 
 // ---------- Kakao loader (HTTPS) ----------
@@ -36,10 +32,7 @@ function loadKakao(): Promise<any> {
     const s = document.createElement("script");
     s.id = id;
     s.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${key}&autoload=false&libraries=services,clusterer`;
-    s.onload = () => {
-      if (!w.kakao) return reject(new Error("kakao object not found"));
-      w.kakao.maps.load(() => resolve(w.kakao));
-    };
+    s.onload = () => { if (!w.kakao) return reject(new Error("kakao object not found")); w.kakao.maps.load(() => resolve(w.kakao)); };
     s.onerror = () => reject(new Error("Failed to load Kakao Maps SDK"));
     document.head.appendChild(s);
   });
@@ -52,11 +45,9 @@ function readQuery() {
 }
 function writeQuery(v: string) {
   const u = new URL(window.location.href);
-  if (v) u.searchParams.set("q", v);
-  else u.searchParams.delete("q");
+  if (v) u.searchParams.set("q", v); else u.searchParams.delete("q");
   window.history.replaceState(null, "", u.toString());
 }
-
 function toNumLoose(v: any): number | undefined {
   if (v === null || v === undefined) return undefined;
   if (typeof v === "number") return Number.isFinite(v) ? v : undefined;
@@ -97,82 +88,62 @@ class SpiderController {
     this.map = map;
     this.clusterer = clusterer;
   }
+  setGroups(groups: Map<string, KMarker[]>) { this.groups = groups; }
 
-  setGroups(groups: Map<string, KMarker[]>) {
-    this.groups = groups;
-  }
-
+  /** 외부에서 안전하게 호출 가능: 스파이더 상태를 원위치로 */
   unspiderfy = () => {
     if (!this.activeKey) return;
     const markers = this.groups.get(this.activeKey) || [];
-    // remove legs
     this.activeLines.forEach((ln) => ln.setMap(null));
     this.activeLines = [];
-    // move back & return to clusterer
     markers.forEach((m) => {
       if (!m.__basePos) return;
       m.setPosition(m.__basePos);
-      m.setMap(null);
+      m.setMap(null); // 개별 마커 숨기기
     });
-    if (markers.length) this.clusterer.addMarkers(markers);
+    if (markers.length) this.clusterer.addMarkers(markers); // 클러스터 관리로 복귀
     this.activeKey = null;
   };
 
   spiderfy = (key: string) => {
     if (this.animating) return;
-    if (this.activeKey === key) return;
+    if (this.activeKey === key) return; // 이미 같은 그룹이면 무시
     this.unspiderfy();
 
     const markers = this.groups.get(key) || [];
     if (markers.length <= 1) return;
 
-    // pull out from clusterer to control individually
-    this.clusterer.removeMarkers(markers);
-
-    // arrange in ring(s) around center (pixel space)
+    this.clusterer.removeMarkers(markers); // 클러스터에서 분리
     const proj = this.map.getProjection();
     const center = markers[0].__basePos;
     const cpt = proj.containerPointFromCoords(center);
 
     const N = markers.length;
-    const ringRadiusPx = Math.max(26, Math.min(60, 18 + N * 1.5)); // 반지름 픽셀
-    const twoRings = N > 14; // 15개 이상이면 2개 링
+    const ringRadiusPx = Math.max(26, Math.min(60, 18 + N * 1.5));
+    const twoRings = N > 14;
     const innerCount = twoRings ? Math.ceil(N * 0.45) : 0;
     const outerCount = twoRings ? N - innerCount : N;
 
-    const targets: { marker: KMarker; toPt: any }[] = [];
-    const mkTarget = (m: KMarker, idx: number, count: number, radius: number) => {
+    const mkTarget = (idx: number, count: number, radius: number) => {
       const angle = (2 * Math.PI * idx) / count;
-      const dx = Math.cos(angle) * radius;
-      const dy = Math.sin(angle) * radius;
-      return new (window as any).kakao.maps.Point(cpt.x + dx, cpt.y + dy);
+      return new (window as any).kakao.maps.Point(
+        cpt.x + Math.cos(angle) * radius,
+        cpt.y + Math.sin(angle) * radius
+      );
     };
 
-    // outer ring
-    for (let i = 0; i < outerCount; i++) {
-      const toPt = mkTarget(markers[i], i, outerCount, ringRadiusPx);
-      targets.push({ marker: markers[i], toPt });
-    }
-    // inner ring
-    for (let j = 0; j < innerCount; j++) {
-      const toPt = mkTarget(markers[outerCount + j], j, innerCount, Math.max(16, ringRadiusPx * 0.6));
-      targets.push({ marker: markers[outerCount + j], toPt });
-    }
+    const targets: { marker: KMarker; toPt: any }[] = [];
+    for (let i = 0; i < outerCount; i++) targets.push({ marker: markers[i], toPt: mkTarget(i, outerCount, ringRadiusPx) });
+    for (let j = 0; j < innerCount; j++) targets.push({ marker: markers[outerCount + j], toPt: mkTarget(j, innerCount, Math.max(16, ringRadiusPx * 0.6)) });
 
-    // draw legs & animate
-    const duration = 180; // ms
-    const t0 = performance.now();
+    const duration = 180; const t0 = performance.now();
     this.animating = true;
-
-    // set visible on map
-    markers.forEach((m) => m.setMap(this.map));
+    markers.forEach((m) => m.setMap(this.map)); // 개별 마커 보여주기
 
     const step = (now: number) => {
       const t = Math.min(1, (now - t0) / duration);
-      // easeOutCubic
       const e = 1 - Math.pow(1 - t, 3);
 
-      // clear previous legs
       this.activeLines.forEach((ln) => ln.setMap(null));
       this.activeLines = [];
 
@@ -185,26 +156,17 @@ class SpiderController {
         const curPos = proj.coordsFromContainerPoint(curPt);
         marker.setPosition(curPos);
 
-        // leg
         const leg = new (window as any).kakao.maps.Polyline({
           path: [center, curPos],
-          strokeWeight: 1.5,
-          strokeColor: "#555",
-          strokeOpacity: 0.6,
-          strokeStyle: "solid",
+          strokeWeight: 1.5, strokeColor: "#555", strokeOpacity: 0.6, strokeStyle: "solid",
         });
         leg.setMap(this.map);
         this.activeLines.push(leg);
       });
 
-      if (t < 1) {
-        requestAnimationFrame(step);
-      } else {
-        this.animating = false;
-        this.activeKey = key;
-      }
+      if (t < 1) requestAnimationFrame(step);
+      else { this.animating = false; this.activeKey = key; }
     };
-
     requestAnimationFrame(step);
   };
 }
@@ -245,25 +207,18 @@ export default function MapPage() {
 
         placesRef.current = new kakao.maps.services.Places();
         clustererRef.current = new kakao.maps.MarkerClusterer({
-          map,
-          averageCenter: true,
-          minLevel: 6,
-          disableClickZoom: true,
-          gridSize: 80,
+          map, averageCenter: true, minLevel: 6, disableClickZoom: true, gridSize: 80,
         });
 
-        // set up spider controller
         spiderRef.current = new SpiderController(map, clustererRef.current);
 
         // 클러스터 클릭 시 한 단계 줌인
         kakao.maps.event.addListener(clustererRef.current, "clusterclick", (cluster: any) => {
-          const m = mapObjRef.current;
-          if (!m) return;
-          const c = cluster.getCenter();
-          m.setLevel(Math.max(m.getLevel() - 1, 1), { anchor: c });
+          const m = mapObjRef.current; if (!m) return;
+          m.setLevel(Math.max(m.getLevel() - 1, 1), { anchor: cluster.getCenter() });
         });
 
-        // 스파이더 해제 트리거: 줌/드래그/맵 클릭
+        // 스파이더 해제 트리거
         kakao.maps.event.addListener(map, "zoom_changed", () => spiderRef.current?.unspiderfy());
         kakao.maps.event.addListener(map, "dragstart", () => spiderRef.current?.unspiderfy());
         kakao.maps.event.addListener(map, "click", () => spiderRef.current?.unspiderfy());
@@ -295,11 +250,14 @@ export default function MapPage() {
     if ((window as any).kakao?.maps && m) setTimeout(() => m.relayout(), 0);
   }, [selected]);
 
-  // 바운드 내 마커 로드 (중복 제거 금지 / 원본 lat/lng 사용 / 스파이더 준비)
+  // 바운드 내 마커 로드 (★ 핵심: 재로딩 전에 반드시 unspiderfy)
   async function loadMarkersInBounds() {
     const kakao = (window as KakaoNS).kakao;
     const map = mapObjRef.current;
     if (!map) return;
+
+    // ✅ 중복/유령 마커 방지: 새 마커 만들기 전에 원복
+    spiderRef.current?.unspiderfy();
 
     const bounds = map.getBounds();
     if (!bounds) return;
@@ -312,30 +270,24 @@ export default function MapPage() {
     const reqId = Date.now();
     lastReqIdRef.current = reqId;
 
-    // 원본 raw_places에서 가져오기 (lat/lng 기준)
     const { data, error } = await client
       .from("raw_places")
       .select(`id, "단지명", "상품명", "주소", geocode_status, lat, lng`)
       .not("lat", "is", null)
       .not("lng", "is", null)
-      .gte("lat", sw.getLat())
-      .lte("lat", ne.getLat())
-      .gte("lng", sw.getLng())
-      .lte("lng", ne.getLng())
+      .gte("lat", sw.getLat()).lte("lat", ne.getLat())
+      .gte("lng", sw.getLng()).lte("lng", ne.getLng())
       .limit(5000);
 
-    if (error) {
-      console.error("Supabase select(raw_places) error:", error.message);
-      return;
-    }
+    if (error) { console.error("Supabase select(raw_places) error:", error.message); return; }
     if (reqId !== lastReqIdRef.current) return;
 
     const records = (data ?? []) as PlaceRow[];
 
-    // 기존 마커/클러스터 비우기
+    // 클러스터 초기화
     if (clustererRef.current) clustererRef.current.clear();
 
-    // 마커 생성 + 그룹핑(같은 좌표)
+    // 마커 생성 + 같은 좌표 그룹핑
     const markers: KMarker[] = [];
     const groups = new Map<string, KMarker[]>();
     const keyOf = (lat: number, lng: number) => `${lat.toFixed(7)},${lng.toFixed(7)}`;
@@ -351,54 +303,32 @@ export default function MapPage() {
       if (!groups.has(marker.__baseKey)) groups.set(marker.__baseKey, []);
       groups.get(marker.__baseKey)!.push(marker);
 
-      // 마커 클릭 → 같은 그룹을 spiderfy
       kakao.maps.event.addListener(marker, "click", () => {
         const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
         const address = getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
-        const productName =
-          getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName"]) || "";
+        const productName = getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName"]) || "";
+        const households = toNumLoose(getField(row, ["세대수","세대 수","세대","가구수","가구 수","세대수(가구)","households"]));
+        const residents = toNumLoose(getField(row, ["거주인원","거주 인원","인구수","총인구","입주민수","거주자수","residents"]));
+        const monitors = toNumLoose(getField(row, ["모니터수량","모니터 수량","모니터대수","엘리베이터TV수","monitors"]));
+        const monthlyImpressions = toNumLoose(getField(row, ["월 송출횟수","월송출횟수","월 송출 횟수","월송출","노출수(월)","monthlyImpressions"]));
+        const hours = getField(row, ["운영시간","운영 시간","hours"]) || "";
+        const monthlyFee = toNumLoose(getField(row, ["월 광고료","월광고료","월 광고비","월비용","월요금","month_fee","monthlyFee"]));
+        const monthlyFeeY1 = toNumLoose(getField(row, ["1년 계약 시 월 광고료","1년계약시월광고료","연간월광고료","할인 월 광고료","연간_월광고료","monthlyFeeY1"]));
 
-        const households = toNumLoose(getField(row, [
-          "세대수", "세대 수", "세대", "가구수", "가구 수", "세대수(가구)", "households",
-        ]));
-        const residents = toNumLoose(getField(row, [
-          "거주인원", "거주 인원", "인구수", "총인구", "입주민수", "거주자수", "residents",
-        ]));
-        const monitors = toNumLoose(getField(row, [
-          "모니터수량", "모니터 수량", "모니터대수", "엘리베이터TV수", "monitors",
-        ]));
-        const monthlyImpressions = toNumLoose(getField(row, [
-          "월 송출횟수","월송출횟수","월 송출 횟수","월송출","노출수(월)","monthlyImpressions",
-        ]));
-        const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
-        const monthlyFee = toNumLoose(getField(row, [
-          "월 광고료","월광고료","월 광고비","월비용","월요금","month_fee","monthlyFee",
-        ]));
-        const monthlyFeeY1 = toNumLoose(getField(row, [
-          "1년 계약 시 월 광고료","1년계약시월광고료","연간월광고료","할인 월 광고료","연간_월광고료","monthlyFeeY1",
-        ]));
+        setSelected({ name, address, productName, households, residents, monitors, monthlyImpressions, hours, monthlyFee, monthlyFeeY1, lat, lng });
 
-        setSelected({
-          name, address, productName,
-          households, residents, monitors, monthlyImpressions, hours,
-          monthlyFee, monthlyFeeY1,
-          lat, lng,
-        });
-
-        // 같은 위치의 다른 마커들을 부드럽게 펼치기
+        // 같은 위치 그룹을 부드럽게 펼치기
         spiderRef.current?.spiderfy(marker.__baseKey!);
       });
 
       markers.push(marker);
     });
 
-    // 그룹 정보 등록(스파이더에게)
+    // 스파이더용 그룹 등록
     spiderRef.current?.setGroups(groups);
 
-    // 클러스터러에 모든 마커 추가
-    if (clustererRef.current && markers.length) {
-      clustererRef.current.addMarkers(markers);
-    }
+    // 클러스터에 추가
+    if (clustererRef.current && markers.length) clustererRef.current.addMarkers(markers);
   }
 
   // Places 검색 → 이동
@@ -424,17 +354,8 @@ export default function MapPage() {
 
   return (
     <div className="w-screen h-[100dvh] bg-white">
-      <div
-        ref={mapRef}
-        className={`fixed top-16 left-0 right-0 bottom-0 z-[10] ${mapLeftClass}`}
-        aria-label="map"
-      />
-      <MapChrome
-        selected={selected}
-        onCloseSelected={closeSelected}
-        onSearch={handleSearch}
-        initialQuery={initialQ}
-      />
+      <div ref={mapRef} className={`fixed top-16 left-0 right-0 bottom-0 z-[10] ${mapLeftClass}`} aria-label="map" />
+      <MapChrome selected={selected} onCloseSelected={closeSelected} onSearch={handleSearch} initialQuery={initialQ} />
       {kakaoError && (
         <div className="fixed bottom-4 right-4 z-[100] rounded-lg bg-red-600 text-white px-3 py-2 text-sm shadow">
           Kakao SDK 로드 오류: {kakaoError}
@@ -443,4 +364,3 @@ export default function MapPage() {
     </div>
   );
 }
-
