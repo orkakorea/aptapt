@@ -66,12 +66,27 @@ function getField(obj: any, keys: string[]): any {
 // ---------- types ----------
 type PlaceRow = {
   id: number;
+
+  // 표기 가능한 모든 한글/영문 변형을 최소 커버 (테이블에 있는 이름 우선)
   단지명?: string | null;
   상품명?: string | null;
+  설치위치?: string | null;
+  세대수?: string | null | number;
+  거주인원?: string | null | number;
+  모니터수량?: string | null | number;
+  월송출횟수?: string | null | number;
+  월광고료?: string | null | number;
+  ["1회당 송출비용"]?: string | null | number;
+  운영시간?: string | null;
   주소?: string | null;
+
+  imageUrl?: string | null;     // 있으면 사용 (없어도 무관)
   geocode_status?: string | null;
   lat?: number | null;
   lng?: number | null;
+
+  // 여유 키 (스키마 변동 대비)
+  [key: string]: any;
 };
 
 // ---------- Spiderfy Controller ----------
@@ -90,7 +105,6 @@ class SpiderController {
   }
   setGroups(groups: Map<string, KMarker[]>) { this.groups = groups; }
 
-  /** 외부에서 안전하게 호출 가능: 스파이더 상태를 원위치로 */
   unspiderfy = () => {
     if (!this.activeKey) return;
     const markers = this.groups.get(this.activeKey) || [];
@@ -99,21 +113,21 @@ class SpiderController {
     markers.forEach((m) => {
       if (!m.__basePos) return;
       m.setPosition(m.__basePos);
-      m.setMap(null); // 개별 마커 숨기기
+      m.setMap(null);
     });
-    if (markers.length) this.clusterer.addMarkers(markers); // 클러스터 관리로 복귀
+    if (markers.length) this.clusterer.addMarkers(markers);
     this.activeKey = null;
   };
 
   spiderfy = (key: string) => {
     if (this.animating) return;
-    if (this.activeKey === key) return; // 이미 같은 그룹이면 무시
+    if (this.activeKey === key) return;
     this.unspiderfy();
 
     const markers = this.groups.get(key) || [];
     if (markers.length <= 1) return;
 
-    this.clusterer.removeMarkers(markers); // 클러스터에서 분리
+    this.clusterer.removeMarkers(markers);
     const proj = this.map.getProjection();
     const center = markers[0].__basePos;
     const cpt = proj.containerPointFromCoords(center);
@@ -138,7 +152,7 @@ class SpiderController {
 
     const duration = 180; const t0 = performance.now();
     this.animating = true;
-    markers.forEach((m) => m.setMap(this.map)); // 개별 마커 보여주기
+    markers.forEach((m) => m.setMap(this.map));
 
     const step = (now: number) => {
       const t = Math.min(1, (now - t0) / duration);
@@ -256,7 +270,6 @@ export default function MapPage() {
     const map = mapObjRef.current;
     if (!map) return;
 
-    // ✅ 중복/유령 마커 방지: 새 마커 만들기 전에 원복
     spiderRef.current?.unspiderfy();
 
     const bounds = map.getBounds();
@@ -270,9 +283,27 @@ export default function MapPage() {
     const reqId = Date.now();
     lastReqIdRef.current = reqId;
 
+    // ★ 필요한 칼럼 전부 셀렉트 (한국어 컬럼명은 큰따옴표로 감싸기)
     const { data, error } = await client
       .from("raw_places")
-      .select(`id, "단지명", "상품명", "주소", geocode_status, lat, lng`)
+      .select(`
+        id,
+        "단지명",
+        "상품명",
+        "설치위치",
+        "세대수",
+        "거주인원",
+        "모니터수량",
+        "월송출횟수",
+        "월광고료",
+        "1회당 송출비용",
+        "운영시간",
+        "주소",
+        imageUrl,
+        geocode_status,
+        lat,
+        lng
+      `)
       .not("lat", "is", null)
       .not("lng", "is", null)
       .gte("lat", sw.getLat()).lte("lat", ne.getLat())
@@ -304,19 +335,44 @@ export default function MapPage() {
       groups.get(marker.__baseKey)!.push(marker);
 
       kakao.maps.event.addListener(marker, "click", () => {
+        // --- 필드 매핑: 테이블 명칭 우선, 유사명은 보조 키로 커버 ---
         const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
         const address = getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
         const productName = getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName"]) || "";
+
+        const installLocation = getField(row, ["설치위치", "설치 위치", "installLocation"]) || "";
+
         const households = toNumLoose(getField(row, ["세대수","세대 수","세대","가구수","가구 수","세대수(가구)","households"]));
         const residents = toNumLoose(getField(row, ["거주인원","거주 인원","인구수","총인구","입주민수","거주자수","residents"]));
         const monitors = toNumLoose(getField(row, ["모니터수량","모니터 수량","모니터대수","엘리베이터TV수","monitors"]));
-        const monthlyImpressions = toNumLoose(getField(row, ["월 송출횟수","월송출횟수","월 송출 횟수","월송출","노출수(월)","monthlyImpressions"]));
-        const hours = getField(row, ["운영시간","운영 시간","hours"]) || "";
-        const monthlyFee = toNumLoose(getField(row, ["월 광고료","월광고료","월 광고비","월비용","월요금","month_fee","monthlyFee"]));
+        const monthlyImpressions = toNumLoose(getField(row, ["월송출횟수","월 송출횟수","월 송출 횟수","월송출","노출수(월)","monthlyImpressions"]));
+
+        const monthlyFee = toNumLoose(getField(row, ["월광고료","월 광고료","월 광고비","월비용","월요금","month_fee","monthlyFee"]));
         const monthlyFeeY1 = toNumLoose(getField(row, ["1년 계약 시 월 광고료","1년계약시월광고료","연간월광고료","할인 월 광고료","연간_월광고료","monthlyFeeY1"]));
+        const costPerPlay = toNumLoose(getField(row, ["1회당 송출비용","송출 1회당 비용","costPerPlay"]));
 
-        setSelected({ name, address, productName, households, residents, monitors, monthlyImpressions, hours, monthlyFee, monthlyFeeY1, lat, lng });
+        const hours = getField(row, ["운영시간","운영 시간","hours"]) || "";
+        const imageUrl = getField(row, ["imageUrl", "이미지", "썸네일", "thumbnail"]) || undefined;
 
+        const sel: SelectedApt = {
+          name,
+          address,
+          productName,
+          installLocation,
+          households,
+          residents,
+          monitors,
+          monthlyImpressions,
+          costPerPlay,
+          hours,
+          monthlyFee,
+          monthlyFeeY1,
+          imageUrl,
+          lat,
+          lng,
+        };
+
+        setSelected(sel);
         // 같은 위치 그룹을 부드럽게 펼치기
         spiderRef.current?.spiderfy(marker.__baseKey!);
       });
@@ -364,3 +420,4 @@ export default function MapPage() {
     </div>
   );
 }
+
