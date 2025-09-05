@@ -205,20 +205,38 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
     onSearch?.(q);
   };
 
-   /** 2탭 → 카트 담기 */
+    /** 2탭 → 카트 담기 */
   const addSelectedToCart = () => {
-    if (!selected) return;
+    if (!selected) {
+      console.warn("[addSelectedToCart] selected is null/undefined");
+      return;
+    }
+
+    // name / productName이 빈 문자열이어도 안정적으로 id 생성되도록 정규화
+    const normKey = (v?: string) => (v ? v.replace(/\s+/g, "").toLowerCase() : "");
+    const nameKey = normKey(selected.name || selected.address || "");
+    const prodKey = normKey(selected.productName || "");
+    const id = [nameKey, prodKey].join("||");
+
     const productKey = classifyProductForPolicy(
       selected.productName,
       selected.installLocation
     );
-    const id = [selected.name || "", selected.productName || ""].join("||");
+
+    console.log("[addSelectedToCart] click", {
+      raw: { name: selected.name, productName: selected.productName },
+      id,
+      productKey,
+      baseMonthly: selected.monthlyFee,
+    });
 
     setCart((prev) => {
       const exists = prev.find((x) => x.id === id);
+      console.log("[addSelectedToCart] exists?", !!exists, prev);
+
       if (exists) {
-        // ✅ 기존 months는 보존하고 나머지만 최신화
-        return prev.map((x) =>
+        // ✅ 기존 months 보존하고 나머지를 최신화
+        const next = prev.map((x) =>
           x.id === id
             ? {
                 ...x,
@@ -230,9 +248,11 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
               }
             : x
         );
+        console.log("[addSelectedToCart] updated item", next);
+        return next;
       }
 
-      // 신규 추가일 때만 months 기본값 1
+      // 신규 추가
       const newItem: CartItem = {
         id,
         name: selected.name,
@@ -241,9 +261,12 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
         baseMonthly: selected.monthlyFee,
         months: 1,
       };
-      return [newItem, ...prev];
+      const next = [newItem, ...prev];
+      console.log("[addSelectedToCart] added new item", next);
+      return next;
     });
   };
+
 
   /** 카트 조작 */
   const updateMonths = (id: string, months: number) => {
@@ -260,7 +283,13 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
       {/* ===== 상단 바 ===== */}
       <div className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-[#E5E7EB] z-[60]">
         <div className="h-full flex items-center px-6">
-          <div className="text-xl font-bold text-black">응답하라 광고주여</div>
+           <div className="text-xl font-bold text-black flex items-center gap-2">
+    응답하라 광고주여
+    <span className="text-xs font-medium text-white bg-[#6C2DFF] rounded-full px-2 py-[2px]">
+      카트 {cart.length}
+    </span>
+  </div>
+
         </div>
       </div>
 
