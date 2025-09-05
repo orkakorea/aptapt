@@ -333,26 +333,19 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
             ) : (
               /* 이 div가 스크롤 컨테이너 — 내부의 sticky 버튼이 하단에 고정됨 */
               <div className="h-full overflow-y-auto">
-{/* 카운터 + 일괄적용 + VAT 표시(우측 고정) */}
-<div className="px-5 pt-5 pb-2 flex items-center justify-between text-xs text-[#757575]">
-  {/* 왼쪽: 카운터 + 체크박스 */}
-  <div className="flex items-center gap-3">
-    <span>총 {cart.length}건</span>
-    <label className="flex items-center gap-1 cursor-pointer select-none">
-      <input
-        type="checkbox"
-        checked={applyAll}
-        onChange={(e) => setApplyAll(e.target.checked)}
-        className="accent-[#6C2DFF]"
-      />
-      <span className={applyAll ? "text-[#6C2DFF] font-medium" : ""}>광고기간 일괄적용</span>
-    </label>
-  </div>
-
-  {/* 오른쪽: (VAT별도) 고정 */}
-  <div className="text-[#757575]">(VAT별도)</div>
-</div>
-
+                {/* 카운터 + 일괄적용 */}
+                <div className="px-5 pt-5 pb-2 flex items-center justify-between text-xs text-[#757575]">
+                  <span>총 {cart.length}건</span>
+                  <label className="flex items-center gap-1 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={applyAll}
+                      onChange={(e) => setApplyAll(e.target.checked)}
+                      className="accent-[#6C2DFF]"
+                    />
+                    <span className={applyAll ? "text-[#6C2DFF] font-medium" : ""}>광고기간 일괄적용</span>
+                  </label>
+                </div>
 
                 {/* 리스트 */}
                 <div className="px-5 pb-4 space-y-3">
@@ -556,30 +549,29 @@ function CartItemCard({ item, onChangeMonths, onRemove }: CartItemCardProps) {
         </select>
       </div>
 
-      {/* 월광고료 */}
-      <div className="mt-3 flex items-center justify-between">
-        <div className="text-[#6B7280] text-[13px]">월광고료</div>
-        <div className="text-sm font-semibold text-black whitespace-nowrap">
-          {monthlyAfter.toLocaleString()}원{" "}
-          <span className="align-baseline text-[11px] text-[#757575] font-normal">(VAT별도)</span>
-        </div>
-      </div>
+{/* 월광고료 */}
+<div className="mt-3 flex items-center justify-between">
+  <div className="text-[#6B7280] text-[13px]">월광고료</div>
+  <div className="text-sm font-semibold text-black whitespace-nowrap">
+    {monthlyAfter.toLocaleString()}원
+  </div>
+</div>
 
-      {/* 총광고료(항상 한 줄) + 할인 배지 값 앞에 인라인 */}
-      <div className="mt-2 flex items-center justify-between">
-        <div className="text-[#6B7280] text-[13px]">총광고료</div>
-        <div className="text-right whitespace-nowrap">
-          {discountCombined > 0 ? (
-            <span className="inline-flex items-center rounded-md bg-[#F4F0FB] text-[#6C2DFF] text-[11px] font-semibold px-2 py-[2px] mr-2 align-middle">
-              {(Math.round(discountCombined * 1000) / 10).toFixed(1).replace(/\.0$/,"")}%할인
-            </span>
-          ) : null}
-          <span className="text-[#6C2DFF] text-base font-bold align-middle">
-            {total.toLocaleString()}원
-          </span>{" "}
-          <span className="align-baseline text-[11px] text-[#757575]">(VAT별도)</span>
-        </div>
-      </div>
+
+{/* 총광고료(항상 한 줄) + 할인 배지 값 앞에 인라인 */}
+<div className="mt-2 flex items-center justify-between">
+  <div className="text-[#6B7280] text-[13px]">총광고료</div>
+  <div className="text-right whitespace-nowrap">
+    {discountCombined > 0 ? (
+      <span className="inline-flex items-center rounded-md bg-[#F4F0FB] text-[#6C2DFF] text-[11px] font-semibold px-2 py-[2px] mr-2 align-middle">
+        {(Math.round(discountCombined * 1000) / 10).toFixed(1).replace(/\.0$/,"")}%할인
+      </span>
+    ) : null}
+    <span className="text-[#6C2DFF] text-base font-bold align-middle">
+      {total.toLocaleString()}원
+    </span>
+  </div>
+</div>
     </div>
   );
 }
