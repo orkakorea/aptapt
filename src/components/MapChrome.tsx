@@ -121,20 +121,47 @@ function findRate(rules: RangeRule[] | undefined, months: number): number {
 }
 
 /** 할인 정책용 제품 키 분류 */
-function classifyProductForPolicy(productName?: string, installLocation?: string): keyof DiscountPolicy | undefined {
-  const pn = norm(productName);
+function classifyProductForPolicy(
+  productName?: string,
+  installLocation?: string
+): keyof DiscountPolicy | undefined {
+  const pn = norm(productName);        // 공백 제거 + 소문자 (언더바/하이픈은 유지)
   const loc = norm(installLocation);
-  if (pn.includes("elevatortv") || pn.includes("엘리베이터tv") || pn.includes("elevator")) return "ELEVATOR TV";
+
+  // 0) 안전 가드
+  if (!pn) return undefined;
+
+  // 1) 제품명에 S/L이 명시된 경우 "무조건" 우선
+  //    예: "townbord_l", "townbord-l", "townbord l", "townboard_l" 등
+  if (
+    pn.includes("townbord_l") || pn.includes("townboard_l") ||
+    /\btownbord[-_\s]?l\b/.test(pn) || /\btownboard[-_\s]?l\b/.test(pn)
+  ) return "TOWNBORD_L";
+  if (
+    pn.includes("townbord_s") || pn.includes("townboard_s") ||
+    /\btownbord[-_\s]?s\b/.test(pn) || /\btownboard[-_\s]?s\b/.test(pn)
+  ) return "TOWNBORD_S";
+
+  // 2) 일반 제품군
+  if (pn.includes("elevatortv") || pn.includes("엘리베이터tv") || pn.includes("elevator"))
+    return "ELEVATOR TV";
+  if (pn.includes("mediameet") || pn.includes("media-meet") || pn.includes("미디어"))
+    return "MEDIA MEET";
+  if (pn.includes("spaceliving") || pn.includes("스페이스") || pn.includes("living"))
+    return "SPACE LIVING";
+  if (pn.includes("hipost") || pn.includes("hi-post") || pn.includes("하이포스트"))
+    return "HI-POST";
+
+  // 3) 타운보드인데 S/L이 제품명에 없을 때만 설치 위치로 추론
   if (pn.includes("townbord") || pn.includes("townboard") || pn.includes("타운보드")) {
     if (loc.includes("ev내부")) return "TOWNBORD_L";
     if (loc.includes("ev대기공간")) return "TOWNBORD_S";
-    return "TOWNBORD_S";
+    return "TOWNBORD_S"; // 기본값
   }
-  if (pn.includes("mediameet") || pn.includes("media-meet") || pn.includes("미디어")) return "MEDIA MEET";
-  if (pn.includes("spaceliving") || pn.includes("스페이스") || pn.includes("living")) return "SPACE LIVING";
-  if (pn.includes("hipost") || pn.includes("hi-post") || pn.includes("하이포스트")) return "HI-POST";
+
   return undefined;
 }
+
 
 /** ====== Cart(작은박스) 타입 ====== */
 type CartItem = {
