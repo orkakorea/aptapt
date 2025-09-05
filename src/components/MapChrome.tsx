@@ -182,17 +182,21 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
     return Math.round(base * (1 - preRate) * (1 - periodRate));
   }, [selected]);
 
-  /** 카트 총합(총광고료) */
+    /** 카트 총합(총광고료) */
   const cartTotal = useMemo(() => {
     return cart.reduce((sum, item) => {
       const rule = item.productKey ? DEFAULT_POLICY[item.productKey] : undefined;
       const periodRate = findRate(rule?.period, item.months);
-      const preRate = item.productKey === "ELEVATOR TV" ? findRate(rule?.precomp, item.months) : 0;
-      const monthlyAfter = Math.round((item.baseMonthly ?? 0) * (1 - preRate) * (1 - periodRate));
+      const preRate =
+        item.productKey === "ELEVATOR TV" ? findRate(rule?.precomp, item.months) : 0;
+      const monthlyAfter = Math.round(
+        (item.baseMonthly ?? 0) * (1 - preRate) * (1 - periodRate)
+      );
       const total = monthlyAfter * item.months;
       return sum + total;
     }, 0);
   }, [cart]);
+
 
   /** 검색 실행 */
   const runSearch = () => {
@@ -204,13 +208,16 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
    /** 2탭 → 카트 담기 */
   const addSelectedToCart = () => {
     if (!selected) return;
-    const productKey = classifyProductForPolicy(selected.productName, selected.installLocation);
+    const productKey = classifyProductForPolicy(
+      selected.productName,
+      selected.installLocation
+    );
     const id = [selected.name || "", selected.productName || ""].join("||");
 
     setCart((prev) => {
       const exists = prev.find((x) => x.id === id);
       if (exists) {
-        // ✅ 기존 months는 보존하고, 나머지 최신값으로 업데이트
+        // ✅ 기존 months는 보존하고 나머지만 최신화
         return prev.map((x) =>
           x.id === id
             ? {
@@ -225,7 +232,7 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
         );
       }
 
-      // 신규 추가 시에만 months 기본값 1로 세팅
+      // 신규 추가일 때만 months 기본값 1
       const newItem: CartItem = {
         id,
         name: selected.name,
