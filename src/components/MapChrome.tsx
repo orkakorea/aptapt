@@ -205,25 +205,19 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
     onSearch?.(q);
   };
 
-  /** 2탭 → 카트 담기 */
+   /** 2탭 → 카트 담기 */
   const addSelectedToCart = () => {
     if (!selected) return;
-
-    // id 안정화(공백 제거/소문자화)로 중복 담기 구분 정확도 향상
-    const normKey = (v?: string) => (v ? v.replace(/\s+/g, "").toLowerCase() : "");
-    const nameKey = normKey(selected.name || selected.address || "");
-    const prodKey = normKey(selected.productName || "");
-    const id = [nameKey, prodKey].join("||");
-
     const productKey = classifyProductForPolicy(
       selected.productName,
       selected.installLocation
     );
+    const id = [selected.name || "", selected.productName || ""].join("||");
 
     setCart((prev) => {
       const exists = prev.find((x) => x.id === id);
       if (exists) {
-        // ✅ 기존 months 보존, 나머지만 최신화
+        // ✅ 기존 months는 보존하고 나머지만 최신화
         return prev.map((x) =>
           x.id === id
             ? {
@@ -232,28 +226,24 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
                 productKey,
                 productName: selected.productName,
                 baseMonthly: selected.monthlyFee,
-                // months는 그대로 둠
+                // months: x.months (보존)
               }
             : x
         );
       }
 
-      // ✅ 신규 추가는 "첫 번째 항목의 months"를 상속 (없으면 1개월)
-      const defaultMonths = prev.length > 0 ? prev[0].months : 1;
+      // 신규 추가일 때만 months 기본값 1
       const newItem: CartItem = {
         id,
         name: selected.name,
         productKey,
         productName: selected.productName,
         baseMonthly: selected.monthlyFee,
-        months: defaultMonths,
+        months: 1,
       };
-
-      // ✅ 맨 "아래"에 추가: 첫 항목이 유지되어 이후 상속 기준이 계속 첫 항목으로 남음
-      return [...prev, newItem];
+      return [newItem, ...prev];
     });
   };
-
 
   /** 카트 조작 */
   const updateMonths = (id: string, months: number) => {
@@ -327,7 +317,7 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
           {/* 총 비용 요약 */}
           <div className="space-y-2">
             <div className="text-sm font-semibold">
-              총 비용 <span className="text-xs text-[#757575]">(VAT별도)</span>
+              총 비용
             </div>
             <div className="h-10 rounded-[10px] bg-[#F4F0FB] flex items-center px-3 text-sm text-[#6C2DFF] font-bold">
               {fmtWon(cartTotal)}원 <span className="ml-1 text-[11px] font-normal">(VAT별도)</span>
