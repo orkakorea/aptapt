@@ -121,20 +121,59 @@ function findRate(rules: RangeRule[] | undefined, months: number): number {
 }
 
 /** 할인 정책용 제품 키 분류 */
-function classifyProductForPolicy(productName?: string, installLocation?: string): keyof DiscountPolicy | undefined {
+function classifyProductForPolicy(
+  productName?: string,
+  installLocation?: string
+): keyof DiscountPolicy | undefined {
   const pn = norm(productName);
   const loc = norm(installLocation);
-  if (pn.includes("elevatortv") || pn.includes("엘리베이터tv") || pn.includes("elevator")) return "ELEVATOR TV";
+
+  // 1) 제품명에 명시된 타입을 최우선으로 인식
+  //    예) "TOWNBORD_S", "townbord s", "townboard-l" 등
+  if (pn) {
+    if (
+      pn.includes("townbord_l") ||
+      pn.includes("townboard_l") ||
+      pn.includes("townbordl") ||
+      pn.includes("townboardl") ||
+      /\btownbord[-_\s]?l\b/.test(pn) ||
+      /\btownboard[-_\s]?l\b/.test(pn)
+    ) {
+      return "TOWNBORD_L";
+    }
+    if (
+      pn.includes("townbord_s") ||
+      pn.includes("townboard_s") ||
+      pn.includes("townbords") ||
+      pn.includes("townboards") ||
+      /\btownbord[-_\s]?s\b/.test(pn) ||
+      /\btownboard[-_\s]?s\b/.test(pn)
+    ) {
+      return "TOWNBORD_S";
+    }
+  }
+
+  // 2) 일반 제품군 분류
+  if (pn.includes("elevatortv") || pn.includes("엘리베이터tv") || pn.includes("elevator"))
+    return "ELEVATOR TV";
+
   if (pn.includes("townbord") || pn.includes("townboard") || pn.includes("타운보드")) {
+    // 3) 제품명에 S/L이 없을 때만 설치 위치로 추론
     if (loc.includes("ev내부")) return "TOWNBORD_L";
     if (loc.includes("ev대기공간")) return "TOWNBORD_S";
-    return "TOWNBORD_S";
+    return "TOWNBORD_S"; // 기본값
   }
-  if (pn.includes("mediameet") || pn.includes("media-meet") || pn.includes("미디어")) return "MEDIA MEET";
-  if (pn.includes("spaceliving") || pn.includes("스페이스") || pn.includes("living")) return "SPACE LIVING";
-  if (pn.includes("hipost") || pn.includes("hi-post") || pn.includes("하이포스트")) return "HI-POST";
+
+  if (pn.includes("mediameet") || pn.includes("media-meet") || pn.includes("미디어"))
+    return "MEDIA MEET";
+  if (pn.includes("spaceliving") || pn.includes("스페이스") || pn.includes("living"))
+    return "SPACE LIVING";
+  if (pn.includes("hipost") || pn.includes("hi-post") || pn.includes("하이포스트"))
+    return "HI-POST";
+
   return undefined;
 }
+
 
 /** ====== Cart(작은박스) 타입 ====== */
 type CartItem = {
@@ -205,25 +244,19 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
     onSearch?.(q);
   };
 
-  /** 2탭 → 카트 담기 */
+   /** 2탭 → 카트 담기 */
   const addSelectedToCart = () => {
     if (!selected) return;
-
-    // id 안정화(공백 제거/소문자화)로 중복 담기 구분 정확도 향상
-    const normKey = (v?: string) => (v ? v.replace(/\s+/g, "").toLowerCase() : "");
-    const nameKey = normKey(selected.name || selected.address || "");
-    const prodKey = normKey(selected.productName || "");
-    const id = [nameKey, prodKey].join("||");
-
     const productKey = classifyProductForPolicy(
       selected.productName,
       selected.installLocation
     );
+    const id = [selected.name || "", selected.productName || ""].join("||");
 
     setCart((prev) => {
       const exists = prev.find((x) => x.id === id);
       if (exists) {
-        // ✅ 기존 months 보존, 나머지만 최신화
+        // ✅ 기존 months는 보존하고 나머지만 최신화
         return prev.map((x) =>
           x.id === id
             ? {
@@ -232,28 +265,24 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
                 productKey,
                 productName: selected.productName,
                 baseMonthly: selected.monthlyFee,
-                // months는 그대로 둠
+                // months: x.months (보존)
               }
             : x
         );
       }
 
-      // ✅ 신규 추가는 "첫 번째 항목의 months"를 상속 (없으면 1개월)
-      const defaultMonths = prev.length > 0 ? prev[0].months : 1;
+      // 신규 추가일 때만 months 기본값 1
       const newItem: CartItem = {
         id,
         name: selected.name,
         productKey,
         productName: selected.productName,
         baseMonthly: selected.monthlyFee,
-        months: defaultMonths,
+        months: 1,
       };
-
-      // ✅ 맨 "아래"에 추가: 첫 항목이 유지되어 이후 상속 기준이 계속 첫 항목으로 남음
-      return [...prev, newItem];
+      return [newItem, ...prev];
     });
   };
-
 
   /** 카트 조작 */
   const updateMonths = (id: string, months: number) => {
