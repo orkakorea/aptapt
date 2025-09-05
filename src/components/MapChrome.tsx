@@ -232,16 +232,24 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
         );
       }
 
-      // 신규 추가일 때만 months 기본값 1
-      const newItem: CartItem = {
-        id,
-        name: selected.name,
-        productKey,
-        productName: selected.productName,
-        baseMonthly: selected.monthlyFee,
-        months: 1,
-      };
-      return [newItem, ...prev];
+   // 신규 추가: 첫 번째 카트 항목의 months를 상속(없으면 1개월)
+const defaultMonths = prev.length > 0 ? prev[0].months : 1;
+const newItem: CartItem = {
+  id,
+  name: selected.name,
+  productKey,
+  productName: selected.productName,
+  baseMonthly: selected.monthlyFee,
+  months: defaultMonths,
+};
+// 맨 아래에 추가해서 "첫 드롭박스"가 계속 첫 항목으로 유지되도록 함
+const next = [...prev, newItem];
+console.log("[addSelectedToCart] added new item (inherit months from first):", {
+  inherited: defaultMonths,
+  next,
+});
+return next;
+
     });
   };
 
@@ -558,24 +566,21 @@ function CartItemCard({ item, onChangeMonths, onRemove }: CartItemCardProps) {
         </div>
       </div>
 
-      {/* 총광고료 */}
-<div className="mt-2 flex items-start justify-between">
-  <div className="text-[#6B7280] text-[13px]">총광고료</div>
-  <div className="text-right">
-    <div className="flex items-center justify-end flex-wrap gap-1">
-      {discountCombined > 0 ? (
-        <span className="inline-flex items-center rounded bg-[#F4F0FB] text-[#6C2DFF] text-[10px] font-semibold px-1.5 py-[1px]">
-          {(Math.round(discountCombined * 1000) / 10).toFixed(1).replace(/\.0$/,"")}%할인
-        </span>
-      ) : null}
-      <span className="text-[#6C2DFF] text-base font-bold">
-        {total.toLocaleString()}원
-      </span>
-    </div>
-    <div className="text-[11px] text-[#757575] mt-0.5">(VAT별도)</div>
-  </div>
-</div>
-
+      {/* 총광고료(항상 한 줄) + 할인 배지 값 앞에 인라인 */}
+      <div className="mt-2 flex items-center justify-between">
+        <div className="text-[#6B7280] text-[13px]">총광고료</div>
+        <div className="text-right whitespace-nowrap">
+          {discountCombined > 0 ? (
+            <span className="inline-flex items-center rounded-md bg-[#F4F0FB] text-[#6C2DFF] text-[11px] font-semibold px-2 py-[2px] mr-2 align-middle">
+              {(Math.round(discountCombined * 1000) / 10).toFixed(1).replace(/\.0$/,"")}%할인
+            </span>
+          ) : null}
+          <span className="text-[#6C2DFF] text-base font-bold align-middle">
+            {total.toLocaleString()}원
+          </span>{" "}
+          <span className="align-baseline text-[11px] text-[#757575]">(VAT별도)</span>
+        </div>
+      </div>
     </div>
   );
 }
