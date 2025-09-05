@@ -121,20 +121,59 @@ function findRate(rules: RangeRule[] | undefined, months: number): number {
 }
 
 /** 할인 정책용 제품 키 분류 */
-function classifyProductForPolicy(productName?: string, installLocation?: string): keyof DiscountPolicy | undefined {
+function classifyProductForPolicy(
+  productName?: string,
+  installLocation?: string
+): keyof DiscountPolicy | undefined {
   const pn = norm(productName);
   const loc = norm(installLocation);
-  if (pn.includes("elevatortv") || pn.includes("엘리베이터tv") || pn.includes("elevator")) return "ELEVATOR TV";
+
+  // 1) 제품명에 명시된 타입을 최우선으로 인식
+  //    예) "TOWNBORD_S", "townbord s", "townboard-l" 등
+  if (pn) {
+    if (
+      pn.includes("townbord_l") ||
+      pn.includes("townboard_l") ||
+      pn.includes("townbordl") ||
+      pn.includes("townboardl") ||
+      /\btownbord[-_\s]?l\b/.test(pn) ||
+      /\btownboard[-_\s]?l\b/.test(pn)
+    ) {
+      return "TOWNBORD_L";
+    }
+    if (
+      pn.includes("townbord_s") ||
+      pn.includes("townboard_s") ||
+      pn.includes("townbords") ||
+      pn.includes("townboards") ||
+      /\btownbord[-_\s]?s\b/.test(pn) ||
+      /\btownboard[-_\s]?s\b/.test(pn)
+    ) {
+      return "TOWNBORD_S";
+    }
+  }
+
+  // 2) 일반 제품군 분류
+  if (pn.includes("elevatortv") || pn.includes("엘리베이터tv") || pn.includes("elevator"))
+    return "ELEVATOR TV";
+
   if (pn.includes("townbord") || pn.includes("townboard") || pn.includes("타운보드")) {
+    // 3) 제품명에 S/L이 없을 때만 설치 위치로 추론
     if (loc.includes("ev내부")) return "TOWNBORD_L";
     if (loc.includes("ev대기공간")) return "TOWNBORD_S";
-    return "TOWNBORD_S";
+    return "TOWNBORD_S"; // 기본값
   }
-  if (pn.includes("mediameet") || pn.includes("media-meet") || pn.includes("미디어")) return "MEDIA MEET";
-  if (pn.includes("spaceliving") || pn.includes("스페이스") || pn.includes("living")) return "SPACE LIVING";
-  if (pn.includes("hipost") || pn.includes("hi-post") || pn.includes("하이포스트")) return "HI-POST";
+
+  if (pn.includes("mediameet") || pn.includes("media-meet") || pn.includes("미디어"))
+    return "MEDIA MEET";
+  if (pn.includes("spaceliving") || pn.includes("스페이스") || pn.includes("living"))
+    return "SPACE LIVING";
+  if (pn.includes("hipost") || pn.includes("hi-post") || pn.includes("하이포스트"))
+    return "HI-POST";
+
   return undefined;
 }
+
 
 /** ====== Cart(작은박스) 타입 ====== */
 type CartItem = {
@@ -317,7 +356,7 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
           {/* 총 비용 요약 */}
           <div className="space-y-2">
             <div className="text-sm font-semibold">
-              총 비용
+              총 비용 <span className="text-xs text-[#757575]">(VAT별도)</span>
             </div>
             <div className="h-10 rounded-[10px] bg-[#F4F0FB] flex items-center px-3 text-sm text-[#6C2DFF] font-bold">
               {fmtWon(cartTotal)}원 <span className="ml-1 text-[11px] font-normal">(VAT별도)</span>
