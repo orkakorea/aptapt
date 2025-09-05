@@ -317,7 +317,7 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
           {/* 총 비용 요약 */}
           <div className="space-y-2">
             <div className="text-sm font-semibold">
-              총 비용 <span className="text-xs text-[#757575]">(VAT별도)</span>
+              총 비용
             </div>
             <div className="h-10 rounded-[10px] bg-[#F4F0FB] flex items-center px-3 text-sm text-[#6C2DFF] font-bold">
               {fmtWon(cartTotal)}원 <span className="ml-1 text-[11px] font-normal">(VAT별도)</span>
@@ -549,29 +549,30 @@ function CartItemCard({ item, onChangeMonths, onRemove }: CartItemCardProps) {
         </select>
       </div>
 
-{/* 월광고료 */}
-<div className="mt-3 flex items-center justify-between">
-  <div className="text-[#6B7280] text-[13px]">월광고료</div>
-  <div className="text-sm font-semibold text-black whitespace-nowrap">
-    {monthlyAfter.toLocaleString()}원
-  </div>
-</div>
+      {/* 월광고료 */}
+      <div className="mt-3 flex items-center justify-between">
+        <div className="text-[#6B7280] text-[13px]">월광고료</div>
+        <div className="text-sm font-semibold text-black whitespace-nowrap">
+          {monthlyAfter.toLocaleString()}원{" "}
+          <span className="align-baseline text-[11px] text-[#757575] font-normal">(VAT별도)</span>
+        </div>
+      </div>
 
-
-{/* 총광고료(항상 한 줄) + 할인 배지 값 앞에 인라인 */}
-<div className="mt-2 flex items-center justify-between">
-  <div className="text-[#6B7280] text-[13px]">총광고료</div>
-  <div className="text-right whitespace-nowrap">
-    {discountCombined > 0 ? (
-      <span className="inline-flex items-center rounded-md bg-[#F4F0FB] text-[#6C2DFF] text-[11px] font-semibold px-2 py-[2px] mr-2 align-middle">
-        {(Math.round(discountCombined * 1000) / 10).toFixed(1).replace(/\.0$/,"")}%할인
-      </span>
-    ) : null}
-    <span className="text-[#6C2DFF] text-base font-bold align-middle">
-      {total.toLocaleString()}원
-    </span>
-  </div>
-</div>
+      {/* 총광고료(항상 한 줄) + 할인 배지 값 앞에 인라인 */}
+      <div className="mt-2 flex items-center justify-between">
+        <div className="text-[#6B7280] text-[13px]">총광고료</div>
+        <div className="text-right whitespace-nowrap">
+          {discountCombined > 0 ? (
+            <span className="inline-flex items-center rounded-md bg-[#F4F0FB] text-[#6C2DFF] text-[11px] font-semibold px-2 py-[2px] mr-2 align-middle">
+              {(Math.round(discountCombined * 1000) / 10).toFixed(1).replace(/\.0$/,"")}%할인
+            </span>
+          ) : null}
+          <span className="text-[#6C2DFF] text-base font-bold align-middle">
+            {total.toLocaleString()}원
+          </span>{" "}
+          <span className="align-baseline text-[11px] text-[#757575]">(VAT별도)</span>
+        </div>
+      </div>
     </div>
   );
 }
