@@ -201,25 +201,43 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
     onSearch?.(q);
   };
 
-  /** 2탭 → 카트 담기 */
+   /** 2탭 → 카트 담기 */
   const addSelectedToCart = () => {
     if (!selected) return;
     const productKey = classifyProductForPolicy(selected.productName, selected.installLocation);
     const id = [selected.name || "", selected.productName || ""].join("||");
-    const item: CartItem = {
-      id,
-      name: selected.name,
-      productKey,
-      productName: selected.productName,
-      baseMonthly: selected.monthlyFee,
-      months: 1,
-    };
+
     setCart((prev) => {
       const exists = prev.find((x) => x.id === id);
-      if (exists) return prev.map((x) => (x.id === id ? item : x));
-      return [item, ...prev];
+      if (exists) {
+        // ✅ 기존 months는 보존하고, 나머지 최신값으로 업데이트
+        return prev.map((x) =>
+          x.id === id
+            ? {
+                ...x,
+                name: selected.name,
+                productKey,
+                productName: selected.productName,
+                baseMonthly: selected.monthlyFee,
+                // months: x.months (보존)
+              }
+            : x
+        );
+      }
+
+      // 신규 추가 시에만 months 기본값 1로 세팅
+      const newItem: CartItem = {
+        id,
+        name: selected.name,
+        productKey,
+        productName: selected.productName,
+        baseMonthly: selected.monthlyFee,
+        months: 1,
+      };
+      return [newItem, ...prev];
     });
   };
+
 
   /** 카트 조작 */
   const updateMonths = (id: string, months: number) => {
