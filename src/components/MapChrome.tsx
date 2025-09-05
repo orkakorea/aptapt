@@ -200,8 +200,8 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
     if (!q) return;
     onSearch?.(q);
   };
-  
-/** 2탭 → 카트 담기 */
+
+   /** 2탭 → 카트 담기 */
   const addSelectedToCart = () => {
     if (!selected) return;
     const productKey = classifyProductForPolicy(selected.productName, selected.installLocation);
