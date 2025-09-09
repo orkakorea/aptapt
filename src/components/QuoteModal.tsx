@@ -196,9 +196,9 @@ export default function QuoteModal({
         aria-hidden="true"
       />
 
-      {/* 모달 패널 */}
-      <div className="absolute inset-0 flex items-start justify-center overflow-auto">
-        <div className="mt-10 mb-10 w-[min(1200px,95vw)] bg-white rounded-2xl shadow-xl border border-[#E5E7EB]">
+{/* 모달 패널 (가로 1900 고정, 화면이 더 작으면 가로 스크롤) */}
+<div className="absolute inset-0 overflow-x-auto overflow-y-auto">
+  <div className="min-w-[1900px] max-w-[1900px] mx-auto my-10 bg-white rounded-2xl shadow-xl border border-[#E5E7EB]">
           {/* 헤더 */}
           <div className="px-6 py-5 border-b border-[#E5E7EB] flex items-start justify-between">
             <div>
