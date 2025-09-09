@@ -442,26 +442,19 @@ const removeItem = (id: string) => {
   };
 
   const buildSeatPrefill = () => {
-    const first = cart[0];
-    const aptName = selected?.name ?? first?.name ?? null;
-    const prodName = selected?.productName ?? first?.productName ?? null;
-
-    const totalWon = cart.reduce((sum, item) => {
-      const base = Number(item.baseMonthly ?? 0);
-      return sum + base * Number(item.months ?? 0);
-    }, 0);
-
+    if (!selected) return undefined;
     return {
-      apt_id: aptName,
-      apt_name: aptName,
-      product_code: prodName ?? undefined,
-      product_name: prodName ?? undefined,
-      cart_snapshot: cart.length
-        ? { items: cart, totalWon, months: first?.months ?? null }
-        : undefined,
+      apt_id: selected.name, // Using name as ID for now
+      apt_name: selected.name,
+      product_code: selected.productName || undefined,
+      product_name: selected.productName || undefined,
+      cart_snapshot: cart.length > 0 ? {
+        items: cart,
+        totalWon: cart.reduce((sum, item) => sum + (item.baseMonthly * item.months), 0),
+        months: cart[0]?.months || 1
+      } : undefined
     };
   };
-
 
   return (
     <>
@@ -477,9 +470,13 @@ const removeItem = (id: string) => {
         <div className="flex flex-col h-full w-full px-5 py-5 gap-3">
           {/* 클릭 박스 + 전화 버튼 */}
           <div className="flex gap-2">
-            <button className="flex-1 h-9 rounded-md border border-[#E5E7EB] text-sm text-black">
+            <button
+              className="flex-1 h-9 rounded-md border border-[#6C2DFF] text-sm text-[#6C2DFF] hover:bg-[#F4F0FB]"
+              onClick={() => setOpenPackageInquiry(true)}
+            >
               시·군·구·동 단위 / 패키지 문의
             </button>
+
             <a
               href="tel:031-1551-0810"
               className="h-9 px-3 rounded-md bg-[#6C2DFF] flex items-center justify-center text-sm text-white font-semibold"
