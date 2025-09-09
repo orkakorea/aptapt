@@ -37,8 +37,6 @@ const FALLBACK_ASSET_BASE =
 const PLACEHOLDER = "/placeholder.svg";
 
 const norm = (s?: string) => (s ? s.replace(/\s+/g, "").toLowerCase() : "");
-const keyName = (s: string) => s.trim().replace(/\s+/g, "").toLowerCase();
-
 
 /** 상품/설치위치 → 썸네일 파일명 매핑 */
 function resolveProductFile(productName?: string, installLocation?: string): string | undefined {
@@ -183,28 +181,11 @@ type AptStats = {
 export default function MapChrome({ selected, onCloseSelected, onSearch, initialQuery }: Props) {
   /** 검색어 */
   const [query, setQuery] = useState(initialQuery || "");
-    useEffect(() => setQuery(initialQuery || ""), [initialQuery]);
-
-  useEffect(() => {
-    if (openQuote && cart.length > 0) {
-      fetchStatsByNames(cart.map((c) => c.name));
-    }
-  }, [openQuote, cart]);
-
+  useEffect(() => setQuery(initialQuery || ""), [initialQuery]);
 
   /** 카트 */
   const [cart, setCart] = useState<CartItem[]>([]);
   const [applyAll, setApplyAll] = useState(true);
-  
-  /** Supabase에서 받은 단지 통계 캐시 (key = 단지명 정규화) */
-type AptStats = {
-  households?: number;
-  residents?: number;
-  monthlyImpressions?: number;
-  monitors?: number;
-};
-const [statsMap, setStatsMap] = useState<Record<string, AptStats>>({});
-
 
   /** 견적 모달 on/off */
   const [openQuote, setOpenQuote] = useState(false);
@@ -316,40 +297,7 @@ const [statsMap, setStatsMap] = useState<Record<string, AptStats>>({});
             : x
         );
       }
-      
-// === [추가] 담자마자 selected에 이미 있는 수치를 캐시에 프라임 ===
-if (selected?.name) {
-  const k = keyName(selected.name);
-  setStatsMap((prev) => ({
-    ...prev,
-    [k]: {
-      households: selected.households ?? prev[k]?.households,
-      residents: selected.residents ?? prev[k]?.residents,
-      monthlyImpressions: selected.monthlyImpressions ?? prev[k]?.monthlyImpressions,
-      monitors: selected.monitors ?? prev[k]?.monitors,
-    },
-  }));
-  // Supabase 최신값으로 덮어쓰기
-  fetchStatsByNames([selected.name]);
-}
 
-// === [추가] 지도 핀 보라색으로 변경 (kakao map 사용 시) ===
-try {
-  // 마커를 “단지명 그대로 키”로 보관하고 있다면:
-  // window.markerMap 또는 props 등 실제 보관 위치에 맞게 수정하세요.
-  const mk = (window as any)?.markerMap?.[selected.name];
-  if (mk && (window as any).kakao?.maps) {
-    const purpleIcon = new (window as any).kakao.maps.MarkerImage(
-      "https://t1.daumcdn.net/localimg/localimages/07/mapapidoc/markerStar.png",
-      new (window as any).kakao.maps.Size(24, 35)
-    );
-    mk.setImage(purpleIcon);
-  }
-} catch (e) {
-  console.warn("marker color change skipped:", e);
-}
-
-      
       const defaultMonths = prev.length > 0 ? prev[0].months : 1;
       const newItem: CartItem = {
         id,
@@ -363,7 +311,6 @@ try {
       return [newItem, ...prev];
     });
 
-    
     // ✅ 담자마자 해당 단지 통계 프리패치 (UI 즉시채움)
     fetchStatsByNames([selected.name]);
   };
@@ -376,38 +323,7 @@ try {
       setCart((prev) => prev.map((x) => (x.id === id ? { ...x, months } : x)));
     }
   };
-    const removeItem = (id: string) => setCart((prev) => prev.filter((x) => x.id !== id));
-
-  /** 카트 단지명으로 Supabase에서 통계 일괄 조회 */
-  async function fetchStatsByNames(names: string[]) {
-    const uniq = Array.from(new Set(names.filter(Boolean)));
-    if (!uniq.length) return;
-
-    const { data, error } = await supabase
-      .from("raw_places")
-      .select("단지명, 세대수, 거주인원, 송출횟수, 모니터수량")
-      .in("단지명", uniq);
-
-    if (error) {
-      console.error("[Supabase] fetch error:", error);
-      return;
-    }
-
-    const map: Record<string, AptStats> = {};
-    (data || []).forEach((row: any) => {
-      const k = keyName(row["단지명"] || "");
-      if (!k) return;
-      map[k] = {
-        households: row["세대수"] ? Number(row["세대수"]) : undefined,
-        residents: row["거주인원"] ? Number(row["거주인원"]) : undefined,
-        monthlyImpressions: row["송출횟수"] ? Number(row["송출횟수"]) : undefined,
-        monitors: row["모니터수량"] ? Number(row["모니터수량"]) : undefined,
-      };
-    });
-
-    setStatsMap((prev) => ({ ...prev, ...map }));
-  }
-
+  const removeItem = (id: string) => setCart((prev) => prev.filter((x) => x.id !== id));
 
   /** 모달 오픈 시 카트 목록으로 통계 일괄 동기화 (뒤늦게 담긴 케이스 대비) */
   useEffect(() => {
@@ -428,28 +344,28 @@ try {
     d.setMonth(d.getMonth() + months);
     return d;
   }
-const buildQuoteItems = (): QuoteLineItem[] => {
-  const today = new Date();
-  return cart.map((c) => {
-    const s = statsMap[keyName(c.name)];
-    return {
-      id: c.id,
-      name: c.name,
-      months: c.months,
-      startDate: yyyy_mm_dd(today),
-      endDate: yyyy_mm_dd(addMonths(today, c.months)),
-      mediaName: c.productName,
-      baseMonthly: c.baseMonthly,
-      productKeyHint: c.productKey,
+  const buildQuoteItems = (): QuoteLineItem[] => {
+    const today = new Date();
+    return cart.map((c) => {
+      const s = statsMap[c.name]; // Supabase 캐시
+      return {
+        id: c.id,
+        name: c.name,
+        months: c.months,
+        startDate: yyyy_mm_dd(today),
+        endDate: yyyy_mm_dd(addMonths(today, c.months)),
+        mediaName: c.productName,
+        baseMonthly: c.baseMonthly,
+        productKeyHint: c.productKey,
 
-      // ✅ 모달에 들어갈 통계
-      households: s?.households,
-      residents: s?.residents,
-      monthlyImpressions: s?.monthlyImpressions,
-      monitors: s?.monitors,
-    };
-  });
-};
+        // ✅ 모달로 넘기는 통계값 (없으면 undefined → 모달에서 '—')
+        households: s?.households,
+        residents: s?.residents,
+        monthlyImpressions: s?.monthlyImpressions,
+        monitors: s?.monitors,
+      };
+    });
+  };
 
   return (
     <>
