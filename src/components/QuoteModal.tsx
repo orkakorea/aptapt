@@ -200,7 +200,22 @@ export default function QuoteModal({
     const vat = Math.round(subtotal * vatRate);
     const total = subtotal + vat;
 
-    return { rows, subtotal, vat, total };
+    // 합계 카운터(세대수/거주인원/송출횟수/모니터수량)
+    const sum = <T extends keyof QuoteLineItem>(key: T) =>
+      (items ?? []).reduce((acc, cur) => {
+        const v = cur[key] as unknown as number | undefined;
+        return acc + (Number.isFinite(v) ? (v as number) : 0);
+      }, 0);
+
+    const totals = {
+      households: sum("households"),
+      residents: sum("residents"),
+      monthlyImpressions: sum("monthlyImpressions"),
+      monitors: sum("monitors"),
+      count: items?.length ?? 0,
+    };
+
+    return { rows, subtotal, vat, total, totals };
   }, [items, vatRate]);
 
   // === 포털로 body에 렌더 ===
@@ -242,9 +257,13 @@ export default function QuoteModal({
             </div>
           </div>
 
-          {/* 단지 카운트 */}
-          <div className="px-6 pt-4 pb-2 text-sm text-[#6B7280]">
-            {`총 ${items?.length ?? 0}개 단지`}
+          {/* 상단 카운터: 총 단지 수 + 합계 */}
+          <div className="px-6 pt-4 pb-2 text-sm text-[#4B5563] flex flex-wrap gap-x-4 gap-y-1">
+            <span className="font-semibold">{`총 ${computed.totals.count}개 단지`}</span>
+            <span>· 세대수 <b>{fmtNum(computed.totals.households)}</b> 세대</span>
+            <span>· 거주인원 <b>{fmtNum(computed.totals.residents)}</b> 명</span>
+            <span>· 송출횟수 <b>{fmtNum(computed.totals.monthlyImpressions)}</b> 회</span>
+            <span>· 모니터수량 <b>{fmtNum(computed.totals.monitors)}</b> 대</span>
           </div>
 
           {/* 테이블 */}
@@ -252,26 +271,26 @@ export default function QuoteModal({
             <div className="rounded-xl border border-[#E5E7EB]">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="bg-[#F9FAFB] text-[#4B5563]">
+                  <tr className="bg-[#F9FAFB] text-[#111827]">
                     <Th>단지명</Th>
-                    <Th>광고기간</Th>
-                    <Th>송출개시 - 송출종료</Th>
+                    <Th alignRight>광고기간</Th>
+                    {/* 삭제됨: 송출개시 - 송출종료 */}
                     <Th>매체</Th>
-                    <Th>세대수</Th>
-                    <Th>거주인원</Th>
-                    <Th>송출횟수</Th>
-                    <Th>모니터 수량</Th>
-                    <Th>월광고료<br/>(FMK=4주)</Th>
-                    <Th>기준금액</Th>
-                    <Th>기간할인</Th>
-                    <Th>사전보상할인</Th>
-                    <Th className="!text-[#6C2DFF]">총광고료</Th>
+                    <Th alignRight>세대수</Th>
+                    <Th alignRight>거주인원</Th>
+                    <Th alignRight>송출횟수</Th>
+                    <Th alignRight>모니터 수량</Th>
+                    <Th alignRight>월광고료(FMK=4주)</Th>
+                    <Th alignRight>기준금액</Th>
+                    <Th alignRight>기간할인</Th>
+                    <Th alignRight>사전보상할인</Th>
+                    <Th alignRight className="!text-[#6C2DFF]">총광고료</Th>
                   </tr>
                 </thead>
                 <tbody>
                   {computed.rows.length === 0 ? (
                     <tr>
-                      <td colSpan={13} className="px-6 py-10 text-center text-[#6B7280]">
+                      <td colSpan={12} className="px-6 py-10 text-center text-[#6B7280]">
                         담은 단지가 없습니다.
                       </td>
                     </tr>
@@ -279,27 +298,25 @@ export default function QuoteModal({
                     computed.rows.map(({ it, periodRate, precompRate, baseMonthly, baseTotal, lineTotal }) => (
                       <tr key={it.id} className="border-t border-[#F3F4F6]">
                         <Td className="font-medium text-black">{it.name}</Td>
-                        <Td>{fmtNum(it.months, "개월")}</Td>
-                        <Td>
-                          {safe(it.startDate)}{it.startDate || it.endDate ? " - " : ""}{safe(it.endDate)}
-                        </Td>
-                        <Td>{safe(it.mediaName)}</Td>
-                        <Td>{fmtNum(it.households, "세대")}</Td>
-                        <Td>{fmtNum(it.residents, "명")}</Td>
-                        <Td>{fmtNum(it.monthlyImpressions, "회")}</Td>
-                        <Td>{fmtNum(it.monitors, "대")}</Td>
-                        <Td>{fmtWon(baseMonthly)}</Td>
-                        <Td>{fmtWon(baseTotal)}</Td>
-                        <Td>{periodRate > 0 ? `${Math.round(periodRate * 100)}%` : "-"}</Td>
-                        <Td>{precompRate > 0 ? `${Math.round(precompRate * 100)}%` : "-"}</Td>
-                        <Td className="font-bold text-[#6C2DFF]">{fmtWon(lineTotal)}</Td>
+                        <Td right nowrap>{fmtNum(it.months, "개월")}</Td>
+                        {/* 날짜 열 삭제됨 */}
+                        <Td nowrap>{safe(it.mediaName)}</Td>
+                        <Td right nowrap>{fmtNum(it.households, "세대")}</Td>
+                        <Td right nowrap>{fmtNum(it.residents, "명")}</Td>
+                        <Td right nowrap>{fmtNum(it.monthlyImpressions, "회")}</Td>
+                        <Td right nowrap>{fmtNum(it.monitors, "대")}</Td>
+                        <Td right nowrap>{fmtWon(baseMonthly)}</Td>
+                        <Td right nowrap>{fmtWon(baseTotal)}</Td>
+                        <Td right nowrap>{periodRate > 0 ? `${Math.round(periodRate * 100)}%` : "-"}</Td>
+                        <Td right nowrap>{precompRate > 0 ? `${Math.round(precompRate * 100)}%` : "-"}</Td>
+                        <Td right nowrap className="font-bold text-[#6C2DFF]">{fmtWon(lineTotal)}</Td>
                       </tr>
                     ))
                   )}
                 </tbody>
                 <tfoot>
                   <tr className="border-t border-[#E5E7EB]">
-                    <td colSpan={12} className="text-right px-4 py-4 bg-[#F7F5FF] text-[#6B7280] font-medium">
+                    <td colSpan={11} className="text-right px-4 py-4 bg-[#F7F5FF] text-[#6B7280] font-medium">
                       TOTAL
                     </td>
                     <td className="px-4 py-4 bg-[#F7F5FF] text-right font-bold text-[#6C2DFF]">
@@ -353,11 +370,33 @@ export default function QuoteModal({
 }
 
 /** 셀 컴포넌트 */
-function Th({ children, className = "" }: React.PropsWithChildren<{ className?: string }>) {
+function Th({
+  children,
+  className = "",
+  alignRight,
+}: React.PropsWithChildren<{ className?: string; alignRight?: boolean }>) {
   return (
-    <th className={`px-6 py-4 text-left text-xs font-semibold border-b border-[#E5E7EB] ${className}`}>{children}</th>
+    <th
+      className={`px-6 py-4 text-left text-sm font-bold border-b border-[#E5E7EB] ${alignRight ? "text-right" : ""} ${className}`}
+    >
+      {children}
+    </th>
   );
 }
-function Td({ children, className = "" }: React.PropsWithChildren<{ className?: string }>) {
-  return <td className={`px-6 py-4 align-middle text-[#111827] ${className}`}>{children}</td>;
+
+function Td({
+  children,
+  className = "",
+  right,
+  nowrap,
+}: React.PropsWithChildren<{ className?: string; right?: boolean; nowrap?: boolean }>) {
+  return (
+    <td
+      className={`px-6 py-4 align-middle text-[#111827] ${right ? "text-right" : ""} ${
+        nowrap ? "whitespace-nowrap" : ""
+      } ${className}`}
+    >
+      {children}
+    </td>
+  );
 }
