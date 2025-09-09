@@ -1,5 +1,6 @@
 // src/components/MapChrome.tsx
 import React, { useEffect, useMemo, useState } from "react";
+import QuoteModal, { QuoteLineItem } from "./QuoteModal"; // ✅ 모달 import 추가
 
 /** ====== 타입 ====== */
 export type SelectedApt = {
@@ -183,6 +184,9 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
   const [cart, setCart] = useState<CartItem[]>([]);
   const [applyAll, setApplyAll] = useState(true); // 광고기간 일괄적용 체크 (기본 ON)
 
+  /** ✅ 견적 모달 on/off 상태 */
+  const [openQuote, setOpenQuote] = useState(false);
+
   /** 포맷터 */
   const fmtNum = (n?: number, unit = "") =>
     typeof n === "number" && Number.isFinite(n)
@@ -209,7 +213,7 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
     return Math.round(base * (1 - preRate) * (1 - periodRate));
   }, [selected]);
 
-    /** 카트 총합(총광고료) */
+  /** 카트 총합(총광고료) */
   const cartTotal = useMemo(() => {
     return cart.reduce((sum, item) => {
       const rule = item.productKey ? DEFAULT_POLICY[item.productKey] : undefined;
@@ -291,6 +295,33 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
     }
   };
   const removeItem = (id: string) => setCart((prev) => prev.filter((x) => x.id !== id));
+
+  /** ✅ 견적서 모달로 넘길 데이터 빌드 (return 위, 유틸 함수들 옆에 위치) */
+  function yyyy_mm_dd(d: Date) {
+    const y = d.getFullYear();
+    const m = `${d.getMonth() + 1}`.padStart(2, "0");
+    const dd = `${d.getDate()}`.padStart(2, "0");
+    return `${y}-${m}-${dd}`;
+  }
+  function addMonths(date: Date, months: number) {
+    const d = new Date(date.getTime());
+    d.setMonth(d.getMonth() + months);
+    return d;
+  }
+  const buildQuoteItems = (): QuoteLineItem[] => {
+    const today = new Date();
+    return cart.map((c) => ({
+      id: c.id,
+      name: c.name,
+      months: c.months,
+      startDate: yyyy_mm_dd(today),
+      endDate: yyyy_mm_dd(addMonths(today, c.months)),
+      mediaName: c.productName,
+      baseMonthly: c.baseMonthly,
+      productKeyHint: c.productKey,
+      // 필요시: households/residents/monthlyImpressions/monitors 추가
+    }));
+  };
 
   return (
     <>
@@ -401,6 +432,7 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
                   <button
                     type="button"
                     className="h-11 w-full rounded-xl border border-[#6C2DFF] text-[#6C2DFF] font-semibold hover:bg-[#F4F0FB]"
+                    onClick={() => setOpenQuote(true)} // ✅ 모달 열기
                   >
                     상품견적 자세히보기
                   </button>
@@ -520,6 +552,17 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
           </div>
         </aside>
       )}
+
+      {/* ✅ 견적서 모달 (Fragment 끝나기 직전 위치) */}
+      <QuoteModal
+        open={openQuote}
+        items={buildQuoteItems()}
+        onClose={() => setOpenQuote(false)}
+        onSubmitInquiry={({ items, subtotal, vat, total }) => {
+          console.log("[T.O 문의]", { count: items.length, subtotal, vat, total });
+          setOpenQuote(false);
+        }}
+      />
     </>
   );
 }
