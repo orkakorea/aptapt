@@ -119,9 +119,9 @@ export default function InquiryModal({
         cart_snapshot: isSeat ? (prefill?.cart_snapshot ?? null) : null,
       };
 
-     const { error } = await supabase
+     const { error } = await (supabase as any)
   .from("inquiries")
-  .insert(payload, { returning: "minimal" }); // ✅ SELECT 미사용 → RLS SELECT 불필요
+  .insert(payload);
 
 if (error) throw error;
 
