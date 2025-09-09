@@ -196,9 +196,9 @@ export default function QuoteModal({
         aria-hidden="true"
       />
 
-{/* 모달 패널 (가로 1900 고정, 화면이 더 작으면 가로 스크롤) */}
+{/* 모달 패널 (가로 1600 고정, 화면이 더 작으면 가로 스크롤) */}
 <div className="absolute inset-0 overflow-x-auto overflow-y-auto">
-  <div className="min-w-[1900px] max-w-[1900px] mx-auto my-10 bg-white rounded-2xl shadow-xl border border-[#E5E7EB]">
+  <div className="min-w-[1600px] max-w-[1600px] mx-auto my-10 bg-white rounded-2xl shadow-xl border border-[#E5E7EB]">
           {/* 헤더 */}
           <div className="px-6 py-5 border-b border-[#E5E7EB] flex items-start justify-between">
             <div>
@@ -226,10 +226,12 @@ export default function QuoteModal({
             {`총 ${items.length}개 단지`}
           </div>
 
-          {/* 테이블 */}
-          <div className="px-6 pb-4">
-            <div className="overflow-auto rounded-xl border border-[#E5E7EB]">
-              <table className="min-w-[1100px] w-full text-sm">
+{/* 테이블 */}
+<div className="px-6 pb-4">
+  {/* 내부에서 또 스크롤 만들지 않음: 바깥 패널에서 관리 */}
+  <div className="rounded-xl border border-[#E5E7EB]">
+    <table className="w-full text-sm">
+
                 <thead>
                   <tr className="bg-[#F9FAFB] text-[#4B5563]">
                     <Th>단지명</Th>
@@ -326,9 +328,9 @@ export default function QuoteModal({
 /** 셀 컴포넌트 */
 function Th({ children, className = "" }: React.PropsWithChildren<{ className?: string }>) {
   return (
-    <th className={`px-4 py-3 text-left text-xs font-semibold border-b border-[#E5E7EB] ${className}`}>{children}</th>
+    <th className={`px-6 py-4 text-left text-xs font-semibold border-b border-[#E5E7EB] ${className}`}>{children}</th>
   );
 }
 function Td({ children, className = "" }: React.PropsWithChildren<{ className?: string }>) {
-  return <td className={`px-4 py-3 align-middle text-[#111827] ${className}`}>{children}</td>;
+  return <td className={`px-6 py-4 align-middle text-[#111827] ${className}`}>{children}</td>;
 }
