@@ -28,7 +28,6 @@ const [session, setSession] = useState<Session | null>(null);
 // ✅ 매직링크로 돌아왔을 때 코드 교환 + 세션 구독
 useEffect(() => {
   // 해시에 code/access_token 들어오면 세션으로 교환 (실패해도 무시)
-  // @ts-expect-error 타입경고 무시 가능 (문자열 전달 허용)
   supabase.auth.exchangeCodeForSession(window.location.hash).catch(() => {});
   // 현재 세션 불러오기 + 변경 구독
   supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null));
@@ -98,34 +97,112 @@ useEffect(() => {
 
   return (
     <div className="p-6 space-y-4">
-      <div className="text-xl font-bold">문의 접수 (실시간)</div>
+      <div className="flex items-center justify-between">
+        <div className="text-xl font-bold">문의 접수 (실시간)</div>
+        <div className="flex items-center gap-2">
+          {session ? (
+            <button
+              className="h-8 px-3 border rounded-md"
+              onClick={async () => { await supabase.auth.signOut(); location.reload(); }}
+            >
+              로그아웃
+            </button>
+          ) : (
+            <button
+              className="h-8 px-3 border rounded-md"
+              onClick={async () => {
+                const email = prompt("관리자 이메일을 입력하세요");
+                if (!email) return;
+                const { error } = await supabase.auth.signInWithOtp({
+                  email,
+                  options: { emailRedirectTo: window.location.origin + "/admin/inquiries" },
+                });
+                if (error) alert(error.message);
+                else alert("메일의 매직링크로 로그인하세요.");
+              }}
+            >
+              관리자 로그인(메일 링크)
+            </button>
+          )}
+        </div>
+      </div>
 
-<div className="flex items-center justify-between">
-  <div className="text-xl font-bold">문의 접수 (실시간)</div>
-  <div className="flex items-center gap-2">
-    {session ? (
-      <button
-        className="h-8 px-3 border rounded-md"
-        onClick={async () => { await supabase.auth.signOut(); location.reload(); }}
-      >
-        로그아웃
-      </button>
-    ) : (
-      <button
-        className="h-8 px-3 border rounded-md"
-        onClick={async () => {
-          const email = prompt("관리자 이메일을 입력하세요");
-          if (!email) return;
-          const { error } = await supabase.auth.signInWithOtp({
-            email,
-            options: { emailRedirectTo: window.location.origin + "/admin/inquiries" },
-          });
-          if (error) alert(error.message);
-          else alert("메일의 매직링크로 로그인하세요.");
-        }}
-      >
-        관리자 로그인(메일 링크)
-      </button>
-    )}
-  </div>
-</div>
+      {/* Tabs */}
+      <div className="flex gap-2">
+        {(["ALL", "SEAT", "PACKAGE"] as const).map((t) => (
+          <button
+            key={t}
+            className={`px-3 py-1 rounded ${
+              tab === t ? "bg-blue-500 text-white" : "bg-gray-200"
+            }`}
+            onClick={() => setTab(t)}
+          >
+            {t === "ALL" ? "전체" : t === "SEAT" ? "좌석" : "패키지"}
+          </button>
+        ))}
+      </div>
+
+      {/* Loading */}
+      {loading && <div>로딩 중...</div>}
+
+      {/* Table */}
+      {!loading && (
+        <div className="overflow-x-auto">
+          <table className="w-full border border-gray-300">
+            <thead>
+              <tr className="bg-gray-100">
+                <th className="border p-2">ID</th>
+                <th className="border p-2">종류</th>
+                <th className="border p-2">고객명</th>
+                <th className="border p-2">전화번호</th>
+                <th className="border p-2">회사</th>
+                <th className="border p-2">이메일</th>
+                <th className="border p-2">상태</th>
+                <th className="border p-2">생성일</th>
+                <th className="border p-2">액션</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((row) => (
+                <tr key={row.id} className="hover:bg-gray-50">
+                  <td className="border p-2 text-xs">{row.id}</td>
+                  <td className="border p-2">{row.inquiry_kind}</td>
+                  <td className="border p-2">{row.customer_name}</td>
+                  <td className="border p-2">{row.phone}</td>
+                  <td className="border p-2">{row.company}</td>
+                  <td className="border p-2">{row.email}</td>
+                  <td className="border p-2">
+                    <select
+                      value={row.status || "NEW"}
+                      onChange={(e) => setStatus(row.id, e.target.value)}
+                      className="border rounded px-1"
+                    >
+                      <option value="NEW">신규</option>
+                      <option value="IN_PROGRESS">진행중</option>
+                      <option value="DONE">완료</option>
+                    </select>
+                  </td>
+                  <td className="border p-2 text-xs">
+                    {new Date(row.created_at).toLocaleString()}
+                  </td>
+                  <td className="border p-2">
+                    <button
+                      className="text-blue-600 hover:underline text-sm"
+                      onClick={() => alert(`상세: ${JSON.stringify(row, null, 2)}`)}
+                    >
+                      상세
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {filtered.length === 0 && !loading && (
+        <div className="text-center py-8 text-gray-500">데이터가 없습니다.</div>
+      )}
+    </div>
+  );
+}
