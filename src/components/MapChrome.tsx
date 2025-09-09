@@ -1,7 +1,6 @@
 // src/components/MapChrome.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import QuoteModal, { QuoteLineItem } from "./QuoteModal"; // ✅ 모달 import 추가
-import { supabase } from "../lib/supabase"; // 경로 기준: src/components/MapChrome.tsx → src/lib/supabase.ts
 
 /** ====== 타입 ====== */
 export type SelectedApt = {
@@ -184,15 +183,6 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
   /** 카트 */
   const [cart, setCart] = useState<CartItem[]>([]);
   const [applyAll, setApplyAll] = useState(true); // 광고기간 일괄적용 체크 (기본 ON)
-  
-/** ✅ Supabase에서 받은 단지 통계 캐시 */
-type AptStats = {
-  households?: number;
-  residents?: number;
-  monthlyImpressions?: number;
-  monitors?: number;
-};
-const [statsMap, setStatsMap] = useState<Record<string, AptStats>>({});
 
   /** ✅ 견적 모달 on/off 상태 */
   const [openQuote, setOpenQuote] = useState(false);
@@ -278,48 +268,7 @@ const [statsMap, setStatsMap] = useState<Record<string, AptStats>>({});
             : x
         );
       }
-/** ✅ 카트에 담긴 단지명으로 Supabase에서 통계 일괄 조회 */
-async function fetchStatsForCartItems(cartItems: CartItem[]) {
-  const names = Array.from(new Set(cartItems.map((c) => c.name).filter(Boolean)));
-  if (names.length === 0) return;
 
-  // ⬇️ 테이블/컬럼명은 실제 스키마에 맞춰 필요 시 변경
-  const { data, error } = await supabase
-    .from("apartments") // ← 테이블명
-    .select("name, households, residents, monthly_impressions, monitors")
-    .in("name", names);
-
-  if (error) {
-    console.error("[Supabase] fetch error:", error);
-    return;
-  }
-
-  const map: Record<string, AptStats> = {};
-  (data || []).forEach((row: any) => {
-    map[row.name] = {
-      households: row.households ?? undefined,
-      residents: row.residents ?? undefined,
-      monthlyImpressions: row.monthly_impressions ?? undefined,
-      monitors: row.monitors ?? undefined,
-    };
-  });
-
-  // 기존 캐시와 병합
-  setStatsMap((prev) => ({ ...prev, ...map }));
-}
-
-/** ✅ 모달 열릴 때 & 카트 변경 시 통계 동기화 */
-useEffect(() => {
-  // openQuote가 true이고 카트에 내용이 있을 때만 조회
-  // (openQuote 상태가 없다면, 모달 띄우는 곳에 맞춰 조건을 바꿔주세요)
-  // 예: 견적 보기 버튼을 눌러 모달이 열릴 때 openQuote === true
-  // 이미 openQuote 상태가 있다면 아래 줄 그대로 사용
-  // 없으면 조건을 단순히 (cart.length > 0) 로 바꾸세요.
-  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
-  (openQuote && cart.length > 0) && fetchStatsForCartItems(cart);
-}, [openQuote, cart]);
-
-      
       // ✅ 신규 추가: "추가 직전의 첫 항목(prev[0])"의 months를 상속 (없으면 1개월)
       const defaultMonths = prev.length > 0 ? prev[0].months : 1;
 
@@ -359,25 +308,9 @@ useEffect(() => {
     d.setMonth(d.getMonth() + months);
     return d;
   }
-const buildQuoteItems = (): QuoteLineItem[] => {
-  // 날짜 포맷/가산 유틸(이미 있으면 중복 정의하지 말고 기존 걸 사용)
-  const today = new Date();
-  const yyyy_mm_dd = (d: Date) => {
-    const y = d.getFullYear();
-    const m = `${d.getMonth() + 1}`.padStart(2, "0");
-    const dd = `${d.getDate()}`.padStart(2, "0");
-    return `${y}-${m}-${dd}`;
-  };
-  const addMonths = (date: Date, months: number) => {
-    const d = new Date(date.getTime());
-    d.setMonth(d.getMonth() + months);
-    return d;
-  };
-
-  return cart.map((c) => {
-    const s = statsMap[c.name]; // ✅ Supabase 캐시에서 해당 단지 통계
-
-    return {
+  const buildQuoteItems = (): QuoteLineItem[] => {
+    const today = new Date();
+    return cart.map((c) => ({
       id: c.id,
       name: c.name,
       months: c.months,
@@ -386,16 +319,9 @@ const buildQuoteItems = (): QuoteLineItem[] => {
       mediaName: c.productName,
       baseMonthly: c.baseMonthly,
       productKeyHint: c.productKey,
-
-      // ✅ Supabase 수치(없으면 undefined → 모달에서 ‘—’ 처리)
-      households: s?.households,
-      residents: s?.residents,
-      monthlyImpressions: s?.monthlyImpressions,
-      monitors: s?.monitors,
-    };
-  });
-};
-
+      // 필요시: households/residents/monthlyImpressions/monitors 추가
+    }));
+  };
 
   return (
     <>
