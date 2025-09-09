@@ -1,9 +1,7 @@
 // src/components/MapChrome.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import QuoteModal, { QuoteLineItem } from "./QuoteModal"; // ✅ 모달 import
-import InquiryModal from "./InquiryModal";                 // ✅ 추가: 문의 모달
 import { supabase } from "../lib/supabase";               // ✅ Supabase import
-
 
 /** ====== 타입 ====== */
 export type SelectedApt = {
@@ -202,10 +200,6 @@ export default function MapChrome({
 
   /** ✅ 견적 모달 on/off 상태 */
   const [openQuote, setOpenQuote] = useState(false);
-
-  /** ✅ 문의 모달 on/off 상태 */
-  const [openSeatInquiry, setOpenSeatInquiry] = useState(false);     // 구좌(T.O)
-  const [openPackageInquiry, setOpenPackageInquiry] = useState(false); // 패키지
 
   /** ✅ Supabase에서 받은 단지 통계 캐시 (key: 단지명 정규화) */
   const [statsMap, setStatsMap] = useState<Record<string, AptStats>>({});
@@ -439,34 +433,6 @@ const removeItem = (id: string) => {
       };
     });
   };
-// ✅ 구좌 문의 모달에 넘길 prefill 생성
-const buildSeatPrefill = () => {
-  const first = cart[0];
-  const apt_name = selected?.name ?? first?.name ?? null;
-  const product_name = selected?.productName ?? first?.productName ?? null;
-  const product_code =
-    classifyProductForPolicy(product_name || undefined, selected?.installLocation) ?? null;
-
-  // 견적 스냅샷(관리자 확인용): 아이템 간단 요약 + 총액
-  const snapshot = {
-    items: buildQuoteItems().map(i => ({
-      name: i.name,
-      mediaName: i.mediaName,
-      months: i.months,
-      baseMonthly: i.baseMonthly,
-    })),
-    months: first?.months ?? null,
-    totalWon: cartTotal,
-  };
-
-  return {
-    apt_id: null,
-    apt_name,
-    product_code,
-    product_name,
-    cart_snapshot: snapshot,
-  };
-};
 
   return (
     <>
@@ -482,13 +448,9 @@ const buildSeatPrefill = () => {
         <div className="flex flex-col h-full w-full px-5 py-5 gap-3">
           {/* 클릭 박스 + 전화 버튼 */}
           <div className="flex gap-2">
-            <button
-  className="flex-1 h-9 rounded-md border border-[#6C2DFF] text-sm text-[#6C2DFF] hover:bg-[#F4F0FB]"
-  onClick={() => setOpenPackageInquiry(true)}
->
-  시·군·구·동 단위 / 패키지 문의
-</button>
-
+            <button className="flex-1 h-9 rounded-md border border-[#E5E7EB] text-sm text-black">
+              시·군·구·동 단위 / 패키지 문의
+            </button>
             <a
               href="tel:031-1551-0810"
               className="h-9 px-3 rounded-md bg-[#6C2DFF] flex items-center justify-center text-sm text-white font-semibold"
@@ -521,17 +483,15 @@ const buildSeatPrefill = () => {
 
           {/* 구좌(T.O) 문의하기 — 카트 없으면 비활성(이미지처럼) */}
           <button
-  disabled={cart.length === 0}
-  onClick={() => cart.length > 0 && setOpenSeatInquiry(true)}
-  className={`h-10 rounded-md border text-sm font-medium ${
-    cart.length > 0
-      ? "bg-[#6C2DFF] text-white border-[#6C2DFF]"
-      : "bg-white text-black border-[#E5E7EB] cursor-default pointer-events-none"
-  }`}
->
-  구좌(T.O) 문의하기
-</button>
-
+            disabled={cart.length === 0}
+            className={`h-10 rounded-md border text-sm font-medium ${
+              cart.length > 0
+                ? "bg-[#6C2DFF] text-white border-[#6C2DFF]"
+                : "bg-white text-black border-[#E5E7EB] cursor-default pointer-events-none"
+            }`}
+          >
+            구좌(T.O) 문의하기
+          </button>
 
           {/* 총 비용 요약 */}
           <div className="space-y-2">
@@ -706,14 +666,30 @@ const buildSeatPrefill = () => {
 
       {/* ✅ 견적서 모달 (Fragment 끝나기 직전 위치) */}
       <QuoteModal
-        open={openQuote}
-        items={buildQuoteItems()}
-        onClose={() => setOpenQuote(false)}
-        onSubmitInquiry={({ items, subtotal, vat, total }) => {
-          console.log("[T.O 문의]", { count: items.length, subtotal, vat, total });
-          setOpenQuote(false);
-        }}
-      />
+  open={openQuote}
+  items={buildQuoteItems()}
+  onClose={() => setOpenQuote(false)}
+  onSubmitInquiry={({ items, subtotal, vat, total }) => {
+    console.log("[T.O 문의]", { count: items.length, subtotal, vat, total });
+    setOpenQuote(false);
+  }}
+/>
+
+{/* ✅ 구좌(T.O) 문의 모달 */}
+<InquiryModal
+  open={openSeatInquiry}
+  mode="SEAT"
+  prefill={buildSeatPrefill()}
+  onClose={() => setOpenSeatInquiry(false)}
+/>
+
+{/* ✅ 패키지 문의 모달 */}
+<InquiryModal
+  open={openPackageInquiry}
+  mode="PACKAGE"
+  onClose={() => setOpenPackageInquiry(false)}
+/>
+
     </>
   );
 }
