@@ -1,29 +1,28 @@
 import React, { useMemo } from "react";
+import { createPortal } from "react-dom";
 
 /** =========================
  *  외부에서 사용할 라인아이템 타입
  *  ========================= */
 export type QuoteLineItem = {
-  id: string;                     // 고유키(단지+상품 조합 권장)
-  name: string;                   // 단지명
-  months: number;                 // 광고기간(개월)
-  startDate?: string;             // 송출개시 (YYYY-MM-DD)
-  endDate?: string;               // 송출종료 (YYYY-MM-DD)
+  id: string;
+  name: string;
+  months: number;
+  startDate?: string;
+  endDate?: string;
 
-  // 전시/계산 보조 데이터 (있으면 표시, 없으면 —)
-  mediaName?: string;             // 매체/상품명 (예: 타운보드 L)
-  households?: number;            // 세대수
-  residents?: number;             // 거주인원
-  monthlyImpressions?: number;    // 송출횟수(월)
-  monitors?: number;              // 모니터 수량
-  baseMonthly?: number;           // 기준 월광고료(FMK=4주)
+  mediaName?: string;
+  households?: number;
+  residents?: number;
+  monthlyImpressions?: number;
+  monitors?: number;
+  baseMonthly?: number;
 
-  // 정책 분류 힌트(없으면 내부 분류 로직 사용)
   productKeyHint?: keyof DiscountPolicy;
 };
 
 /** =========================
- *  할인 정책 / 유틸 (MapChrome과 동일 스펙)
+ *  할인 정책 / 유틸
  *  ========================= */
 type RangeRule = { min: number; max: number; rate: number };
 type ProductRules = { precomp?: RangeRule[]; period: RangeRule[] };
@@ -92,10 +91,14 @@ function classifyProductForPolicy(productName?: string): keyof DiscountPolicy | 
   const pn = norm(productName);
   if (!pn) return undefined;
 
-  if (pn.includes("townbord_l") || pn.includes("townboard_l") ||
-      /\btownbord[-_\s]?l\b/.test(pn) || /\btownboard[-_\s]?l\b/.test(pn)) return "TOWNBORD_L";
-  if (pn.includes("townbord_s") || pn.includes("townboard_s") ||
-      /\btownbord[-_\s]?s\b/.test(pn) || /\btownboard[-_\s]?s\b/.test(pn)) return "TOWNBORD_S";
+  if (
+    pn.includes("townbord_l") || pn.includes("townboard_l") ||
+    /\btownbord[-_\s]?l\b/.test(pn) || /\btownboard[-_\s]?l\b/.test(pn)
+  ) return "TOWNBORD_L";
+  if (
+    pn.includes("townbord_s") || pn.includes("townboard_s") ||
+    /\btownbord[-_\s]?s\b/.test(pn) || /\btownboard[-_\s]?s\b/.test(pn)
+  ) return "TOWNBORD_S";
 
   if (pn.includes("elevatortv") || pn.includes("엘리베이터tv") || pn.includes("elevator")) return "ELEVATOR TV";
   if (pn.includes("mediameet") || pn.includes("media-meet") || pn.includes("미디어")) return "MEDIA MEET";
@@ -121,7 +124,7 @@ const safe = (s?: string) => (s && s.trim().length > 0 ? s : "—");
 type QuoteModalProps = {
   open: boolean;
   items: QuoteLineItem[];
-  vatRate?: number; // 기본 10%
+  vatRate?: number;
   onClose?: () => void;
   onSubmitInquiry?: (payload: {
     items: QuoteLineItem[];
@@ -129,8 +132,8 @@ type QuoteModalProps = {
     vat: number;
     total: number;
   }) => void;
-  title?: string;    // 상단 좌측 타이틀
-  subtitle?: string; // 상단 좌측 서브타이틀
+  title?: string;
+  subtitle?: string;
 };
 
 /** =========================
@@ -145,6 +148,10 @@ export default function QuoteModal({
   title = "응답하라 - 입주민이여",
   subtitle = "아파트 모니터광고 견적내용",
 }: QuoteModalProps) {
+  // SSR 안전장치
+  if (typeof document === "undefined") return null;
+  if (!open) return null;
+
   const computed = useMemo(() => {
     const rows = items.map((it) => {
       const productKey =
@@ -179,10 +186,9 @@ export default function QuoteModal({
     return { rows, subtotal, vat, total };
   }, [items, vatRate]);
 
-  if (!open) return null;
-
-  return (
-    <div className="fixed inset-0 z-[100]">
+  // === 포털로 body에 렌더 ===
+  return createPortal(
+    <div className="fixed inset-0 z-[9999]">
       {/* 딤드 배경 */}
       <div
         className="absolute inset-0 bg-black/60"
@@ -262,7 +268,6 @@ export default function QuoteModal({
                     </tr>
                   ))}
                 </tbody>
-                {/* 합계 Row */}
                 <tfoot>
                   <tr className="border-t border-[#E5E7EB]">
                     <td colSpan={12} className="text-right px-4 py-4 bg-[#F7F5FF] text-[#6B7280] font-medium">
@@ -313,11 +318,12 @@ export default function QuoteModal({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
-/** 셀 컴포넌트 (가독성용) */
+/** 셀 컴포넌트 */
 function Th({ children, className = "" }: React.PropsWithChildren<{ className?: string }>) {
   return (
     <th className={`px-4 py-3 text-left text-xs font-semibold border-b border-[#E5E7EB] ${className}`}>{children}</th>
