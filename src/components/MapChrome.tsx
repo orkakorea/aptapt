@@ -27,9 +27,7 @@ type Props = {
   onCloseSelected?: () => void;
   onSearch?: (query: string) => void;
   initialQuery?: string;
-  setMarkerState?: (name: string, state: "default" | "selected") => void; // ✅ 추가
 };
-
 
 /** ====== 정적 에셋 경로 & 유틸 ====== */
 const PRIMARY_ASSET_BASE =
@@ -308,11 +306,6 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
         );
       }
 
-/** ✅ 담기 시 마커를 노란색으로 */
-if (selected?.name) {
-  setMarkerState?.(selected.name, "selected");
-}
-
       // ✅ 신규 추가: "추가 직전의 첫 항목(prev[0])"의 months를 상속 (없으면 1개월)
       const defaultMonths = prev.length > 0 ? prev[0].months : 1;
 
@@ -368,21 +361,7 @@ if (selected?.name) {
       setCart((prev) => prev.map((x) => (x.id === id ? { ...x, months } : x)));
     }
   };
-const removeItem = (id: string) =>
-  setCart((prev) => {
-    const removed = prev.find((x) => x.id === id);
-    const next = prev.filter((x) => x.id !== id);
-
-    // ✅ 같은 단지명이 카트에 더 없으면 보라로 되돌림
-    if (removed?.name) {
-      const stillExists = next.some((x) => x.name === removed.name);
-      if (!stillExists) {
-        setMarkerState?.(removed.name, "default");
-      }
-    }
-    return next;
-  });
-
+  const removeItem = (id: string) => setCart((prev) => prev.filter((x) => x.id !== id));
 
   /** ✅ 모달 열릴 때 카트 단지명으로 통계 일괄 동기화 */
   useEffect(() => {
