@@ -470,9 +470,13 @@ const removeItem = (id: string) => {
         <div className="flex flex-col h-full w-full px-5 py-5 gap-3">
           {/* 클릭 박스 + 전화 버튼 */}
           <div className="flex gap-2">
-            <button className="flex-1 h-9 rounded-md border border-[#E5E7EB] text-sm text-black">
+            <button
+              className="flex-1 h-9 rounded-md border border-[#6C2DFF] text-sm text-[#6C2DFF] hover:bg-[#F4F0FB]"
+              onClick={() => setOpenPackageInquiry(true)}
+            >
               시·군·구·동 단위 / 패키지 문의
             </button>
+
             <a
               href="tel:031-1551-0810"
               className="h-9 px-3 rounded-md bg-[#6C2DFF] flex items-center justify-center text-sm text-white font-semibold"
@@ -506,16 +510,14 @@ const removeItem = (id: string) => {
           {/* 구좌(T.O) 문의하기 — 카트 없으면 비활성(이미지처럼) */}
           <button
             disabled={cart.length === 0}
-            onClick={() => cart.length > 0 && setOpenSeatInquiry(true)}
             className={`h-10 rounded-md border text-sm font-medium ${
               cart.length > 0
                 ? "bg-[#6C2DFF] text-white border-[#6C2DFF]"
-               : "bg-white text-black border-[#E5E7EB] cursor-default pointer-events-none"
+                : "bg-white text-black border-[#E5E7EB] cursor-default pointer-events-none"
             }`}
-           >
+          >
             구좌(T.O) 문의하기
-           </button>
-
+          </button>
 
           {/* 총 비용 요약 */}
           <div className="space-y-2">
