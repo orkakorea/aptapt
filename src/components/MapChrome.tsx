@@ -359,9 +359,11 @@ export default function MapChrome({
       }
     } catch (e) {
       console.warn("marker color change skipped:", e);
-      // ✅ 지도 마커: 담기한 단지명을 노란색으로
-  if (selected.name) {
-    setMarkerState?.(selected.name, "selected");
+    }
+    
+    // ✅ 지도 마커: 담기한 단지명을 노란색으로
+    if (selected.name) {
+      setMarkerState?.(selected.name, "selected");
     }
   };
 
