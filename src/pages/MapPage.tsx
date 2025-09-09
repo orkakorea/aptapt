@@ -19,35 +19,6 @@ function getMarkerImage(color: "purple" | "yellow") {
   );
 }
 
-// ==== Kakao Marker Images (정사각 @2x → 표시 절반 px) ====
-declare global {
-  interface Window {
-    kakao: any;
-    markerMap?: Record<string, any>;
-  }
-}
-
-const PIN_SIZE = 51; // @2x(102px) → 절반(51px)로 표시
-const PIN_OFFSET = { x: PIN_SIZE / 2, y: PIN_SIZE }; // 바닥 중앙을 앵커
-
-function createMarkerImages(kakaoMaps: any) {
-  const { MarkerImage, Size, Point } = kakaoMaps;
-
-  const markerImgDefault = new MarkerImage(
-    "/makers/pin-purple@2x.png",
-    new Size(PIN_SIZE, PIN_SIZE),                 // ★ 정사각
-    { offset: new Point(PIN_OFFSET.x, PIN_OFFSET.y) }
-  );
-
-  const markerImgSelected = new MarkerImage(
-    "/makers/pin-yellow@2x.png",
-    new Size(PIN_SIZE, PIN_SIZE),                 // ★ 정사각
-    { offset: new Point(PIN_OFFSET.x, PIN_OFFSET.y) }
-  );
-
-  return { markerImgDefault, markerImgSelected };
-}
-
 // ---------- Supabase ----------
 function getSupabase(): SupabaseClient | null {
   const url = (import.meta as any).env?.VITE_SUPABASE_URL as string | undefined;
