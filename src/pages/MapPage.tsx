@@ -6,6 +6,19 @@ import MapChrome, { SelectedApt } from "../components/MapChrome";
 type KakaoNS = typeof window & { kakao: any };
 const FALLBACK_KAKAO_KEY = "a53075efe7a2256480b8650cec67ebae";
 
+// ---------- Marker Icon (여기만 새로 추가) ----------
+const PIN_PURPLE_URL = "/makers/pin-purple@2x.png"; // 기본
+const PIN_YELLOW_URL = "/makers/pin-yellow@2x.png"; // 담기됨
+function getMarkerImage(color: "purple" | "yellow") {
+  const kakao = (window as KakaoNS).kakao;
+  const url = color === "yellow" ? PIN_YELLOW_URL : PIN_PURPLE_URL;
+  return new kakao.maps.MarkerImage(
+    url,
+    new kakao.maps.Size(24, 35),
+    { offset: new kakao.maps.Point(12, 35) }
+  );
+}
+
 // ---------- Supabase ----------
 function getSupabase(): SupabaseClient | null {
   const url = (import.meta as any).env?.VITE_SUPABASE_URL as string | undefined;
@@ -190,6 +203,13 @@ export default function MapPage() {
   const [initialQ, setInitialQ] = useState("");
   const [kakaoError, setKakaoError] = useState<string | null>(null);
 
+  // 🔹 이름 → 마커들 인덱스(담기/해제 시 색 바꾸려고 필요)
+  const markerByNameRef = useRef<Record<string, any[]>>({});
+  const normName = (s: string) => s?.replace(/\s+/g, "").toLowerCase() || "";
+
+  // MapChrome 타입 충돌 회피용(옵션 prop 넘기려고)
+  const MapChromeAny = MapChrome as any;
+
   function debounceIdle(fn: () => void, ms = 300) {
     if (idleTimer.current) window.clearTimeout(idleTimer.current);
     idleTimer.current = window.setTimeout(fn, ms);
@@ -218,7 +238,7 @@ export default function MapPage() {
 
         spiderRef.current = new SpiderController(map, clustererRef.current);
 
-        kakao.maps.event.addListener(clustererRef.current, "clusterclick", (cluster: any) => {
+        (kakao.maps.event as any).addListener(clustererRef.current, "clusterclick", (cluster: any) => {
           const m = mapObjRef.current; if (!m) return;
           m.setLevel(Math.max(m.getLevel() - 1, 1), { anchor: cluster.getCenter() });
         });
@@ -253,6 +273,14 @@ export default function MapPage() {
     if ((window as any).kakao?.maps && m) setTimeout(() => m.relayout(), 0);
   }, [selected]);
 
+  // 🔹 MapChrome에서 호출: 단지명으로 마커 색상 변경
+  function setMarkerState(name: string, state: "default" | "selected") {
+    const list = markerByNameRef.current[normName(name)];
+    if (!list?.length) return;
+    const img = getMarkerImage(state === "selected" ? "yellow" : "purple");
+    list.forEach((mk) => mk.setImage(img));
+  }
+
   // 바운드 내 마커 로드
   async function loadMarkersInBounds() {
     const kakao = (window as KakaoNS).kakao;
@@ -262,6 +290,7 @@ export default function MapPage() {
     // 중복/유령 마커 방지
     spiderRef.current?.unspiderfy();
     if (clustererRef.current) clustererRef.current.clear();
+    markerByNameRef.current = {}; // ← 이름 인덱스 초기화
 
     const bounds = map.getBounds();
     if (!bounds) return;
@@ -288,8 +317,6 @@ export default function MapPage() {
     if (error) { console.error("Supabase select(raw_places) error:", error.message); return; }
 
     const rows = (data ?? []) as PlaceRow[];
-    console.log("[MapPage] rows:", rows.length);
-
     const markers: KMarker[] = [];
     const groups = new Map<string, KMarker[]>();
     const keyOf = (lat: number, lng: number) => `${lat.toFixed(7)},${lng.toFixed(7)}`;
@@ -298,10 +325,22 @@ export default function MapPage() {
       if (row.lat == null || row.lng == null) return;
       const lat = Number(row.lat), lng = Number(row.lng);
       const pos = new kakao.maps.LatLng(lat, lng);
-      const marker: KMarker = new kakao.maps.Marker({ position: pos, title: String(getField(row, ["단지명","name","아파트명"]) || "") });
+
+      const nameText = String(getField(row, ["단지명","name","아파트명"]) || "");
+      const marker: KMarker = new kakao.maps.Marker({
+        position: pos,
+        title: nameText,
+        image: getMarkerImage("purple"), // ✅ 기본 보라
+      });
+
       marker.__basePos = pos;
       marker.__row = row;
       marker.__baseKey = keyOf(lat, lng);
+
+      // 이름 인덱스 저장(동일 명칭 여러개 대응)
+      const nk = normName(nameText);
+      if (!markerByNameRef.current[nk]) markerByNameRef.current[nk] = [];
+      markerByNameRef.current[nk].push(marker);
 
       if (!groups.has(marker.__baseKey)) groups.set(marker.__baseKey, []);
       groups.get(marker.__baseKey)!.push(marker);
@@ -360,8 +399,19 @@ export default function MapPage() {
         if (row.lat == null || row.lng == null) return;
         const lat = Number(row.lat), lng = Number(row.lng);
         const pos = new kakao.maps.LatLng(lat, lng);
-        const m: KMarker = new kakao.maps.Marker({ position: pos, title: String(getField(row, ["단지명","name","아파트명"]) || "") });
+
+        const nameText = String(getField(row, ["단지명","name","아파트명"]) || "");
+        const m: KMarker = new kakao.maps.Marker({
+          position: pos,
+          title: nameText,
+          image: getMarkerImage("purple"), // ✅ 기본 보라
+        });
         m.__basePos = pos; m.__row = row; m.__baseKey = `${lat.toFixed(7)},${lng.toFixed(7)}`;
+
+        const nk = normName(nameText);
+        if (!markerByNameRef.current[nk]) markerByNameRef.current[nk] = [];
+        markerByNameRef.current[nk].push(m);
+
         if (!groups2.has(m.__baseKey)) groups2.set(m.__baseKey, []);
         groups2.get(m.__baseKey)!.push(m);
 
@@ -422,7 +472,14 @@ export default function MapPage() {
   return (
     <div className="w-screen h-[100dvh] bg-white">
       <div ref={mapRef} className={`fixed top-16 left-0 right-0 bottom-0 z-[10] ${mapLeftClass}`} aria-label="map" />
-      <MapChrome selected={selected} onCloseSelected={closeSelected} onSearch={handleSearch} initialQuery={initialQ} />
+      {/* 타입 충돌 방지 위해 any로 캐스팅해서 추가 prop 전달 */}
+      <MapChromeAny
+        selected={selected}
+        onCloseSelected={closeSelected}
+        onSearch={handleSearch}
+        initialQuery={initialQ}
+        setMarkerState={setMarkerState}  // ✅ 담기/해제시에 노랑/보라 변경
+      />
       {kakaoError && (
         <div className="fixed bottom-4 right-4 z-[100] rounded-lg bg-red-600 text-white px-3 py-2 text-sm shadow">
           Kakao SDK 로드 오류: {kakaoError}
