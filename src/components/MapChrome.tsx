@@ -27,6 +27,8 @@ type Props = {
   onCloseSelected?: () => void;
   onSearch?: (query: string) => void;
   initialQuery?: string;
+  // 🔽 추가
+  setMarkerState?: (name: string, state: "default" | "selected") => void;
 };
 
 /** ====== 정적 에셋 경로 & 유틸 ====== */
@@ -180,7 +182,14 @@ type AptStats = {
 };
 
 /** ====== 컴포넌트 ====== */
-export default function MapChrome({ selected, onCloseSelected, onSearch, initialQuery }: Props) {
+export default function MapChrome({
+  selected,
+  onCloseSelected,
+  onSearch,
+  initialQuery,
+  setMarkerState,       // ✅ 추가
+}: Props) {
+
   /** 검색어 */
   const [query, setQuery] = useState(initialQuery || "");
   useEffect(() => setQuery(initialQuery || ""), [initialQuery]);
@@ -350,6 +359,9 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
       }
     } catch (e) {
       console.warn("marker color change skipped:", e);
+      // ✅ 지도 마커: 담기한 단지명을 노란색으로
+  if (selected.name) {
+    setMarkerState?.(selected.name, "selected");
     }
   };
 
@@ -361,7 +373,22 @@ export default function MapChrome({ selected, onCloseSelected, onSearch, initial
       setCart((prev) => prev.map((x) => (x.id === id ? { ...x, months } : x)));
     }
   };
-  const removeItem = (id: string) => setCart((prev) => prev.filter((x) => x.id !== id));
+const removeItem = (id: string) => {
+  setCart((prev) => {
+    const removed = prev.find((x) => x.id === id);
+    const next = prev.filter((x) => x.id !== id);
+
+    // ✅ 지도 마커: 같은 단지명이 next에 더 이상 없으면 보라색으로 복귀
+    if (removed?.name) {
+      const stillExists = next.some((x) => x.name === removed.name);
+      if (!stillExists) {
+        setMarkerState?.(removed.name, "default");
+      }
+    }
+    return next;
+  });
+};
+
 
   /** ✅ 모달 열릴 때 카트 단지명으로 통계 일괄 동기화 */
   useEffect(() => {
