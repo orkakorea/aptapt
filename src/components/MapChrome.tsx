@@ -515,16 +515,18 @@ const removeItem = (id: string) => {
           </div>
 
           {/* 구좌(T.O) 문의하기 — 카트 없으면 비활성(이미지처럼) */}
-          <button
-            disabled={cart.length === 0}
-            className={`h-10 rounded-md border text-sm font-medium ${
-              cart.length > 0
-                ? "bg-[#6C2DFF] text-white border-[#6C2DFF]"
-                : "bg-white text-black border-[#E5E7EB] cursor-default pointer-events-none"
-            }`}
-          >
-            구좌(T.O) 문의하기
-          </button>
+         <button
+  disabled={cart.length === 0}
+  onClick={() => cart.length > 0 && setOpenSeatInquiry(true)}
+  className={`h-10 rounded-md border text-sm font-medium ${
+    cart.length > 0
+      ? "bg-[#6C2DFF] text-white border-[#6C2DFF]"
+      : "bg-white text-black border-[#E5E7EB] cursor-default pointer-events-none"
+  }`}
+>
+  구좌(T.O) 문의하기
+</button>
+
 
           {/* 총 비용 요약 */}
           <div className="space-y-2">
