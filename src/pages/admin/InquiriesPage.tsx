@@ -1,7 +1,8 @@
 // src/pages/admin/InquiriesPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import type { Session } from "@supabase/supabase-js";
+import type { Session } from "@supabase/supabase-js"; // ✅ 추가
+
 
 
 type InquiryKind = "SEAT" | "PACKAGE";
@@ -21,6 +22,19 @@ export default function InquiriesPage() {
   const [rows, setRows] = useState<Inquiry[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"ALL" | InquiryKind>("ALL");
+// ✅ 관리자 로그인 상태 보관
+const [session, setSession] = useState<Session | null>(null);
+
+// ✅ 매직링크로 돌아왔을 때 코드 교환 + 세션 구독
+useEffect(() => {
+  // 해시에 code/access_token 들어오면 세션으로 교환 (실패해도 무시)
+  // @ts-expect-error 타입경고 무시 가능 (문자열 전달 허용)
+  supabase.auth.exchangeCodeForSession(window.location.hash).catch(() => {});
+  // 현재 세션 불러오기 + 변경 구독
+  supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null));
+  const { data: sub } = supabase.auth.onAuthStateChange((_evt, s) => setSession(s));
+  return () => sub.subscription.unsubscribe();
+}, []);
 
   // 필터링된 목록
   const filtered = useMemo(
@@ -86,68 +100,32 @@ export default function InquiriesPage() {
     <div className="p-6 space-y-4">
       <div className="text-xl font-bold">문의 접수 (실시간)</div>
 
-      {/* 탭 */}
-      <div className="flex items-center gap-2">
-        {(["ALL","SEAT","PACKAGE"] as const).map(k => (
-          <button
-            key={k}
-            onClick={() => setTab(k)}
-            className={`h-9 rounded-md px-3 text-sm border
-              ${tab===k ? "border-[#6C2DFF] text-[#6C2DFF] bg-[#F4F0FB]" : "border-[#E5E7EB]"}`}
-          >
-            {k==="ALL" ? "전체" : k==="SEAT" ? "구좌 문의" : "패키지 문의"}
-          </button>
-        ))}
-      </div>
-
-      <div className="rounded-xl border overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="p-2 text-left w-44">시간</th>
-              <th className="p-2 text-left w-28">종류</th>
-              <th className="p-2 text-left w-32">이름</th>
-              <th className="p-2 text-left w-40">연락처</th>
-              <th className="p-2 text-left w-40">회사</th>
-              <th className="p-2 text-left w-56">이메일</th>
-              <th className="p-2 text-left w-32">상태</th>
-              <th className="p-2 text-left">경로</th>
-              <th className="p-2 text-right w-28">액션</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td className="p-4" colSpan={9}>불러오는 중…</td></tr>
-            ) : filtered.length === 0 ? (
-              <tr><td className="p-4" colSpan={9}>데이터가 없습니다.</td></tr>
-            ) : (
-              filtered.map(r => (
-                <tr key={r.id} className="border-t">
-                  <td className="p-2">{new Date(r.created_at).toLocaleString()}</td>
-                  <td className="p-2">{r.inquiry_kind === "SEAT" ? "구좌" : "패키지"}</td>
-                  <td className="p-2">{r.customer_name ?? "—"}</td>
-                  <td className="p-2">{r.phone ?? "—"}</td>
-                  <td className="p-2">{r.company ?? "—"}</td>
-                  <td className="p-2">{r.email ?? "—"}</td>
-                  <td className="p-2">{r.status ?? "NEW"}</td>
-                  <td className="p-2">{r.source_page ?? "—"}</td>
-                  <td className="p-2 text-right">
-                    <select
-                      className="h-8 rounded-md border border-[#E5E7EB] px-2"
-                      value={r.status ?? "NEW"}
-                      onChange={(e) => setStatus(r.id, e.target.value)}
-                    >
-                      <option value="NEW">NEW</option>
-                      <option value="IN_PROGRESS">IN_PROGRESS</option>
-                      <option value="DONE">DONE</option>
-                    </select>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
+<div className="flex items-center justify-between">
+  <div className="text-xl font-bold">문의 접수 (실시간)</div>
+  <div className="flex items-center gap-2">
+    {session ? (
+      <button
+        className="h-8 px-3 border rounded-md"
+        onClick={async () => { await supabase.auth.signOut(); location.reload(); }}
+      >
+        로그아웃
+      </button>
+    ) : (
+      <button
+        className="h-8 px-3 border rounded-md"
+        onClick={async () => {
+          const email = prompt("관리자 이메일을 입력하세요");
+          if (!email) return;
+          const { error } = await supabase.auth.signInWithOtp({
+            email,
+            options: { emailRedirectTo: window.location.origin + "/admin/inquiries" },
+          });
+          if (error) alert(error.message);
+          else alert("메일의 매직링크로 로그인하세요.");
+        }}
+      >
+        관리자 로그인(메일 링크)
+      </button>
+    )}
+  </div>
+</div>
