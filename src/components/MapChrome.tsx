@@ -1,6 +1,7 @@
 // src/components/MapChrome.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import QuoteModal, { QuoteLineItem } from "./QuoteModal"; // ✅ 모달 import
+import InquiryModal from "./InquiryModal"; // ✅ InquiryModal import
 import { supabase } from "../lib/supabase";               // ✅ Supabase import
 
 /** ====== 타입 ====== */
@@ -200,6 +201,12 @@ export default function MapChrome({
 
   /** ✅ 견적 모달 on/off 상태 */
   const [openQuote, setOpenQuote] = useState(false);
+
+  /** ✅ 구좌(T.O) 문의 모달 on/off 상태 */
+  const [openSeatInquiry, setOpenSeatInquiry] = useState(false);
+
+  /** ✅ 패키지 문의 모달 on/off 상태 */
+  const [openPackageInquiry, setOpenPackageInquiry] = useState(false);
 
   /** ✅ Supabase에서 받은 단지 통계 캐시 (key: 단지명 정규화) */
   const [statsMap, setStatsMap] = useState<Record<string, AptStats>>({});
@@ -432,6 +439,21 @@ const removeItem = (id: string) => {
         monitors: s?.monitors,
       };
     });
+  };
+
+  const buildSeatPrefill = () => {
+    if (!selected) return undefined;
+    return {
+      apt_id: selected.name, // Using name as ID for now
+      apt_name: selected.name,
+      product_code: selected.productName || undefined,
+      product_name: selected.productName || undefined,
+      cart_snapshot: cart.length > 0 ? {
+        items: cart,
+        totalWon: cart.reduce((sum, item) => sum + (item.baseMonthly * item.months), 0),
+        months: cart[0]?.months || 1
+      } : undefined
+    };
   };
 
   return (
