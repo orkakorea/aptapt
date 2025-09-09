@@ -119,16 +119,15 @@ export default function InquiryModal({
         cart_snapshot: isSeat ? (prefill?.cart_snapshot ?? null) : null,
       };
 
-      const { data, error } = await (supabase as any)
-        .from("inquiries")
-        .insert(payload)
-        .select("id")
-        .single();
+     const { error } = await supabase
+  .from("inquiries")
+  .insert(payload, { returning: "minimal" }); // ✅ SELECT 미사용 → RLS SELECT 불필요
 
-      if (error) throw error;
+if (error) throw error;
 
-      setOkMsg("접수가 완료되었습니다. 담당자가 곧 연락드리겠습니다.");
-      if (onSubmitted && data?.id) onSubmitted(data.id);
+setOkMsg("접수가 완료되었습니다. 담당자가 곧 연락드리겠습니다.");
+onSubmitted?.("ok"); // id가 꼭 필요 없으면 이렇게 처리
+
     } catch (err: any) {
       setErrorMsg(err?.message || "제출 중 오류가 발생했습니다.");
     } finally {
