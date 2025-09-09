@@ -1,4 +1,5 @@
-import React, { useMemo } from "react";
+// src/components/QuoteModal.tsx
+import React, { useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 
 /** =========================
@@ -152,8 +153,24 @@ export default function QuoteModal({
   if (typeof document === "undefined") return null;
   if (!open) return null;
 
+  const panelRef = useRef<HTMLDivElement | null>(null);
+
+  // Body 스크롤 잠금 + ESC 로 닫기
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose?.();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+
   const computed = useMemo(() => {
-    const rows = items.map((it) => {
+    const rows = (items ?? []).map((it) => {
       const productKey =
         it.productKeyHint || classifyProductForPolicy(it.mediaName);
 
@@ -196,11 +213,15 @@ export default function QuoteModal({
         aria-hidden="true"
       />
 
-{/* 모달 패널 (가로 1600 고정, 화면이 더 작으면 가로 스크롤) */}
-<div className="absolute inset-0 overflow-x-auto overflow-y-auto">
-  <div className="min-w-[1600px] max-w-[1600px] mx-auto my-10 bg-white rounded-2xl shadow-xl border border-[#E5E7EB]">
+      {/* 모달 패널 (가로 1600 고정, 화면이 더 작으면 가로 스크롤) */}
+      <div className="absolute inset-0 overflow-x-auto overflow-y-auto">
+        <div
+          ref={panelRef}
+          className="min-w-[1600px] max-w-[1600px] mx-auto my-10 bg-white rounded-2xl shadow-xl border border-[#E5E7EB]"
+          onClick={(e) => e.stopPropagation()} // 내부 클릭 시 닫힘 방지
+        >
           {/* 헤더 */}
-          <div className="px-6 py-5 border-b border-[#E5E7EB] flex items-start justify-between">
+          <div className="px-6 py-5 border-b border-[#E5E7EB] flex items-start justify-between sticky top-0 bg-white rounded-t-2xl">
             <div>
               <div className="text-lg font-bold text-black">{title}</div>
               <div className="text-sm text-[#6B7280] mt-1">{subtitle}</div>
@@ -223,15 +244,13 @@ export default function QuoteModal({
 
           {/* 단지 카운트 */}
           <div className="px-6 pt-4 pb-2 text-sm text-[#6B7280]">
-            {`총 ${items.length}개 단지`}
+            {`총 ${items?.length ?? 0}개 단지`}
           </div>
 
-{/* 테이블 */}
-<div className="px-6 pb-4">
-  {/* 내부에서 또 스크롤 만들지 않음: 바깥 패널에서 관리 */}
-  <div className="rounded-xl border border-[#E5E7EB]">
-    <table className="w-full text-sm">
-
+          {/* 테이블 */}
+          <div className="px-6 pb-4">
+            <div className="rounded-xl border border-[#E5E7EB]">
+              <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-[#F9FAFB] text-[#4B5563]">
                     <Th>단지명</Th>
@@ -250,25 +269,33 @@ export default function QuoteModal({
                   </tr>
                 </thead>
                 <tbody>
-                  {computed.rows.map(({ it, periodRate, precompRate, baseMonthly, baseTotal, lineTotal }) => (
-                    <tr key={it.id} className="border-t border-[#F3F4F6]">
-                      <Td className="font-medium text-black">{it.name}</Td>
-                      <Td>{fmtNum(it.months, "개월")}</Td>
-                      <Td>
-                        {safe(it.startDate)}{it.startDate || it.endDate ? " - " : ""}{safe(it.endDate)}
-                      </Td>
-                      <Td>{safe(it.mediaName)}</Td>
-                      <Td>{fmtNum(it.households, "세대")}</Td>
-                      <Td>{fmtNum(it.residents, "명")}</Td>
-                      <Td>{fmtNum(it.monthlyImpressions, "회")}</Td>
-                      <Td>{fmtNum(it.monitors, "대")}</Td>
-                      <Td>{fmtWon(baseMonthly)}</Td>
-                      <Td>{fmtWon(baseTotal)}</Td>
-                      <Td>{periodRate > 0 ? `${Math.round(periodRate * 100)}%` : "-"}</Td>
-                      <Td>{precompRate > 0 ? `${Math.round(precompRate * 100)}%` : "-"}</Td>
-                      <Td className="font-bold text-[#6C2DFF]">{fmtWon(lineTotal)}</Td>
+                  {computed.rows.length === 0 ? (
+                    <tr>
+                      <td colSpan={13} className="px-6 py-10 text-center text-[#6B7280]">
+                        담은 단지가 없습니다.
+                      </td>
                     </tr>
-                  ))}
+                  ) : (
+                    computed.rows.map(({ it, periodRate, precompRate, baseMonthly, baseTotal, lineTotal }) => (
+                      <tr key={it.id} className="border-t border-[#F3F4F6]">
+                        <Td className="font-medium text-black">{it.name}</Td>
+                        <Td>{fmtNum(it.months, "개월")}</Td>
+                        <Td>
+                          {safe(it.startDate)}{it.startDate || it.endDate ? " - " : ""}{safe(it.endDate)}
+                        </Td>
+                        <Td>{safe(it.mediaName)}</Td>
+                        <Td>{fmtNum(it.households, "세대")}</Td>
+                        <Td>{fmtNum(it.residents, "명")}</Td>
+                        <Td>{fmtNum(it.monthlyImpressions, "회")}</Td>
+                        <Td>{fmtNum(it.monitors, "대")}</Td>
+                        <Td>{fmtWon(baseMonthly)}</Td>
+                        <Td>{fmtWon(baseTotal)}</Td>
+                        <Td>{periodRate > 0 ? `${Math.round(periodRate * 100)}%` : "-"}</Td>
+                        <Td>{precompRate > 0 ? `${Math.round(precompRate * 100)}%` : "-"}</Td>
+                        <Td className="font-bold text-[#6C2DFF]">{fmtWon(lineTotal)}</Td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
                 <tfoot>
                   <tr className="border-t border-[#E5E7EB]">
