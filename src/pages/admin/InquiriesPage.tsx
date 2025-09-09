@@ -118,49 +118,49 @@ async function handleLogout() {
   };
 
   return (
-<div className="flex items-center justify-between">
-  <div className="text-xl font-bold">문의 접수 (실시간)</div>
+    <div className="p-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="text-xl font-bold">문의 접수 (실시간)</div>
 
-  {session ? (
-    // 로그인 상태: 사용자 표시 + 로그아웃
-    <div className="flex items-center gap-2">
-      <span className="text-sm text-gray-500">
-        {session.user?.email} (role: {session.user?.app_metadata?.role ?? "—"})
-      </span>
-      <button
-        className="h-8 px-3 border rounded-md"
-        onClick={handleLogout}
-      >
-        로그아웃
-      </button>
-    </div>
-  ) : (
-    // 미로그인: 이메일/비밀번호 폼
-    <form onSubmit={handlePwLogin} className="flex items-center gap-2">
-      <input
-        type="email"
-        required
-        value={emailInput}
-        onChange={(e) => setEmailInput(e.target.value)}
-        placeholder="관리자 이메일"
-        className="h-8 px-2 border rounded-md"
-      />
-      <input
-        type="password"
-        required
-        value={pwInput}
-        onChange={(e) => setPwInput(e.target.value)}
-        placeholder="비밀번호"
-        className="h-8 px-2 border rounded-md"
-      />
-      <button className="h-8 px-3 border rounded-md bg-black text-white">
-        로그인
-      </button>
-      {authMsg && <span className="text-xs text-red-500 ml-2">{authMsg}</span>}
-    </form>
-  )}
-</div>
-
+        {session ? (
+          // 로그인 상태: 사용자 표시 + 로그아웃
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-500">
+              {session.user?.email} (role: {session.user?.app_metadata?.role ?? "—"})
+            </span>
+            <button
+              className="h-8 px-3 border rounded-md"
+              onClick={handleLogout}
+            >
+              로그아웃
+            </button>
+          </div>
+        ) : (
+          // 미로그인: 이메일/비밀번호 폼
+          <form onSubmit={handlePwLogin} className="flex items-center gap-2">
+            <input
+              type="email"
+              required
+              value={emailInput}
+              onChange={(e) => setEmailInput(e.target.value)}
+              placeholder="관리자 이메일"
+              className="h-8 px-2 border rounded-md"
+            />
+            <input
+              type="password"
+              required
+              value={pwInput}
+              onChange={(e) => setPwInput(e.target.value)}
+              placeholder="비밀번호"
+              className="h-8 px-2 border rounded-md"
+            />
+            <button className="h-8 px-3 border rounded-md bg-black text-white">
+              로그인
+            </button>
+            {authMsg && <span className="text-xs text-red-500 ml-2">{authMsg}</span>}
+          </form>
+        )}
+      </div>
 
       {/* 탭 */}
       <div className="flex items-center gap-2">
