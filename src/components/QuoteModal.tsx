@@ -238,7 +238,7 @@ export default function QuoteModal({
               <span className="font-semibold">{`총 ${computed.totals.count}개 단지`}</span>
               <span>· 세대수 <b>{fmtNum(computed.totals.households)}</b> 세대</span>
               <span>· 거주인원 <b>{fmtNum(computed.totals.residents)}</b> 명</span>
-              <span>· 송출횟수 <b>{fmtNum(computed.totals.monthlyImpressions)}</b> 회</span>
+              <span>· 월송출횟수 <b>{fmtNum(computed.totals.monthlyImpressions)}</b> 회</span>
               <span>· 모니터수량 <b>{fmtNum(computed.totals.monitors)}</b> 대</span>
             </div>
             <div className="text-xs text-[#9CA3AF]">(단위 · 원 / VAT별도)</div>
