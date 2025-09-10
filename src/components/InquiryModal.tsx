@@ -156,21 +156,40 @@ export default function InquiryModal({
       aptCount > 1 ? `${topAptName} 외 ${aptCount - 1}개 단지` : topAptName;
 
     // 상품명: 첫 아이템의 상품명/코드 -> 전체 유니크 상품이 2개 이상이면 "외" 붙임
-    const firstItem = items[0] ?? null;
-    const firstProduct =
-      firstItem?.product_name ?? firstItem?.product_code ??
-      prefill?.product_name ?? prefill?.product_code ?? "-";
+const firstItem = items[0] ?? null;
+const firstProduct =
+  firstItem?.product_name ??
+  firstItem?.productName ??      // ← 추가
+  firstItem?.product_code ??
+  firstItem?.productCode ??      // ← 추가
+  prefill?.product_name ??
+  prefill?.productName ??        // ← 추가
+  prefill?.product_code ??
+  prefill?.productCode ??        // ← 추가
+  "-";
 
-    const uniqueProducts = new Set<string>();
-    if (items.length > 0) {
-      items.forEach((i) => {
-        const key = i?.product_name ?? i?.product_code;
-        if (key) uniqueProducts.add(String(key));
-      });
-    } else {
-      const key = prefill?.product_name ?? prefill?.product_code;
-      if (key) uniqueProducts.add(String(key));
-    }
+
+const uniqueProducts = new Set<string>();
+if (items.length > 0) {
+  items.forEach((i) => {
+    const key =
+      i?.product_name ??
+      i?.productName ??      // ← 추가
+      i?.product_code ??
+      i?.productCode ??      // ← 추가
+      "";
+    if (key) uniqueProducts.add(String(key));
+  });
+} else {
+  const key =
+    prefill?.product_name ??
+    prefill?.productName ??  // ← 추가
+    prefill?.product_code ??
+    prefill?.productCode ??  // ← 추가
+    "";
+  if (key) uniqueProducts.add(String(key));
+}
+
 
     const productLabel =
       uniqueProducts.size >= 2 ? `${firstProduct} 외` : firstProduct;
