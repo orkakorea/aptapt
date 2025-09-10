@@ -9,7 +9,7 @@ type Prefill = {
   apt_name?: string | null;
   product_code?: string | null; // 예: ELEVATOR_TV / TOWNBORD_S ...
   product_name?: string | null;
-  cart_snapshot?: any | null;   // 선택한 장바구니/견적 요약
+  cart_snapshot?: any | null;   // 단일/다중 선택 요약(1탭 총액 포함)
 };
 
 type Props = {
@@ -42,6 +42,11 @@ function getUTM() {
 
 function required(v?: string) {
   return v && v.trim().length > 0;
+}
+
+function fmtWon(n: number | null | undefined) {
+  if (n == null || isNaN(Number(n))) return "-";
+  return `${Number(n).toLocaleString()}원`;
 }
 
 export default function InquiryModal({
@@ -115,6 +120,83 @@ export default function InquiryModal({
   function handlePhoneChange(v: string) {
     const digitsOnly = v.replace(/\D/g, "");
     setPhone(digitsOnly);
+  }
+
+  // ====== SEAT 요약 파생값 계산 ======
+  function deriveSeatSummary() {
+    const snap: any = prefill?.cart_snapshot || null;
+    const items: any[] = Array.isArray(snap?.items) ? snap.items : [];
+
+    // 최상위 단지명
+    const topAptName: string =
+      items[0]?.apt_name ??
+      prefill?.apt_name ??
+      "-";
+
+    // 단지 수
+    const aptCount: number =
+      items.length > 0 ? items.length : (prefill?.apt_name ? 1 : 0);
+
+    // 단지 표시 문자열
+    const aptLabel =
+      aptCount > 1 ? `${topAptName} 외 ${aptCount - 1}개 단지` : topAptName;
+
+    // 최상위 단지의 상품명
+    const topAptProduct: string | null = (() => {
+      if (items.length > 0) {
+        const byTop = items.find((i) => i?.apt_name === topAptName) ?? items[0];
+        return byTop?.product_name ?? byTop?.product_code ?? null;
+      }
+      return prefill?.product_name ?? prefill?.product_code ?? null;
+    })();
+
+    // 전체 고유 상품 수
+    const uniqueProducts = (() => {
+      const set = new Set<string>();
+      if (items.length > 0) {
+        items.forEach((i) => {
+          const key = i?.product_name ?? i?.product_code;
+          if (key) set.add(String(key));
+        });
+      } else {
+        const key = prefill?.product_name ?? prefill?.product_code;
+        if (key) set.add(String(key));
+      }
+      return set;
+    })();
+
+    const productLabel =
+      uniqueProducts.size >= 2
+        ? `${topAptProduct ?? "-"} 외`
+        : (topAptProduct ?? "-");
+
+    // 광고기간: items의 months 최댓값 -> 없으면 snap.months -> 없으면 null
+    const monthsMaxFromItems =
+      items.length > 0
+        ? items.reduce((m, i) => Math.max(m, Number(i?.months ?? 0)), 0)
+        : 0;
+    const months: number | null =
+      monthsMaxFromItems > 0
+        ? monthsMaxFromItems
+        : (snap?.months ?? null);
+
+    // 총광고료: cartTotalWon > totalWon > sum(itemTotalWon)
+    let totalWon: number | null = null;
+    if (snap?.cartTotalWon != null) totalWon = Number(snap.cartTotalWon);
+    else if (snap?.totalWon != null) totalWon = Number(snap.totalWon);
+    else if (items.length > 0) {
+      const sum = items
+        .map((i) => Number(i?.itemTotalWon ?? 0))
+        .reduce((a, b) => a + b, 0);
+      totalWon = sum > 0 ? sum : null;
+    }
+
+    return {
+      aptLabel,
+      productLabel,
+      months,
+      totalWon,
+    };
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -226,36 +308,36 @@ export default function InquiryModal({
 
         {/* Body */}
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-5">
+          {/* ===== SEAT: 문의 내용 카드 ===== */}
           {isSeat && (
-            <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
-              <div className="text-sm font-semibold mb-2">선택 요약</div>
-              <div className="grid grid-cols-2 gap-3 text-[13px]">
-                <div className="flex flex-col">
-                  <span className={READ}>단지명</span>
-                  <span className="font-medium">{prefill?.apt_name ?? "-"}</span>
-                </div>
-                <div className="flex flex-col">
-                  <span className={READ}>상품명</span>
-                  <span className="font-medium">
-                    {prefill?.product_name ?? prefill?.product_code ?? "-"}
-                  </span>
-                </div>
-                {prefill?.cart_snapshot?.months && (
-                  <div className="flex flex-col">
-                    <span className={READ}>광고기간</span>
-                    <span className="font-medium">{prefill?.cart_snapshot?.months}개월</span>
+            (() => {
+              const s = deriveSeatSummary();
+              return (
+                <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+                  <div className="text-sm font-semibold mb-2">문의 내용</div>
+                  <div className="grid grid-cols-2 gap-3 text-[13px]">
+                    <div className="flex flex-col">
+                      <span className={READ}>단지명</span>
+                      <span className="font-medium">{s.aptLabel}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className={READ}>상품명</span>
+                      <span className="font-medium">{s.productLabel}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className={READ}>광고기간</span>
+                      <span className="font-medium">{s.months ? `${s.months}개월` : "-"}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className={READ}>예상 총광고료</span>
+                      <span className="font-medium">
+                        {fmtWon(s.totalWon)} <span className="text-gray-500">(VAT별도)</span>
+                      </span>
+                    </div>
                   </div>
-                )}
-                {prefill?.cart_snapshot?.totalWon && (
-                  <div className="flex flex-col">
-                    <span className={READ}>예상 총광고료</span>
-                    <span className="font-medium">
-                      {Number(prefill?.cart_snapshot?.totalWon).toLocaleString()}원 (VAT별도)
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
+                </div>
+              );
+            })()
           )}
 
           {/* ===== 패키지 문의 레이아웃 ===== */}
@@ -352,7 +434,7 @@ export default function InquiryModal({
             </>
           )}
 
-          {/* ===== 기존 SEAT 레이아웃(호환 유지) ===== */}
+          {/* ===== 기존 SEAT 입력 레이아웃(호환 유지) ===== */}
           {isSeat && (
             <>
               <div className="grid grid-cols-2 gap-4">
@@ -519,7 +601,6 @@ export default function InquiryModal({
             </div>
 
             <div className="px-8 pb-8 -mt-6 flex flex-col items-center text-center">
-              {/* 아이콘 */}
               <div className="w-16 h-16 rounded-full bg-violet-100 flex items-center justify-center mb-6">
                 <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
                   <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10Z" fill="#7C3AED" opacity="0.15"/>
