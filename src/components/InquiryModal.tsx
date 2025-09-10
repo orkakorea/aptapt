@@ -140,76 +140,65 @@ export default function InquiryModal({
   }
 
   // ====== SEAT "문의 내용" 박스 파생값 ======
-  function deriveSeatSummary() {
-    const snap: any = prefill?.cart_snapshot || null;
-    const items: any[] = Array.isArray(snap?.items) ? snap.items : [];
+function deriveSeatSummary() {
+  const snap: any = prefill?.cart_snapshot || null;
+  const items: any[] = Array.isArray(snap?.items) ? snap.items : [];
 
-    // 최상위 단지명
-    const topAptName: string =
-      items[0]?.apt_name ?? prefill?.apt_name ?? "-";
+  // 최상위 단지명: items[0].name → 없으면 prefill.apt_name
+  const topAptName: string =
+    (items[0]?.apt_name ?? items[0]?.name) ??
+    (prefill?.apt_name ?? "-");
 
-    // 단지 수
-    const aptCount: number =
-      items.length > 0 ? items.length : (prefill?.apt_name ? 1 : 0);
+  // 단지 수
+  const aptCount: number = items.length > 0 ? items.length : (prefill?.apt_name ? 1 : 0);
+  const aptLabel = aptCount > 1 ? `${topAptName} 외 ${aptCount - 1}개 단지` : topAptName;
 
-    const aptLabel =
-      aptCount > 1 ? `${topAptName} 외 ${aptCount - 1}개 단지` : topAptName;
-
-    // 상품명: 첫 아이템의 상품명/코드 -> 전체 유니크 상품이 2개 이상이면 "외" 붙임
-const firstItem = items[0] ?? null;
-// 교체 후
-const key =
-  prefill?.product_name ??       // ⬅ prefill은 snake_case만
-  prefill?.product_code ??       // ⬅ prefill은 snake_case만
-  "";
-
-
-
-const uniqueProducts = new Set<string>();
-if (items.length > 0) {
-  items.forEach((i) => {
-    const key =
-      i?.product_name ??
-      i?.productName ??      // ← 추가
-      i?.product_code ??
-      i?.productCode ??      // ← 추가
-      "";
-    if (key) uniqueProducts.add(String(key));
-  });
-} else {
-  const key =
-    prefill?.product_name ??
-    prefill?.productName ??  // ← 추가
+  // 상품명: 첫 아이템의 상품명/코드 (camel/snake 모두 대응)
+  const firstItem = items[0] ?? null;
+  const firstProduct =
+    firstItem?.product_name ??
+    firstItem?.productName ??
+    firstItem?.product_code ??
+    firstItem?.productCode ??
+    prefill?.product_name ??        // prefill은 snake_case만 사용
     prefill?.product_code ??
-    prefill?.productCode ??  // ← 추가
-    "";
-  if (key) uniqueProducts.add(String(key));
+    "-";
+
+  // 전체 고유 상품 집계 (camel/snake 모두 대응)
+  const uniqueProducts = new Set<string>();
+  if (items.length > 0) {
+    items.forEach((i) => {
+      const key =
+        i?.product_name ??
+        i?.productName ??
+        i?.product_code ??
+        i?.productCode ?? "";
+      if (key) uniqueProducts.add(String(key));
+    });
+  } else {
+    const key = prefill?.product_name ?? prefill?.product_code ?? "";
+    if (key) uniqueProducts.add(String(key));
+  }
+  const productLabel = uniqueProducts.size >= 2 ? `${firstProduct} 외` : firstProduct;
+
+  // 광고기간: items의 months 최댓값 → 없으면 snap.months
+  const monthsMaxFromItems =
+    items.length > 0
+      ? items.reduce((m, i) => Math.max(m, Number(i?.months ?? 0)), 0)
+      : 0;
+  const months: number | null =
+    monthsMaxFromItems > 0 ? monthsMaxFromItems : (snap?.months ?? null);
+
+  // 총광고료: 1탭 헤더 총액만 사용(이미 A안으로 주입됨)
+  const totalWon: number | null =
+    snap?.cartTotal != null ? Number(snap.cartTotal)
+    : snap?.cartTotalWon != null ? Number(snap.cartTotalWon)
+    : snap?.totalWon != null ? Number(snap.totalWon)
+    : null;
+
+  return { aptLabel, productLabel, months, totalWon };
 }
 
-
-    const productLabel =
-      uniqueProducts.size >= 2 ? `${firstProduct} 외` : firstProduct;
-
-    // 광고기간: items.months의 최댓값 -> 없으면 snap.months
-    const monthsMaxFromItems =
-      items.length > 0
-        ? items.reduce((m, i) => Math.max(m, Number(i?.months ?? 0)), 0)
-        : 0;
-    const months: number | null =
-      monthsMaxFromItems > 0
-        ? monthsMaxFromItems
-        : (snap?.months ?? null);
-
-    // 예상 총광고료: 1탭 총액과 100% 일치하도록 pickCartTotal 사용
-    const totalWon: number | null = pickCartTotal(snap);
-
-    return { aptLabel, productLabel, months, totalWon };
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setErrorMsg(null);
-    setOkMsg(null);
 
     // 패키지/구좌 모두 동일 검증 규칙 적용(요청사항)
     if (!required(brand)) return setErrorMsg("브랜드명을 입력해 주세요.");
