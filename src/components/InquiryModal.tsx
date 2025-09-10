@@ -92,7 +92,7 @@ export default function InquiryModal({
 
   // 체크박스(둘 다 체크되어야 제출 가능)
   const [agreePrivacy, setAgreePrivacy] = useState(false);        // 개인정보 수집·이용 동의
-
+  const [agreeThirdParty, setAgreeThirdParty] = useState(false);  // 개인정보 제3자 제공동의
 
   // 정책/완료 모달
   const [policyOpen, setPolicyOpen] = useState(false);
@@ -120,7 +120,6 @@ export default function InquiryModal({
       setRequestText("");
       setPromoCode("");
       setAgreePrivacy(false);
-      setAgreeThirdParty(false);
 
       setSubmitting(false);
       setErrorMsg(null);
@@ -213,7 +212,7 @@ if (items.length > 0) {
     if (!required(managerName)) return setErrorMsg("담당자명을 입력해 주세요.");
     if (!required(phone)) return setErrorMsg("연락처를 입력해 주세요.");
 
-// 교체
+    // 체크박스 강제 조건
 if (!agreePrivacy) {
   return setErrorMsg("개인정보 수집·이용 동의가 필요합니다.");
 }
@@ -432,27 +431,33 @@ if (!agreePrivacy) {
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 flex-wrap">
               {/* 안내 사각박스 (흰색 배경 + 검은 테두리) */}
-<button
-  type="button"
-  className="px-3 py-2 text-[12px] rounded-md border border-black bg-white hover:bg-gray-50 whitespace-nowrap"
-  onClick={() => setPolicyOpen(true)}
->
-  개인정보 수집.이용 정책 자세히보기
-</button>
-
+              <button
+                type="button"
+                className="px-3 py-2 text-[12px] rounded-md border border-black bg-white hover:bg-gray-50 whitespace-nowrap"
+                onClick={() => setPolicyOpen(true)}
+              >
+                개인정보 수집,이용 동의 및 제3자 제공동의 안내
+              </button>
 
               {/* 체크박스 2개 (한 줄) */}
-<label className="flex items-center gap-2 text-[12px] text-gray-700 whitespace-nowrap">
-  <input
-    type="checkbox"
-    className="h-4 w-4 rounded border-gray-300"
-    checked={agreePrivacy}
-    onChange={(e) => setAgreePrivacy(e.target.checked)}
-  />
-  개인정보 수집·이용 동의 <span className="text-red-500">*</span>
-</label>
-
-
+              <label className="flex items-center gap-2 text-[12px] text-gray-700 whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-gray-300"
+                  checked={agreePrivacy}
+                  onChange={(e) => setAgreePrivacy(e.target.checked)}
+                />
+                개인정보 수집·이용 동의
+              </label>
+              <label className="flex items-center gap-2 text-[12px] text-gray-700 whitespace-nowrap">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-gray-300"
+                  checked={agreeThirdParty}
+                  onChange={(e) => setAgreeThirdParty(e.target.checked)}
+                />
+                개인정보 제3자 제공동의
+              </label>
             </div>
 
             <button
