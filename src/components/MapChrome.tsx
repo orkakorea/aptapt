@@ -441,26 +441,29 @@ const removeItem = (id: string) => {
     });
   };
 
-  const buildSeatPrefill = () => {
-    const first = cart[0];
-    const aptName = selected?.name ?? first?.name ?? null;
-    const prodName = selected?.productName ?? first?.productName ?? null;
+const buildSeatPrefill = () => {
+  const first = cart[0];
+  const aptName = selected?.name ?? first?.name ?? null;
+  const prodName = selected?.productName ?? first?.productName ?? null;
 
-    const totalWon = cart.reduce((sum, item) => {
-      const base = Number(item.baseMonthly ?? 0);
-      return sum + base * Number(item.months ?? 0);
-    }, 0);
+  // (선택) 광고기간 표시는 최댓값 쓰려면 이렇게:
+  const monthsMax = cart.length ? Math.max(...cart.map(c => c.months ?? 0)) : null;
 
-    return {
-      apt_id: aptName,
-      apt_name: aptName,
-      product_code: prodName ?? undefined,
-      product_name: prodName ?? undefined,
-      cart_snapshot: cart.length
-        ? { items: cart, totalWon, months: first?.months ?? null }
-        : undefined,
-    };
+  return {
+    apt_id: aptName,
+    apt_name: aptName,
+    product_code: prodName ?? undefined,
+    product_name: prodName ?? undefined,
+    cart_snapshot: cart.length
+      ? {
+          items: cart,
+          months: monthsMax,      // 또는 first?.months (원래대로)
+          cartTotal: cartTotal,   // ✅ 헤더 총 비용 그대로 전달 (핵심!)
+        }
+      : undefined,
   };
+};
+
 
 
   return (
