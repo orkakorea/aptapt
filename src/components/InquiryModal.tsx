@@ -157,16 +157,12 @@ export default function InquiryModal({
 
     // 상품명: 첫 아이템의 상품명/코드 -> 전체 유니크 상품이 2개 이상이면 "외" 붙임
 const firstItem = items[0] ?? null;
-const firstProduct =
-  firstItem?.product_name ??
-  firstItem?.productName ??      // ← 추가
-  firstItem?.product_code ??
-  firstItem?.productCode ??      // ← 추가
-  prefill?.product_name ??
-  prefill?.productName ??        // ← 추가
-  prefill?.product_code ??
-  prefill?.productCode ??        // ← 추가
-  "-";
+// 교체 후
+const key =
+  prefill?.product_name ??       // ⬅ prefill은 snake_case만
+  prefill?.product_code ??       // ⬅ prefill은 snake_case만
+  "";
+
 
 
 const uniqueProducts = new Set<string>();
