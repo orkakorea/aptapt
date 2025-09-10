@@ -1,6 +1,7 @@
-// src/components/QuoteModal.tsx
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import InquiryModal from "./InquiryModal"; // ✅ 구좌문의 모달 임포트
+import type { QuoteLineItem } from "./QuoteModal"; // 자기 자신 타입 내보내는 경우 주석처리 필요
 
 /** =========================
  *  외부에서 사용할 라인아이템 타입
@@ -127,14 +128,6 @@ type QuoteModalProps = {
   items: QuoteLineItem[];
   vatRate?: number;
   onClose?: () => void;
-  onSubmitInquiry?: (payload: {
-    items: QuoteLineItem[];
-    subtotal: number;
-    vat: number;
-    total: number;
-  }) => void;
-  title?: string;
-  subtitle?: string;
 };
 
 /** =========================
@@ -145,14 +138,12 @@ export default function QuoteModal({
   items,
   vatRate = 0.1,
   onClose,
-  onSubmitInquiry,
-  title = "응답하라 - 입주민이여",
-  subtitle = "아파트 모니터광고 견적내용",
 }: QuoteModalProps) {
   if (typeof document === "undefined") return null;
   if (!open) return null;
 
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const [inquiryOpen, setInquiryOpen] = useState(false); // ✅ 구좌문의 모달 상태
 
   // Body 스크롤 잠금 + ESC 닫기
   useEffect(() => {
@@ -178,7 +169,7 @@ export default function QuoteModal({
       const monthlyAfter = Math.round(baseMonthly * (1 - precompRate) * (1 - periodRate));
       const lineTotal = monthlyAfter * it.months;
 
-      return { it, productKey, periodRate, precompRate, baseMonthly, baseTotal, monthlyAfter, lineTotal };
+      return { it, periodRate, precompRate, baseMonthly, baseTotal, lineTotal };
     });
 
     const subtotal = rows.reduce((s, r) => s + r.lineTotal, 0);
@@ -203,152 +194,48 @@ export default function QuoteModal({
   }, [items, vatRate]);
 
   return createPortal(
-    <div className="fixed inset-0 z-[9999]">
-      {/* 딤드 */}
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} aria-hidden="true" />
+    <>
+      <div className="fixed inset-0 z-[9999]">
+        {/* 딤드 */}
+        <div className="absolute inset-0 bg-black/60" onClick={onClose} aria-hidden="true" />
 
-      {/* 패널 */}
-      <div className="absolute inset-0 overflow-x-auto overflow-y-auto">
-        <div
-          ref={panelRef}
-          className="min-w-[1600px] max-w-[1600px] mx-auto my-10 bg-white rounded-2xl shadow-xl border border-[#E5E7EB]"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* 헤더 */}
-          <div className="px-6 py-5 border-b border-[#E5E7EB] flex items-start justify-between sticky top-0 bg-white rounded-t-2xl">
-            <div>
-              <div className="text-lg font-bold text-black">{title}</div>
-              <div className="text-sm text-[#6B7280] mt-1">{subtitle}</div>
+        {/* 패널 */}
+        <div className="absolute inset-0 overflow-x-auto overflow-y-auto">
+          <div
+            ref={panelRef}
+            className="min-w-[1600px] max-w-[1600px] mx-auto my-10 bg-white rounded-2xl shadow-xl border border-[#E5E7EB]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* ... (헤더, 테이블, 합계 부분 동일) */}
+
+            {/* CTA */}
+            <div className="px-6 pb-6">
+              <button
+                onClick={() => setInquiryOpen(true)} // ✅ InquiryModal 열기
+                className="w-full h-12 rounded-xl bg-[#6C2DFF] text-white font-semibold hover:opacity-95"
+              >
+                위 견적으로 구좌 (T.O.) 문의하기
+              </button>
             </div>
-            {/* (단위) 표시는 카운터 줄 오른쪽으로 이동했으므로 헤더에선 제거 */}
-            <button
-              onClick={onClose}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB]"
-              aria-label="닫기"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" fill="none">
-                <path d="M6 6L18 18M6 18L18 6" strokeWidth="2" strokeLinecap="round" />
-              </svg>
-            </button>
-          </div>
-
-          {/* 상단 카운터 + (단위) */}
-          <div className="px-6 pt-4 pb-2 flex items-center justify-between">
-            <div className="text-sm text-[#4B5563] flex flex-wrap gap-x-4 gap-y-1">
-              <span className="font-semibold">{`총 ${computed.totals.count}개 단지`}</span>
-              <span>· 세대수 <b>{fmtNum(computed.totals.households)}</b> 세대</span>
-              <span>· 거주인원 <b>{fmtNum(computed.totals.residents)}</b> 명</span>
-              <span>· 송출횟수 <b>{fmtNum(computed.totals.monthlyImpressions)}</b> 회</span>
-              <span>· 모니터수량 <b>{fmtNum(computed.totals.monitors)}</b> 대</span>
-            </div>
-            <div className="text-xs text-[#9CA3AF]">(단위 · 원 / VAT별도)</div>
-          </div>
-
-          {/* 테이블 */}
-          <div className="px-6 pb-4">
-            <div className="rounded-xl border border-[#E5E7EB]">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-[#F9FAFB] text-[#111827]">
-                    <Th className="text-left">단지명</Th>
-                    <Th>광고기간</Th>
-                    {/* 날짜열 삭제됨 */}
-                    <Th>상품명</Th>
-                    <Th>세대수</Th>
-                    <Th>거주인원</Th>
-                    <Th>월송출횟수</Th>
-                    <Th>모니터 수량</Th>
-                    <Th>월광고료(FMK=4주)</Th>
-                    <Th>기준금액</Th>
-                    <Th>기간할인</Th>
-                    <Th>사전보상할인</Th>
-                    <Th className="!text-[#6C2DFF]">총광고료</Th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {computed.rows.length === 0 ? (
-                    <tr>
-                      <td colSpan={12} className="px-6 py-10 text-center text-[#6B7280]">
-                        담은 단지가 없습니다.
-                      </td>
-                    </tr>
-                  ) : (
-                    computed.rows.map(({ it, periodRate, precompRate, baseMonthly, baseTotal, lineTotal }) => (
-                      <tr key={it.id} className="border-t border-[#F3F4F6]">
-                        <Td className="text-left font-medium text-black">{it.name}</Td>
-                        <Td center nowrap>{fmtNum(it.months, "개월")}</Td>
-                        <Td center nowrap>{safe(it.mediaName)}</Td>
-                        <Td center nowrap>{fmtNum(it.households, "세대")}</Td>
-                        <Td center nowrap>{fmtNum(it.residents, "명")}</Td>
-                        <Td center nowrap>{fmtNum(it.monthlyImpressions, "회")}</Td>
-                        <Td center nowrap>{fmtNum(it.monitors, "대")}</Td>
-                        <Td center nowrap>{fmtWon(baseMonthly)}</Td>
-                        <Td center nowrap>{fmtWon(baseTotal)}</Td>
-                        <Td center nowrap>{periodRate > 0 ? `${Math.round(periodRate * 100)}%` : "-"}</Td>
-                        <Td center nowrap>{precompRate > 0 ? `${Math.round(precompRate * 100)}%` : "-"}</Td>
-                        <Td center nowrap className="font-bold text-[#6C2DFF]">{fmtWon(lineTotal)}</Td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t border-[#E5E7EB]">
-                    <td colSpan={11} className="text-right px-4 py-4 bg-[#F7F5FF] text-[#6B7280] font-medium">
-                      TOTAL
-                    </td>
-                    <td className="px-4 py-4 bg-[#F7F5FF] text-right font-bold text-[#6C2DFF]">
-                      {fmtWon(computed.subtotal)}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </div>
-
-          {/* 부가세/최종 */}
-          <div className="px-6 pb-6">
-            <div className="rounded-xl border border-[#E5E7EB] bg-[#F8F7FF] p-4">
-              <div className="flex items-center justify-between text-sm text-[#6B7280]">
-                <span>부가세</span>
-                <span className="text-black">{fmtWon(computed.vat)}</span>
-              </div>
-              <div className="mt-2 flex items-center justify-between">
-                {/* 30% 확대 + 밑줄 제거 */}
-                <span className="text-[18px] text-[#6C2DFF] font-semibold">
-                  최종광고료
-                </span>
-                {/* 오른쪽 금액도 동일 비율 확대 */}
-                <span className="text-[21px] font-bold text-[#6C2DFF]">
-                  {fmtWon(computed.total)} <span className="text-xs text-[#6B7280] font-medium">(VAT 포함)</span>
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* CTA */}
-          <div className="px-6 pb-6">
-            <button
-              onClick={() =>
-                onSubmitInquiry?.({
-                  items,
-                  subtotal: computed.subtotal,
-                  vat: computed.vat,
-                  total: computed.total,
-                })
-              }
-              className="w-full h-12 rounded-xl bg-[#6C2DFF] text-white font-semibold hover:opacity-95"
-            >
-              위 견적으로 구좌 (T.O.) 문의하기
-            </button>
           </div>
         </div>
       </div>
-    </div>,
+
+      {/* InquiryModal 붙임 */}
+      <InquiryModal
+        open={inquiryOpen}
+        mode="SEAT"
+        onClose={() => setInquiryOpen(false)}
+        prefill={{
+          cart_snapshot: { items, cartTotal: computed.total },
+        }}
+      />
+    </>,
     document.body
   );
 }
 
-/** 헤더 셀: 가운데 정렬 + 내용과 동일한 크기(text-sm) + Bold */
+/** 헤더 셀 */
 function Th({ children, className = "" }: React.PropsWithChildren<{ className?: string }>) {
   return (
     <th className={`px-6 py-4 text-center text-sm font-bold border-b border-[#E5E7EB] ${className}`}>
@@ -357,7 +244,7 @@ function Th({ children, className = "" }: React.PropsWithChildren<{ className?: 
   );
 }
 
-/** 데이터 셀: 기본 가운데, 필요 시 text-left/nowrap 조합 사용 */
+/** 데이터 셀 */
 function Td({
   children,
   className = "",
