@@ -159,13 +159,9 @@ export default function InquiryModal({
 const firstItem = items[0] ?? null;
 const firstProduct =
   firstItem?.product_name ??
-  firstItem?.productName ??      // ← 추가
   firstItem?.product_code ??
-  firstItem?.productCode ??      // ← 추가
   prefill?.product_name ??
-  prefill?.productName ??        // ← 추가
   prefill?.product_code ??
-  prefill?.productCode ??        // ← 추가
   "-";
 
 
@@ -174,18 +170,14 @@ if (items.length > 0) {
   items.forEach((i) => {
     const key =
       i?.product_name ??
-      i?.productName ??      // ← 추가
       i?.product_code ??
-      i?.productCode ??      // ← 추가
       "";
     if (key) uniqueProducts.add(String(key));
   });
 } else {
   const key =
     prefill?.product_name ??
-    prefill?.productName ??  // ← 추가
     prefill?.product_code ??
-    prefill?.productCode ??  // ← 추가
     "";
   if (key) uniqueProducts.add(String(key));
 }
