@@ -90,9 +90,8 @@ export default function InquiryModal({
   const [requestText, setRequestText] = useState("");             // 요청사항(선택)
   const [promoCode, setPromoCode] = useState("");                 // 프로모션 코드(선택)
 
-  // 체크박스(둘 다 체크되어야 제출 가능)
-  const [agreePrivacy, setAgreePrivacy] = useState(false);        // 개인정보 수집·이용 동의
-  const [agreeThirdParty, setAgreeThirdParty] = useState(false);  // 개인정보 제3자 제공동의
+  // 체크박스(필수 1개만 유지: 개인정보 수집·이용 동의)
+  const [agreePrivacy, setAgreePrivacy] = useState(false);
 
   // 정책/완료 모달
   const [policyOpen, setPolicyOpen] = useState(false);
@@ -155,32 +154,24 @@ export default function InquiryModal({
       aptCount > 1 ? `${topAptName} 외 ${aptCount - 1}개 단지` : topAptName;
 
     // 상품명: 첫 아이템의 상품명/코드 -> 전체 유니크 상품이 2개 이상이면 "외" 붙임
-const firstItem = items[0] ?? null;
-const firstProduct =
-  firstItem?.product_name ??
-  firstItem?.product_code ??
-  prefill?.product_name ??
-  prefill?.product_code ??
-  "-";
+    const firstItem = items[0] ?? null;
+    const firstProduct =
+      firstItem?.product_name ??
+      firstItem?.product_code ??
+      prefill?.product_name ??
+      prefill?.product_code ??
+      "-";
 
-
-const uniqueProducts = new Set<string>();
-if (items.length > 0) {
-  items.forEach((i) => {
-    const key =
-      i?.product_name ??
-      i?.product_code ??
-      "";
-    if (key) uniqueProducts.add(String(key));
-  });
-} else {
-  const key =
-    prefill?.product_name ??
-    prefill?.product_code ??
-    "";
-  if (key) uniqueProducts.add(String(key));
-}
-
+    const uniqueProducts = new Set<string>();
+    if (items.length > 0) {
+      items.forEach((i) => {
+        const key = i?.product_name ?? i?.product_code ?? "";
+        if (key) uniqueProducts.add(String(key));
+      });
+    } else {
+      const key = prefill?.product_name ?? prefill?.product_code ?? "";
+      if (key) uniqueProducts.add(String(key));
+    }
 
     const productLabel =
       uniqueProducts.size >= 2 ? `${firstProduct} 외` : firstProduct;
@@ -212,11 +203,10 @@ if (items.length > 0) {
     if (!required(managerName)) return setErrorMsg("담당자명을 입력해 주세요.");
     if (!required(phone)) return setErrorMsg("연락처를 입력해 주세요.");
 
-    // 체크박스 강제 조건
-if (!agreePrivacy) {
-  return setErrorMsg("개인정보 수집·이용 동의가 필요합니다.");
-}
-
+    // 체크박스 강제 조건 (제3자 제공 동의 제거)
+    if (!agreePrivacy) {
+      return setErrorMsg("개인정보 수집·이용 동의를 체크해 주세요.");
+    }
 
     try {
       setSubmitting(true);
@@ -230,7 +220,7 @@ if (!agreePrivacy) {
         request_text: requestText || null,
         promo_code: promoCode || null,
         agree_privacy: agreePrivacy,
-        agree_third_party: agreeThirdParty,
+        // agree_third_party 제거
       };
 
       const payload: any = {
@@ -337,7 +327,9 @@ if (!agreePrivacy) {
           {/* ===== 입력 폼 (패키지/구좌 동일) ===== */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <div className={LABEL}>브랜드명 *</div>
+              <div className={LABEL}>
+                브랜드명 <span className="text-red-500">*</span>
+              </div>
               <input
                 className={INPUT_BASE}
                 placeholder="오르카 코리아"
@@ -347,7 +339,9 @@ if (!agreePrivacy) {
             </div>
 
             <div>
-              <div className={LABEL}>캠페인유형 *</div>
+              <div className={LABEL}>
+                캠페인유형 <span className="text-red-500">*</span>
+              </div>
               <select
                 className={`${INPUT_BASE} bg-white`}
                 value={campaignType}
@@ -363,17 +357,21 @@ if (!agreePrivacy) {
             </div>
 
             <div>
-              <div className={LABEL}>담당자명 *</div>
+              <div className={LABEL}>
+                담당자명 <span className="text-red-500">*</span>
+              </div>
               <input
                 className={INPUT_BASE}
-                placeholder="홍길동"
+                placeholder="박우주"
                 value={managerName}
                 onChange={(e) => setManagerName(e.target.value)}
               />
             </div>
 
             <div>
-              <div className={LABEL}>연락처 *</div>
+              <div className={LABEL}>
+                연락처 <span className="text-red-500">*</span>
+              </div>
               <input
                 className={INPUT_BASE}
                 inputMode="numeric"
@@ -384,7 +382,7 @@ if (!agreePrivacy) {
             </div>
 
             <div>
-              <div className={LABEL}>이메일 (선택)</div>
+              <div className={LABEL}>이메일 </div>
               <input
                 className={INPUT_BASE}
                 placeholder="you@example.com"
@@ -405,7 +403,7 @@ if (!agreePrivacy) {
           </div>
 
           <div>
-            <div className={LABEL}>요청사항 (선택)</div>
+            <div className={LABEL}>요청사항 </div>
             <textarea
               className={`${INPUT_BASE} h-28 resize-none`}
               placeholder="관심 상품/예산/지역/기간 등을 적어주세요."
@@ -415,7 +413,7 @@ if (!agreePrivacy) {
           </div>
 
           <div>
-            <div className={LABEL}>프로모션 코드 (선택)</div>
+            <div className={LABEL}>프로모션 코드 </div>
             <input
               className={INPUT_BASE}
               placeholder="예: ORCA2024"
@@ -427,7 +425,7 @@ if (!agreePrivacy) {
           {errorMsg && <div className="text-[13px] text-red-600">{errorMsg}</div>}
           {okMsg && <div className="text-[13px] text-emerald-600">{okMsg}</div>}
 
-          {/* 하단: 안내 박스 + 체크 2개 + 제출 */}
+          {/* 하단: 정책 버튼 + 체크 1개 + 제출 */}
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 flex-wrap">
               {/* 안내 사각박스 (흰색 배경 + 검은 테두리) */}
@@ -436,10 +434,10 @@ if (!agreePrivacy) {
                 className="px-3 py-2 text-[12px] rounded-md border border-black bg-white hover:bg-gray-50 whitespace-nowrap"
                 onClick={() => setPolicyOpen(true)}
               >
-                개인정보 수집,이용 동의 및 제3자 제공동의 안내
+                개인정보 수집·이용 정책 자세히보기
               </button>
 
-              {/* 체크박스 2개 (한 줄) */}
+              {/* 체크박스 1개 (제3자 제공 동의 삭제) */}
               <label className="flex items-center gap-2 text-[12px] text-gray-700 whitespace-nowrap">
                 <input
                   type="checkbox"
@@ -447,16 +445,7 @@ if (!agreePrivacy) {
                   checked={agreePrivacy}
                   onChange={(e) => setAgreePrivacy(e.target.checked)}
                 />
-                개인정보 수집·이용 동의
-              </label>
-              <label className="flex items-center gap-2 text-[12px] text-gray-700 whitespace-nowrap">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-gray-300"
-                  checked={agreeThirdParty}
-                  onChange={(e) => setAgreeThirdParty(e.target.checked)}
-                />
-                개인정보 제3자 제공동의
+                개인정보 수집·이용 동의 <span className="text-red-500">*</span>
               </label>
             </div>
 
@@ -479,7 +468,7 @@ if (!agreePrivacy) {
           <div className="absolute inset-0 bg-black/40" onClick={() => setPolicyOpen(false)} />
           <div className="relative z-[1101] w-[680px] max-w-[92vw] rounded-2xl bg-white shadow-2xl">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <div className="text-base font-bold">개인정보 수집·이용 및 제3자 제공 안내</div>
+              <div className="text-base font-bold">개인정보 수집·이용 정책</div>
               <button
                 className="rounded-full p-2 hover:bg-gray-50"
                 onClick={() => setPolicyOpen(false)}
@@ -497,8 +486,7 @@ if (!agreePrivacy) {
                 수집 항목: 성명, 연락처, 이메일, 문의 내용 등. 보유·이용 기간: 문의 처리 완료 후 1년.
               </p>
               <p className="mb-3">
-                제3자 제공은 매체 운영사 및 집행 파트너에게 한정되며, 목적은 캠페인 제안/집행을 위한 상담에 한합니다.
-                제공 항목: 성명, 연락처, 회사/브랜드, 문의 내용. 제공받는 자: 매체 운영사(포커스미디어, 타운보드, 미디어믿 등) 및 협력 대행사.
+                필요한 경우 매체 운영사 등 협력사와의 상담/집행을 위해 최소한의 정보가 공유될 수 있습니다. 법령에 따른 고지·동의 절차를 준수합니다.
               </p>
               <p>귀하는 동의를 거부할 권리가 있으며, 동의 거부 시 상담 제공이 제한될 수 있습니다.</p>
             </div>
@@ -545,7 +533,7 @@ if (!agreePrivacy) {
               </div>
 
               <div className="text-lg font-bold mb-2">
-                {mode === "SEAT" ? "구좌문의가 완료되었습니다." : "패키지문의가 완료되었습니다."}
+                {mode === "SEAT" ? "구좌문의가 완료되었습니다." : "광고문의가 완료되었습니다."}
               </div>
               <div className="text-[15px] text-gray-700 leading-7">
                 영업일 기준 1~2일 이내로 담당자가 배정되어<br />답변드릴 예정입니다.
