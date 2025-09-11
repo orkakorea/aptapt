@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import InquiryModal from "./InquiryModal";
+import openInquiryModal from "./openInquiryModal";
 
 /** =========================
  *  외부에서 사용할 라인아이템 타입
@@ -370,8 +371,12 @@ export default function QuoteModal({
 <div className="px-6 pb-6">
   <button
     onClick={() => {
-      // ❌ 외부 onSubmitInquiry 콜백은 호출하지 않음 (견적서 닫히는 원인)
-      setInquiryOpen(true); // ✅ 견적서 그대로 두고 InquiryModal만 열기
+      openInquiryModal({
+        mode: "SEAT",
+        prefill: inquiryPrefill,
+        sourcePage: "/quote",
+      });
+      onClose?.(); // ⬅️ 견적서 닫기
     }}
     className="w-full h-12 rounded-xl bg-[#6C2DFF] text-white font-semibold hover:opacity-95"
   >
