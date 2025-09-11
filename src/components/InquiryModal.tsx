@@ -153,7 +153,7 @@ export default function InquiryModal({
     const aptLabel =
       aptCount > 1 ? `${topAptName} 외 ${aptCount - 1}개 단지` : topAptName;
 
-    // 상품명: 첫 아이템의 상품명/코드 -> 전체 유니크 상품이 2개 이상이면 "외" 붙임
+    // 1) 상품명 요약: 첫 상품명(또는 코드) + (유니크 2개 이상이면 " 외")
     const firstItem = items[0] ?? null;
     const firstProduct =
       firstItem?.product_name ??
@@ -172,24 +172,37 @@ export default function InquiryModal({
       const key = prefill?.product_name ?? prefill?.product_code ?? "";
       if (key) uniqueProducts.add(String(key));
     }
-
     const productLabel =
       uniqueProducts.size >= 2 ? `${firstProduct} 외` : firstProduct;
 
-    // 광고기간: items.months의 최댓값 -> 없으면 snap.months
-    const monthsMaxFromItems =
-      items.length > 0
-        ? items.reduce((m, i) => Math.max(m, Number(i?.months ?? 0)), 0)
-        : 0;
-    const months: number | null =
-      monthsMaxFromItems > 0
-        ? monthsMaxFromItems
-        : (snap?.months ?? null);
+    // 2) 광고기간 요약:
+    // - 아이템마다 기간이 다를 수 있으므로, 유니크 개수 파악
+    // - 최댓값 months + (서로 다르면 " 등")
+    const monthSet = new Set<number>();
+    let monthsMaxFromItems = 0;
+    if (items.length > 0) {
+      items.forEach((i) => {
+        const n = Number(i?.months ?? 0);
+        if (isFinite(n) && n > 0) {
+          monthSet.add(n);
+          if (n > monthsMaxFromItems) monthsMaxFromItems = n;
+        }
+      });
+    }
+    const fallbackMonths = Number(snap?.months ?? 0);
+    if (monthSet.size === 0 && isFinite(fallbackMonths) && fallbackMonths > 0) {
+      monthSet.add(fallbackMonths);
+      monthsMaxFromItems = fallbackMonths;
+    }
+
+    const months: number | null = monthsMaxFromItems > 0 ? monthsMaxFromItems : null;
+    const monthsLabel =
+      months ? `${months}개월${monthSet.size >= 2 ? " 등" : ""}` : "-";
 
     // 예상 총광고료: 1탭 총액과 100% 일치하도록 pickCartTotal 사용
     const totalWon: number | null = pickCartTotal(snap);
 
-    return { aptLabel, productLabel, months, totalWon };
+    return { aptLabel, productLabel, months, monthsLabel, totalWon };
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -203,7 +216,7 @@ export default function InquiryModal({
     if (!required(managerName)) return setErrorMsg("담당자명을 입력해 주세요.");
     if (!required(phone)) return setErrorMsg("연락처를 입력해 주세요.");
 
-    // 체크박스 강제 조건 (제3자 제공 동의 제거)
+    // 체크박스 강제 조건
     if (!agreePrivacy) {
       return setErrorMsg("개인정보 수집·이용 동의를 체크해 주세요.");
     }
@@ -220,7 +233,6 @@ export default function InquiryModal({
         request_text: requestText || null,
         promo_code: promoCode || null,
         agree_privacy: agreePrivacy,
-        // agree_third_party 제거
       };
 
       const payload: any = {
@@ -311,7 +323,7 @@ export default function InquiryModal({
                   </div>
                   <div className="flex flex-col">
                     <span className={READ}>광고기간</span>
-                    <span className="font-medium">{s.months ? `${s.months}개월` : "-"}</span>
+                    <span className="font-medium">{s.monthsLabel}</span>
                   </div>
                   <div className="flex flex-col">
                     <span className={READ}>예상 총광고료</span>
@@ -437,7 +449,7 @@ export default function InquiryModal({
                 개인정보 수집·이용 정책 자세히보기
               </button>
 
-              {/* 체크박스 1개 (제3자 제공 동의 삭제) */}
+              {/* 체크박스 1개 */}
               <label className="flex items-center gap-2 text-[12px] text-gray-700 whitespace-nowrap">
                 <input
                   type="checkbox"
