@@ -4,7 +4,6 @@ import InquiryModal from "./InquiryModal";
 
 type InquiryKind = "SEAT" | "PACKAGE";
 
-// InquiryModal 내부에서 사용하는 prefill 구조의 최소 타입
 type Prefill = {
   apt_id?: string | null;
   apt_name?: string | null;
@@ -14,43 +13,59 @@ type Prefill = {
 };
 
 type OpenOptions = {
-  mode?: InquiryKind;            // 기본 SEAT
+  mode?: InquiryKind;                 // 기본 "SEAT"
   prefill?: Prefill;
   sourcePage?: string;
   onSubmitted?: (rowId: string) => void;
+
+  /** 기본값: true — 배경 클릭 시 닫기 */
+  dismissOnBackdrop?: boolean;
+  /** 기본값: true — ESC 누르면 닫기 */
+  dismissOnEsc?: boolean;
 };
 
 const CONTAINER_ID = "__inquiry_modal_portal__";
 
-// 외부 어디서든 호출해서 InquiryModal을 단독으로 띄우는 함수
-export function openInquiryModal(opts: OpenOptions) {
-  const container =
-    document.getElementById(CONTAINER_ID) ||
-    Object.assign(document.createElement("div"), { id: CONTAINER_ID });
+/**
+ * 어디서든 호출해서 InquiryModal을 단독으로 띄운다.
+ * - 자동으로 사라지지 않음(사용자 동작으로만 닫힘)
+ * - 여러 번 호출 시 기존 컨테이너를 먼저 정리 후 새로 연다(중복 방지)
+ */
+export default function openInquiryModal(opts: OpenOptions) {
+  const dismissOnBackdrop = opts.dismissOnBackdrop ?? true;
+  const dismissOnEsc = opts.dismissOnEsc ?? true;
 
-  if (!container.parentElement) {
-    document.body.appendChild(container);
+  // 기존 컨테이너가 남아있다면 먼저 제거(중복 방지)
+  const prev = document.getElementById(CONTAINER_ID);
+  if (prev && prev.parentElement) {
+    prev.parentElement.removeChild(prev);
   }
+
+  const container = Object.assign(document.createElement("div"), { id: CONTAINER_ID });
+  document.body.appendChild(container);
 
   const root = createRoot(container);
 
   function unmount() {
-    // 약간의 페이드아웃 여유가 필요하면 setTimeout으로 조절 가능
-    root.unmount();
-    if (container.parentElement) container.parentElement.removeChild(container);
+    try {
+      root.unmount();
+    } finally {
+      if (container.parentElement) container.parentElement.removeChild(container);
+    }
   }
 
   function ModalHost() {
     const [open, setOpen] = useState(true);
 
-    // ESC로 닫기 등 전역 핸들링(선택)
+    // ESC 닫기
     useEffect(() => {
+      if (!dismissOnEsc) return;
       const onKey = (e: KeyboardEvent) => {
         if (e.key === "Escape") setOpen(false);
       };
       window.addEventListener("keydown", onKey);
       return () => window.removeEventListener("keydown", onKey);
-    }, []);
+    }, [dismissOnEsc]);
 
     // sourcePage 기본값: 현재 경로
     const sourcePage = useMemo(() => {
@@ -58,6 +73,20 @@ export function openInquiryModal(opts: OpenOptions) {
       if (typeof window !== "undefined") return window.location.pathname;
       return "/quote";
     }, [opts?.sourcePage]);
+
+    // InquiryModal은 자체 백드롭을 가지고 있고, 백드롭 클릭 시 onClose가 호출됨.
+    // dismissOnBackdrop=false 인 경우, onClose에서 open=false를 막기 위해 no-op 처리.
+    const handleClose = () => {
+      if (dismissOnBackdrop) setOpen(false);
+      // dismissOnBackdrop=false면 아무 일도 하지 않음(사용자 의도)
+    };
+
+    useEffect(() => {
+      if (!open) {
+        // 닫히면 즉시 정리
+        unmount();
+      }
+    }, [open]);
 
     return (
       <InquiryModal
@@ -69,27 +98,13 @@ export function openInquiryModal(opts: OpenOptions) {
           opts?.onSubmitted?.(id);
           setOpen(false);
         }}
-        onClose={() => setOpen(false)}
+        onClose={handleClose}
       />
     );
   }
 
   root.render(<ModalHost />);
 
-  // 언마운트 정리: InquiryModal 내부에서 open=false가 되면 unmount
-  // 간단히 MutationObserver로 open 상태 감지 대신, 200ms 폴링으로 컨테이너 존재 체크
-  // (InquiryModal이 사라지면 root.unmount 호출되도록 타임아웃으로 정리)
-  // 여기선 InquiryModal 쪽에서 닫히면 컴포넌트가 언마운트되므로, 약간의 지연 후 컨테이너만 제거
-  setTimeout(() => {
-    // 안전장치: 10초 뒤에도 남아있으면 제거
-    setTimeout(() => {
-      if (document.getElementById(CONTAINER_ID)) {
-        unmount();
-      }
-    }, 10000);
-  }, 0);
-
+  // 호출자가 수동으로 닫고 싶을 때 사용
   return { close: unmount };
 }
-
-export default openInquiryModal;
