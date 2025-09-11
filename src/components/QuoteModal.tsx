@@ -366,25 +366,19 @@ export default function QuoteModal({
               </div>
             </div>
 
-            {/* CTA */}
-            <div className="px-6 pb-6">
-              <button
-                onClick={() => {
-                  // 기존 콜백 유지(필요 시 외부에서 잡아 사용)
-                  onSubmitInquiry?.({
-                    items,
-                    subtotal: computed.subtotal,
-                    vat: computed.vat,
-                    total: computed.total,
-                  });
-                  // 견적 하단에서 바로 구좌문의 모달 오픈
-                  setInquiryOpen(true);
-                }}
-                className="w-full h-12 rounded-xl bg-[#6C2DFF] text-white font-semibold hover:opacity-95"
-              >
-                위 견적으로 구좌 (T.O.) 문의하기
-              </button>
-            </div>
+{/* CTA */}
+<div className="px-6 pb-6">
+  <button
+    onClick={() => {
+      // ❌ 외부 onSubmitInquiry 콜백은 호출하지 않음 (견적서 닫히는 원인)
+      setInquiryOpen(true); // ✅ 견적서 그대로 두고 InquiryModal만 열기
+    }}
+    className="w-full h-12 rounded-xl bg-[#6C2DFF] text-white font-semibold hover:opacity-95"
+  >
+    위 견적으로 구좌 (T.O.) 문의하기
+  </button>
+</div>
+
           </div>
         </div>
       </div>
