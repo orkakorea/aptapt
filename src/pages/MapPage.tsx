@@ -1,7 +1,15 @@
 // src/pages/MapPage.tsx
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import MapChrome, { SelectedApt } from "../components/MapChrome";
+// ✅ 컴포넌트와 타입을 분리 Import: 타입은 Base로 받아서 로컬에서 확장
+import MapChrome from "../components/MapChrome";
+import type { SelectedApt as SelectedAptBase } from "../components/MapChrome";
+
+// ✅ 임시 타입 확장: rowKey, rowId를 포함 (MapChrome.tsx 업데이트 전까지 사용)
+type SelectedApt = SelectedAptBase & {
+  rowKey?: string;
+  rowId?: string;
+};
 
 type KakaoNS = typeof window & { kakao: any };
 const FALLBACK_KAKAO_KEY = "a53075efe7a2256480b8650cec67ebae";
@@ -258,7 +266,7 @@ export default function MapPage() {
         kakao.maps.event.addListener(map, "dragstart", () => spiderRef.current?.unspiderfy());
         kakao.maps.event.addListener(map, "click", () => spiderRef.current?.unspiderfy());
 
-        // idle에서는 마커 데이터만 업데이트 (★ 더 이상 unspiderfy 하지 않음)
+        // idle에서는 마커 데이터만 업데이트 (★ unspiderfy 하지 않음)
         kakao.maps.event.addListener(map, "idle", () => debounceIdle(loadMarkersInBounds, 250));
 
         setTimeout(() => map && map.relayout(), 0);
@@ -405,7 +413,6 @@ export default function MapPage() {
           const imageUrl = getField(row, ["imageUrl","이미지","썸네일","thumbnail"]) || undefined;
 
           const sel: SelectedApt = {
-            // ↓ MapChrome에서 정확히 이 행만 처리할 수 있도록 rowKey/rowId 포함
             rowKey,
             rowId: row.id != null ? String(row.id) : undefined,
             name, address, productName, installLocation,
@@ -526,7 +533,7 @@ export default function MapPage() {
           const residents = toNumLoose(getField(row, ["거주인원","거주 인원","인구수","총인구","입주민수","거주자수","residents"]));
           const monitors = toNumLoose(getField(row, ["모니터수량","모니터 수량","모니터대수","엘리베이터TV수","monitors"]));
           const monthlyImpressions = toNumLoose(getField(row, ["월송출횟수","월 송출횟수","월 송출 횟수","월송출","노출수(월)","monthlyImpressions"]));
-          const monthlyFee = toNumLoose(getField(row, ["월광고료","월 광고료","월 광고비","월비용","월요금","month_fee","monthlyFee"]));
+          const monthlyFee = toNumLoose(getField(row, ["월광고료","월 광고료","월광고비","월비용","월요금","month_fee","monthlyFee"]));
           const monthlyFeeY1 = toNumLoose(getField(row, ["1년 계약 시 월 광고료","1년계약시월광고료","연간월광고료","할인 월 광고료","연간_월광고료","monthlyFeeY1"]));
           const costPerPlay = toNumLoose(getField(row, ["1회당 송출비용","송출 1회당 비용","costPerPlay"]));
           const hours = getField(row, ["운영시간","운영 시간","hours"]) || "";
