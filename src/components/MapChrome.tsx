@@ -493,7 +493,7 @@ export default function MapChrome({
       </div>
 
       {/* ===== 1탭(왼쪽) : CartBox ===== */}
-      <aside className="hidden md:flex fixed top-16 bottom-0 left-0 w-[var(--panel-w)] z-[60] bg-white border-r border-[#E5E7EB]">
+      <aside className="hidden md:flex fixed top-16 bottom-0 left-0 w-[360px] z-[60] bg-white border-r border-[#E5E7EB]">
         <div className="flex flex-col h-full w-full px-5 py-5 gap-3">
           {/* 클릭 박스 + 전화 버튼 */}
           <div className="flex gap-2">
@@ -610,7 +610,8 @@ export default function MapChrome({
 
       {/* ===== 2탭(오른쪽 상세 패널) — 기존과 동일 ===== */}
       {selected && (
-        + <aside className="hidden md:block fixed top-16 left-[var(--panel-w)] z-[60] w-[var(--panel-w)] pointer-events-none"
+        <aside
+          className="hidden md:block fixed top-16 left-[360px] z-[60] w-[360px] pointer-events-none"
           style={{ bottom: 0 }}
         >
           <div className="h-full px-6 py-5 max-h-[calc(100vh-4rem)] overflow-y-auto">
