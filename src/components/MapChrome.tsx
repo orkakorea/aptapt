@@ -488,7 +488,7 @@ export default function MapChrome({
       {/* ===== 상단 바 ===== */}
       <div className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-[#E5E7EB] z-[60]">
         <div className="h-full flex items-center px-6">
-          <div className="text-xl font-bold text-black">응답하라 광고주여</div>
+          <div className="text-xl font-bold text-black">응답하라 입주민이여</div>
         </div>
       </div>
 
