@@ -1,7 +1,10 @@
-/* === (1) 전역 레이아웃 변수: 맨 위에 추가 === */
+/* === (1) 전역 레이아웃 변수: 오버라이드 가능 구조 === */
 :root {
-  /* 패널 폭: 최소 20rem(≈320px), 화면의 22%, 최대 26rem(≈416px) */
-  --panel-w: clamp(20rem, 22vw, 26rem);
+  /* 기본 패널 공식(데스크톱 등) */
+  --panel-w-base: clamp(20rem, 22vw, 26rem);
+  /* 필요 시 JS나 다른 CSS에서 --panel-w-override로 덮어쓸 수 있음 */
+  --panel-w: var(--panel-w-override, var(--panel-w-base));
+
   /* 상단 헤더 높이 (지금 4rem=64px) */
   --header-h: 4rem;
 }
@@ -48,11 +51,20 @@ html, body, #root {
 .card { padding: 2em; }
 .read-the-docs { color: #888; }
 
-/* === Tablet(Landscape, Touch)에서 패널 폭을 더 슬림하게 === */
-@media (hover: none) and (pointer: coarse) and (orientation: landscape) {
+/* === (3) 태블릿(터치) 가로에서 패널을 더 슬림하게 === */
+/* 일부 기기에서 hover/pointer 보고가 다를 수 있어 any-pointer로 완화 */
+@media (any-pointer: coarse) and (orientation: landscape) {
   :root {
     /* 기본: clamp(20rem, 22vw, 26rem)
        태블릿 가로에선 더 촘촘하게: 최소 18rem, 비율 18vw, 최대 22rem */
-    --panel-w: clamp(18rem, 18vw, 22rem);
+    --panel-w-base: clamp(18rem, 18vw, 22rem);
+  }
+}
+
+/* === (4) 폭 기준 보정(태블릿 가로 CSS 폭이 작게 잡히는 경우) === */
+@media (max-width: 1200px) and (orientation: landscape) {
+  :root {
+    /* 터치 인식이 애매한 기기 대비(폭 기준으로도 한 번 더 슬림) */
+    --panel-w-base: clamp(18rem, 20vw, 22rem);
   }
 }
