@@ -9,62 +9,71 @@
   --header-h: 4rem;
 }
 
-/* === (2) 전체 화면을 쓰도록 #root 제약 해제(풀스크린 앱용 권장) === */
+/* === (2) 풀스크린 앱 레이아웃 권장 === */
 html, body, #root {
   height: 100%;
   margin: 0;
   padding: 0;
 }
 
-/* Vite 템플릿의 중앙정렬/최대폭 제한은 비활성화 */
+/* Vite 템플릿의 중앙정렬/최대폭 제한 해제 */
 #root {
-  max-width: none;      /* 기존 1280px 제한 제거 */
-  text-align: initial;  /* 중앙정렬 해제 (필요시 유지 가능) */
+  max-width: none;
+  text-align: initial;
 }
 
-/* ===== 아래부터는 네가 기존에 갖고 있던 스타일들 그대로 ===== */
-
+/* ===== 기존 데모 스타일 유지 ===== */
 .logo {
   height: 6em;
   padding: 1.5em;
   will-change: filter;
   transition: filter 300ms;
 }
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
-}
+.logo:hover { filter: drop-shadow(0 0 2em #646cffaa); }
+.logo.react:hover { filter: drop-shadow(0 0 2em #61dafbaa); }
 
 @keyframes logo-spin {
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
 }
-
 @media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
+  a:nth-of-type(2) .logo { animation: logo-spin infinite 20s linear; }
 }
-
 .card { padding: 2em; }
 .read-the-docs { color: #888; }
 
-/* === (3) 태블릿(터치) 가로에서 패널을 더 슬림하게 === */
-/* 일부 기기에서 hover/pointer 보고가 다를 수 있어 any-pointer로 완화 */
-@media (any-pointer: coarse) and (orientation: landscape) {
+/* =========================================================
+   태블릿 모드: PC 대비 모든 UI(rem 기반)를 65%로 축소
+   - 대상: 터치 기기 + 가로(landscape) + 태블릿 폭 이상
+   - 효과: Tailwind의 rem 단위(h-16, px-3 등)와 패널 rem 베이스가 모두 0.65배
+   ========================================================= */
+@media (any-pointer: coarse) and (orientation: landscape) and (min-width: 900px) {
+  html {
+    /* 기본 16px → 65% = 10.4px (rem 기반 모든 요소가 0.65배) */
+    font-size: 65%;
+  }
   :root {
-    /* 기본: clamp(20rem, 22vw, 26rem)
-       태블릿 가로에선 더 촘촘하게: 최소 18rem, 비율 18vw, 최대 22rem */
-    --panel-w-base: clamp(18rem, 18vw, 22rem);
+    /* 패널도 조금 더 슬림하게: vw 비율을 낮추고, rem도 65%에 맞게 자연 축소됨 */
+    --panel-w-base: clamp(20rem, 18vw, 26rem);
   }
 }
 
-/* === (4) 폭 기준 보정(태블릿 가로 CSS 폭이 작게 잡히는 경우) === */
+/* 폭 기준 보정(일부 기기에서 any-pointer가 안 잡히는 경우) */
 @media (max-width: 1200px) and (orientation: landscape) {
+  html {
+    font-size: 65%;
+  }
   :root {
-    /* 터치 인식이 애매한 기기 대비(폭 기준으로도 한 번 더 슬림) */
-    --panel-w-base: clamp(18rem, 20vw, 22rem);
+    --panel-w-base: clamp(20rem, 18vw, 26rem);
   }
 }
+
+/* ===== (옵션) 수동 강제 토글용: 개발자도구에서 테스트하고 싶을 때 ===== */
+/* 콘솔에서: document.documentElement.classList.add('force-tablet') */
+:root.force-tablet {
+  /* rem 축소 */
+  font-size: 65%;
+  /* 패널 vw 비율도 슬림 */
+  --panel-w-base: clamp(20rem, 18vw, 26rem);
+}
+
