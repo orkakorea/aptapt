@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import QuoteModal, { QuoteLineItem } from "./QuoteModal"; // ✅ 모달 import
 import InquiryModal from "./InquiryModal"; // ✅ InquiryModal import
 import { supabase } from "../lib/supabase";               // ✅ Supabase import
+import LoginModal from "@/components/LoginModal";
 
 /** ====== 타입 ====== */
 // ✅ rowKey/rowId 추가: MapPage가 넘겨준 "행 구분 키"로 마커 색을 정확히 토글
@@ -486,11 +487,15 @@ export default function MapChrome({
   return (
     <>
       {/* ===== 상단 바 ===== */}
-      <div className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-[#E5E7EB] z-[60]">
-        <div className="h-full flex items-center px-6">
-          <div className="text-xl font-bold text-black">응답하라 입주민이여</div>
-        </div>
-      </div>
+<div className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-[#E5E7EB] z-[60]">
+  <div className="h-full flex items-center justify-between px-6">
+    {/* 좌측 타이틀 */}
+    <div className="text-xl font-bold text-black">응답하라 입주민이여</div>
+
+    {/* 우측: 로그인 버튼(모달) */}
+    <LoginModal />
+  </div>
+</div>
 
       {/* ===== 1탭(왼쪽) : CartBox ===== */}
       <aside className="hidden md:flex fixed top-16 bottom-0 left-0 w-[360px] z-[60] bg-white border-r border-[#E5E7EB]">
