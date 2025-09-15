@@ -1,6 +1,6 @@
 // src/pages/MapPage.tsx
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { supabase } from "@/integrations/supabase/client";
 import MapChrome, { SelectedApt } from "../components/MapChrome";
 
 type KakaoNS = typeof window & { kakao: any };
@@ -29,14 +29,8 @@ function markerImages(maps: any) {
 /* =========================================================================
    ② Supabase / Kakao 로더
    ------------------------------------------------------------------------- */
-function getSupabase(): SupabaseClient | null {
-  const url = (import.meta as any).env?.VITE_SUPABASE_URL as string | undefined;
-  const key = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY as string | undefined;
-  if (!url || !key) {
-    console.warn("[MapPage] Supabase env missing:", { url, hasKey: !!key });
-    return null;
-  }
-  try { return createClient(url, key); } catch { return null; }
+function getSupabase() {
+  return supabase;
 }
 
 function loadKakao(): Promise<any> {

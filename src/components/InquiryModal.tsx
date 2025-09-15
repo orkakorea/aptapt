@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { supabase } from "../integrations/supabase/client";
+import { supabase } from "@/integrations/supabase/client";
 
 type InquiryKind = "SEAT" | "PACKAGE";
 type CampaignType = "기업" | "공공" | "병원" | "소상공인" | "광고대행사";

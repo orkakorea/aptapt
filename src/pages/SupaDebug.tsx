@@ -1,6 +1,6 @@
 // src/pages/SupaDebug.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { supabase } from "@/integrations/supabase/client";
 
 type Row = {
   단지명?: string;
@@ -44,16 +44,15 @@ export default function SupaDebugPage() {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<any>(null);
 
-  const sbRef = useRef<SupabaseClient | null>(null);
+  const sbRef = useRef(supabase);
 
   useEffect(() => {
     if (!envOk) return;
-    const sb = createClient(supaUrl, anonKey);
-    sbRef.current = sb;
+    sbRef.current = supabase;
 
     (async () => {
       await refreshCounts();
-      const { data } = await sb
+      const { data } = await sbRef.current
         .from("raw_places")
         .select('"단지명","주소",lat,lng,geocode_status')
         .limit(5);

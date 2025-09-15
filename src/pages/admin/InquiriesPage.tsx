@@ -1,7 +1,7 @@
 // @ts-nocheck
 // src/pages/admin/InquiriesPage.tsx
 import { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/integrations/supabase/client";
 import type { Session } from "@supabase/supabase-js";
 
 
