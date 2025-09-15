@@ -1,9 +1,25 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
+/* === (1) 전역 레이아웃 변수: 맨 위에 추가 === */
+:root {
+  /* 패널 폭: 최소 20rem(≈320px), 화면의 22%, 최대 26rem(≈416px) */
+  --panel-w: clamp(20rem, 22vw, 26rem);
+  /* 상단 헤더 높이 (지금 4rem=64px) */
+  --header-h: 4rem;
 }
+
+/* === (2) 전체 화면을 쓰도록 #root 제약 해제(풀스크린 앱용 권장) === */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+/* Vite 템플릿의 중앙정렬/최대폭 제한은 비활성화 */
+#root {
+  max-width: none;      /* 기존 1280px 제한 제거 */
+  text-align: initial;  /* 중앙정렬 해제 (필요시 유지 가능) */
+}
+
+/* ===== 아래부터는 네가 기존에 갖고 있던 스타일들 그대로 ===== */
 
 .logo {
   height: 6em;
@@ -19,12 +35,8 @@
 }
 
 @keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -33,10 +45,5 @@
   }
 }
 
-.card {
-  padding: 2em;
-}
-
-.read-the-docs {
-  color: #888;
-}
+.card { padding: 2em; }
+.read-the-docs { color: #888; }
