@@ -1,15 +1,7 @@
 // src/pages/MapPage.tsx
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-// ✅ 컴포넌트와 타입을 분리 Import: 타입은 Base로 받아서 로컬에서 확장
-import MapChrome from "../components/MapChrome";
-import type { SelectedApt as SelectedAptBase } from "../components/MapChrome";
-
-// ✅ 임시 타입 확장: rowKey, rowId를 포함 (MapChrome.tsx 업데이트 전까지 사용)
-type SelectedApt = SelectedAptBase & {
-  rowKey?: string;
-  rowId?: string;
-};
+import MapChrome, { SelectedApt } from "../components/MapChrome";
 
 type KakaoNS = typeof window & { kakao: any };
 const FALLBACK_KAKAO_KEY = "a53075efe7a2256480b8650cec67ebae";
@@ -105,7 +97,7 @@ function expandBounds(bounds: any, pad = 0.05) {
 }
 
 /* =========================================================================
-   ④ 타입
+   ④ 타입/키 유틸
    ------------------------------------------------------------------------- */
 type PlaceRow = {
   id?: number | string;
@@ -117,6 +109,39 @@ type KMarker = any & {
   __key?: string;      // 캐시 키(좌표+id+상품/설치위치)
   __basePos?: any;     // spiderfy 복귀용
   __row?: PlaceRow;
+};
+
+const monthlyFeeOf = (row: PlaceRow): number => {
+  return (
+    toNumLoose(
+      getField(row, [
+        "월광고료",
+        "월 광고료",
+        "월 광고비",
+        "월비용",
+        "월요금",
+        "month_fee",
+        "monthlyFee",
+      ])
+    ) ?? 0
+  );
+};
+
+const groupKeyFromRow = (row: PlaceRow) =>
+  `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(7)}`;
+
+const buildRowKeyFromRow = (row: PlaceRow) => {
+  const lat = Number(row.lat), lng = Number(row.lng);
+  const idPart = row.id != null ? String(row.id) : "";
+  const productName = String(
+    getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName"]) || ""
+  );
+  const installLocation = String(
+    getField(row, ["설치위치", "설치 위치", "installLocation"]) || ""
+  );
+  return idPart
+    ? `id:${idPart}`
+    : `xy:${lat.toFixed(7)},${lng.toFixed(7)}|p:${productName}|loc:${installLocation}`;
 };
 
 /* =========================================================================
@@ -203,9 +228,10 @@ export default function MapPage() {
   const placesRef = useRef<any>(null);
   const spiderRef = useRef<SpiderController | null>(null);
 
-  // 마커/상태 캐시
+  // 마커/상태/그룹 캐시
   const markerCacheRef = useRef<Map<string, KMarker>>(new Map()); // key → marker
   const keyIndexRef = useRef<Record<string, KMarker[]>>({});       // rowKey → markers[]
+  const groupsRef = useRef<Map<string, KMarker[]>>(new Map());     // groupKey → markers[]
   const selectedRowKeySetRef = useRef<Set<string>>(new Set());     // 담김(노랑) 추적
   const lastReqIdRef = useRef<number>(0);
   const idleTimer = useRef<number | null>(null);
@@ -222,16 +248,49 @@ export default function MapPage() {
     idleTimer.current = window.setTimeout(fn, ms);
   }, []);
 
-  const buildRowKey = (row: PlaceRow) => {
-    const lat = Number(row.lat), lng = Number(row.lng);
-    const idPart = row.id != null ? String(row.id) : "";
-    const productName = String(getField(row, ["상품명","상품 명","제품명","광고상품명","productName"]) || "");
-    const installLocation = String(getField(row, ["설치위치","설치 위치","installLocation"]) || "");
-    // id 우선, 없으면 좌표+상품명+설치위치로 컴포지트 키
-    return idPart
-      ? `id:${idPart}`
-      : `xy:${lat.toFixed(7)},${lng.toFixed(7)}|p:${productName}|loc:${installLocation}`;
-  };
+  // === 그룹 우선순위: 옐로(담김) > 월광고료 내림차순 ===
+  const orderAndApplyZIndex = useCallback((arr: KMarker[]) => {
+    if (!arr || arr.length <= 1) return arr;
+
+    // 정렬: selected desc, monthlyFee desc
+    const sorted = arr.slice().sort((a, b) => {
+      const ra = a.__row as PlaceRow;
+      const rb = b.__row as PlaceRow;
+      const aRowKey = buildRowKeyFromRow(ra);
+      const bRowKey = buildRowKeyFromRow(rb);
+      const aSel = selectedRowKeySetRef.current.has(aRowKey) ? 1 : 0;
+      const bSel = selectedRowKeySetRef.current.has(bRowKey) ? 1 : 0;
+      if (aSel !== bSel) return bSel - aSel; // 담김 우선
+      const aFee = monthlyFeeOf(ra);
+      const bFee = monthlyFeeOf(rb);
+      if (aFee !== bFee) return bFee - aFee; // 월광고료 높은 순
+      return 0; // 동점은 원래 순서 유지(안정성)
+    });
+
+    // zIndex: 가장 우선(인덱스 0)이 가장 큰 zIndex
+    const TOP = 100000; // 넉넉한 베이스
+    for (let i = 0; i < sorted.length; i++) {
+      try { sorted[i].setZIndex?.(TOP - i); } catch {}
+    }
+
+    // 원본 배열을 교체하여 spiderRef 그룹에도 반영되게
+    arr.length = 0;
+    sorted.forEach((m) => arr.push(m));
+    return arr;
+  }, []);
+
+  const applyGroupPrioritiesMap = useCallback((groups: Map<string, KMarker[]>) => {
+    groups.forEach((list) => orderAndApplyZIndex(list));
+  }, [orderAndApplyZIndex]);
+
+  const applyGroupPrioritiesForRowKey = useCallback((rowKey: string) => {
+    const list = keyIndexRef.current[rowKey];
+    if (!list || !list.length) return;
+    const row = list[0].__row as PlaceRow;
+    const gk = groupKeyFromRow(row);
+    const group = groupsRef.current.get(gk);
+    if (group && group.length) orderAndApplyZIndex(group);
+  }, [orderAndApplyZIndex]);
 
   /* ------------------ 지도 초기화 ------------------ */
   useEffect(() => {
@@ -307,15 +366,18 @@ export default function MapPage() {
     const list = keyIndexRef.current[rowKey];
     if (list?.length) {
       list.forEach((mk) => {
-        // 클릭 강조 마커는 우선순위 높음
+        // 클릭 강조 마커는 우선순위 높음(이미지)
         if (lastClickedRef.current && lastClickedRef.current === mk) {
           mk.setImage(imgs.clicked);
         } else {
           mk.setImage(state === "selected" ? imgs.yellow : imgs.purple);
         }
       });
+
+      // ★ 담김/해제 시 해당 그룹 우선순위 재적용 → 옐로 우선/월가 높은 순
+      applyGroupPrioritiesForRowKey(rowKey);
     }
-  }, []);
+  }, [applyGroupPrioritiesForRowKey]);
 
   /* ------------------ 바운드 내 마커 로드 ------------------ */
   async function loadMarkersInBounds() {
@@ -362,7 +424,6 @@ export default function MapPage() {
       const loc = String(getField(row, ["설치위치","설치 위치","installLocation"]) || "");
       return `${lat.toFixed(7)},${lng.toFixed(7)}|${idPart}|${prod}|${loc}`;
     };
-    const groupKeyOf = (row: PlaceRow) => `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(7)}`;
 
     // rowKey 인덱스 초기화
     keyIndexRef.current = {};
@@ -374,7 +435,7 @@ export default function MapPage() {
       if (row.lat == null || row.lng == null) return;
 
       const key = keyOf(row);
-      const rowKey = buildRowKey(row);
+      const rowKey = buildRowKeyFromRow(row);
       nowKeys.add(key);
 
       let mk = markerCacheRef.current.get(key);
@@ -423,13 +484,13 @@ export default function MapPage() {
           setSelected(sel);
 
           // 같은 좌표 군을 spiderfy (★ idle 재로딩 시에도 펼침 유지)
-          spiderRef.current?.spiderfy(groupKeyOf(row));
+          spiderRef.current?.spiderfy(groupKeyFromRow(row));
 
           // 이전 클릭 복구
           if (lastClickedRef.current && lastClickedRef.current !== mk) {
             const prev = lastClickedRef.current;
             const prevRow = prev.__row as PlaceRow;
-            const prevRowKey = buildRowKey(prevRow);
+            const prevRowKey = buildRowKeyFromRow(prevRow);
             const prevSelected = selectedRowKeySetRef.current.has(prevRowKey);
             prev.setImage(prevSelected ? imgs.yellow : imgs.purple);
           }
@@ -458,8 +519,8 @@ export default function MapPage() {
       if (!keyIndexRef.current[rowKey]) keyIndexRef.current[rowKey] = [];
       keyIndexRef.current[rowKey].push(mk);
 
-      // spiderfy 그룹 구성
-      const gk = groupKeyOf(row);
+      // 그룹 구성
+      const gk = groupKeyFromRow(row);
       if (!groups.has(gk)) groups.set(gk, []);
       groups.get(gk)!.push(mk);
 
@@ -484,8 +545,12 @@ export default function MapPage() {
       lastClickedRef.current = null;
     }
 
-    // spiderfy 그룹 최신화
+    // ★ 그룹 우선순위 적용(옐로 우선 → 월가 높은 순) + zIndex 부여
+    applyGroupPrioritiesMap(groups);
+
+    // spiderfy 그룹 최신화 + 보관
     spiderRef.current?.setGroups(groups);
+    groupsRef.current = groups;
 
     // 0건이면 → 확장 바운드 1회 재시도
     if (!newMarkers.length) {
@@ -512,7 +577,7 @@ export default function MapPage() {
         const lat = Number(row.lat), lng = Number(row.lng);
         const pos = new maps.LatLng(lat, lng);
         const nameText = String(getField(row, ["단지명","name","아파트명"]) || "");
-        const rowKey = buildRowKey(row);
+        const rowKey = buildRowKeyFromRow(row);
         const isSelected = selectedRowKeySetRef.current.has(rowKey);
 
         const mk: KMarker = new maps.Marker({
@@ -533,7 +598,7 @@ export default function MapPage() {
           const residents = toNumLoose(getField(row, ["거주인원","거주 인원","인구수","총인구","입주민수","거주자수","residents"]));
           const monitors = toNumLoose(getField(row, ["모니터수량","모니터 수량","모니터대수","엘리베이터TV수","monitors"]));
           const monthlyImpressions = toNumLoose(getField(row, ["월송출횟수","월 송출횟수","월 송출 횟수","월송출","노출수(월)","monthlyImpressions"]));
-          const monthlyFee = toNumLoose(getField(row, ["월광고료","월 광고료","월광고비","월비용","월요금","month_fee","monthlyFee"]));
+          const monthlyFee = toNumLoose(getField(row, ["월광고료","월 광고료","월 광고비","월비용","월요금","month_fee","monthlyFee"]));
           const monthlyFeeY1 = toNumLoose(getField(row, ["1년 계약 시 월 광고료","1년계약시월광고료","연간월광고료","할인 월 광고료","연간_월광고료","monthlyFeeY1"]));
           const costPerPlay = toNumLoose(getField(row, ["1회당 송출비용","송출 1회당 비용","costPerPlay"]));
           const hours = getField(row, ["운영시간","운영 시간","hours"]) || "";
@@ -548,10 +613,10 @@ export default function MapPage() {
             imageUrl, lat, lng,
           };
           setSelected(sel);
-          spiderRef.current?.spiderfy(`${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(7)}`);
+          spiderRef.current?.spiderfy(groupKeyFromRow(row));
 
           if (lastClickedRef.current && lastClickedRef.current !== mk) {
-            const prevRowKey = buildRowKey((lastClickedRef.current.__row as PlaceRow));
+            const prevRowKey = buildRowKeyFromRow((lastClickedRef.current.__row as PlaceRow));
             const prevSelected = selectedRowKeySetRef.current.has(prevRowKey);
             lastClickedRef.current.setImage(prevSelected ? imgs.yellow : imgs.purple);
           }
@@ -572,15 +637,19 @@ export default function MapPage() {
         clusterer.addMarker(mk);
       });
 
-      // 그룹 갱신
+      // 그룹 갱신(전체 캐시에서 재구성)
       const groups2 = new Map<string, KMarker[]>();
       markerCacheRef.current.forEach((m) => {
         const r = m.__row as PlaceRow;
-        const gk = `${Number(r.lat).toFixed(7)},${Number(r.lng).toFixed(7)}`;
+        const gk = groupKeyFromRow(r);
         if (!groups2.has(gk)) groups2.set(gk, []);
         groups2.get(gk)!.push(m);
       });
+
+      // ★ 우선순위 재적용 + 보관/적용
+      applyGroupPrioritiesMap(groups2);
       spiderRef.current?.setGroups(groups2);
+      groupsRef.current = groups2;
     }
   }
 
@@ -616,7 +685,7 @@ export default function MapPage() {
         onCloseSelected={closeSelected}
         onSearch={handleSearch}
         initialQuery={initialQ}
-        // ✅ 이름이 아닌 "rowKey" 기준으로 아이콘 상태 토글
+        // ✅ 이름이 아닌 "rowKey" 기준으로 아이콘 상태 토글 + 그룹 우선순위 반영
         setMarkerStateByRowKey={setMarkerStateByRowKey}
       />
       {kakaoError && (
@@ -627,3 +696,4 @@ export default function MapPage() {
     </div>
   );
 }
+
