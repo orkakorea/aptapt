@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import QuoteModal, { QuoteLineItem } from "./QuoteModal"; // ✅ 모달 import
 import InquiryModal from "./InquiryModal"; // ✅ InquiryModal import
-import supabase from "@/integrations/supabase/client"          // ✅ Supabase import
+import { supabase } from "../lib/supabase";               // ✅ Supabase import
 import LoginModal from "@/components/LoginModal";
 
 /** ====== 타입 ====== */
