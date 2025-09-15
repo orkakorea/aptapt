@@ -594,9 +594,7 @@ const buildSeatPrefill = () => {
 
       {/* ===== 2탭(오른쪽 상세 패널) — 기존과 동일 ===== */}
       {selected && (
-        <aside className="hidden md:block fixed top-16 left-[var(--panel-w)] z-[60] w-[var(--panel-w)] pointer-events-none"
-          style={{ bottom: 0 }}
-        >
+        <aside className="hidden md:block fixed top-16 left-[var(--panel-w)] z-[60] w-[var(--panel-w)] pointer-events-none" ...>
           <div className="h-full px-6 py-5 max-h-[calc(100vh-4rem)] overflow-y-auto">
             <div className="pointer-events-auto flex flex-col gap-4">
               {/* 썸네일 */}
