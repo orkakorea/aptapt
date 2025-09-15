@@ -1,5 +1,5 @@
 // src/lib/supabase.ts
-import { createClient } from '@supabase/supabase-js';
+export { supabase } from "@/integrations/supabase/client";
 
 export const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL!,
