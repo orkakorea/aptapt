@@ -47,3 +47,12 @@ html, body, #root {
 
 .card { padding: 2em; }
 .read-the-docs { color: #888; }
+
+/* === Tablet(Landscape, Touch)에서 패널 폭을 더 슬림하게 === */
+@media (hover: none) and (pointer: coarse) and (orientation: landscape) {
+  :root {
+    /* 기본: clamp(20rem, 22vw, 26rem)
+       태블릿 가로에선 더 촘촘하게: 최소 18rem, 비율 18vw, 최대 22rem */
+    --panel-w: clamp(18rem, 18vw, 22rem);
+  }
+}
