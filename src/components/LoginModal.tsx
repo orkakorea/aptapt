@@ -139,16 +139,35 @@ const LoginModal: React.FC = () => {
     }
   };
 
-  const handleLogout = async () => {
-    setErr(null);
-    await supabase.auth.signOut();
-    localStorage.setItem("orca.plan", "free");
-    window.dispatchEvent(new CustomEvent("orca:plan", { detail: { plan: "free" } }));
-    // 관리자 페이지에서 로그아웃하면 홈으로 돌려보냄
-    if (location.pathname.startsWith("/admin")) {
-      navigate("/");
+const handleLogout = async () => {
+  setErr(null);
+  try {
+    // 1) 우선 글로벌 로그아웃 시도
+    const { error } = await supabase.auth.signOut(); // default: global
+    if (error) {
+      // 2) 임베드/샌드박스 등에서 global이 403 날 수 있으므로 로컬 폴백
+      await supabase.auth.signOut({ scope: 'local' });
     }
-  };
+  } catch (_) {
+    // 3) 최후 수단: 토큰 수동 제거(도메인별로 저장소가 다름!)
+    try {
+      const key = Object.keys(localStorage).find(
+        k => k.includes('auth-token') && k.includes('qislrfbqilfqzkvkuknn')
+      );
+      if (key) localStorage.removeItem(key);
+    } catch {}
+  } finally {
+    // 4) UI/상태 정리 + 라우팅
+    setDisplayName(null);
+    setPlan('free');
+    setIsAdmin(false);
+    localStorage.setItem('orca.plan', 'free');
+    window.dispatchEvent(new CustomEvent('orca:plan', { detail: { plan: 'free' } }));
+    if (location.pathname.startsWith('/admin')) {
+      navigate('/');
+    }
+  }
+};
 
   // 유저 상태 라벨
   const badge = useMemo(() => {
