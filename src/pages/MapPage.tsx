@@ -29,9 +29,7 @@ function markerImages(maps: any) {
 /* =========================================================================
    ② Supabase / Kakao 로더
    ------------------------------------------------------------------------- */
-function getSupabase() {
-  return supabase;
-}
+// [removed] getSupabase() — use the shared { supabase } from "@/integrations/supabase/client"
 
 function loadKakao(): Promise<any> {
   const w = window as any;
@@ -387,13 +385,10 @@ export default function MapPage() {
     const sw = bounds.getSouthWest();
     const ne = bounds.getNorthEast();
 
-    const client = getSupabase();
-    if (!client) return;
-
     const reqId = Date.now();
     lastReqIdRef.current = reqId;
 
-    const { data, error } = await client
+    const { data, error } = await supabase
       .from("raw_places")
       .select("*")
       .not("lat", "is", null)
@@ -549,7 +544,7 @@ export default function MapPage() {
     // 0건이면 → 확장 바운드 1회 재시도
     if (!newMarkers.length) {
       const pad = expandBounds(bounds, 0.12);
-      const { data: data2, error: err2 } = await client
+      const { data: data2, error: err2 } = await supabase
         .from("raw_places")
         .select("*")
         .not("lat", "is", null)
