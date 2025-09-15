@@ -33,3 +33,5 @@ export const supabase: SupabaseClient<Database> =
       storageKey: AUTH_STORAGE_KEY,
     },
   }));
+
+;(window as any).supabase = supabase;
