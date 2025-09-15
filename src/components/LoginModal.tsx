@@ -1,289 +1,277 @@
-import React, { useState } from "react";
-import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
-import * as z from "zod";
+import React, { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { useToast } from "@/hooks/use-toast";
 
-const loginSchema = z.object({
-  email: z.string().email("유효한 이메일을 입력해주세요"),
-  password: z.string().min(6, "비밀번호는 6자 이상이어야 합니다"),
-});
+/**
+ * LoginModal
+ * - 화면 우상단 등에 "로그인" 버튼이 생기고, 클릭 시 중앙 모달 오픈
+ * - 이메일/패스워드로 Supabase 로그인
+ * - 성공 시:
+ *   1) app_metadata.role === 'admin' -> /admin 으로 이동
+ *   2) app_metadata.plan === 'pro' (또는 user_metadata.plan === 'pro') -> 유료회원 플래그 저장 및 토스트
+ *   3) 그 외 -> 일반 로그인
+ *
+ * 사용법:
+ *   <LoginModal />
+ * 를 레이아웃/헤더에 넣어두면 /, /map 어디서든 동일하게 노출됨.
+ */
 
-const signupSchema = z.object({
-  email: z.string().email("유효한 이메일을 입력해주세요"),
-  password: z.string().min(6, "비밀번호는 6자 이상이어야 합니다"),
-  confirmPassword: z.string().min(6, "비밀번호는 6자 이상이어야 합니다"),
-}).refine((data) => data.password === data.confirmPassword, {
-  message: "비밀번호가 일치하지 않습니다",
-  path: ["confirmPassword"],
-});
+type Plan = "free" | "pro";
 
-type LoginFormData = z.infer<typeof loginSchema>;
-type SignupFormData = z.infer<typeof signupSchema>;
+const overlayRootId = "modal-root";
 
-interface LoginModalProps {
-  open: boolean;
-  onClose: () => void;
-  onSuccess?: () => void;
+function ensureOverlayRoot() {
+  let root = document.getElementById(overlayRootId);
+  if (!root) {
+    root = document.createElement("div");
+    root.id = overlayRootId;
+    document.body.appendChild(root);
+  }
+  return root;
 }
 
-export function LoginModal({ open, onClose, onSuccess }: LoginModalProps) {
-  const [isSignup, setIsSignup] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const { toast } = useToast();
+const LoginModal: React.FC = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
 
-  const loginForm = useForm<LoginFormData>({
-    resolver: zodResolver(loginSchema),
-    defaultValues: {
-      email: "",
-      password: "",
-    },
-  });
+  const [open, setOpen] = useState(false);
+  const [email, setEmail] = useState("");
+  const [pw, setPw] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
 
-  const signupForm = useForm<SignupFormData>({
-    resolver: zodResolver(signupSchema),
-    defaultValues: {
-      email: "",
-      password: "",
-      confirmPassword: "",
-    },
-  });
+  // 현재 로그인 상태를 UI 상단에서 쉽게 표시하고 싶을 때 사용
+  const [displayName, setDisplayName] = useState<string | null>(null);
+  const [plan, setPlan] = useState<Plan>("free");
+  const [isAdmin, setIsAdmin] = useState(false);
 
-  const handleLogin = async (data: LoginFormData) => {
-    setIsLoading(true);
+  // 세션 변화를 감지해서 헤더 뱃지 갱신
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!mounted) return;
+
+      if (session?.user) {
+        const user = session.user as any;
+        const appMeta = (user?.app_metadata ?? {}) as Record<string, any>;
+        const userMeta = (user?.user_metadata ?? {}) as Record<string, any>;
+        const is_adm = appMeta?.role === "admin";
+        const planVal =
+          (appMeta?.plan as Plan) || (userMeta?.plan as Plan) || "free";
+        setDisplayName(user.email ?? "로그인됨");
+        setPlan((planVal === "pro" ? "pro" : "free") as Plan);
+        setIsAdmin(!!is_adm);
+      } else {
+        setDisplayName(null);
+        setPlan("free");
+        setIsAdmin(false);
+      }
+    })();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      if (!mounted) return;
+      if (session?.user) {
+        const user = session.user as any;
+        const appMeta = (user?.app_metadata ?? {}) as Record<string, any>;
+        const userMeta = (user?.user_metadata ?? {}) as Record<string, any>;
+        const is_adm = appMeta?.role === "admin";
+        const planVal =
+          (appMeta?.plan as Plan) || (userMeta?.plan as Plan) || "free";
+        setDisplayName(user.email ?? "로그인됨");
+        setPlan((planVal === "pro" ? "pro" : "free") as Plan);
+        setIsAdmin(!!is_adm);
+      } else {
+        setDisplayName(null);
+        setPlan("free");
+        setIsAdmin(false);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      sub?.subscription?.unsubscribe?.();
+    };
+  }, []);
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErr(null);
+    setLoading(true);
     try {
-      const { data: authData, error } = await supabase.auth.signInWithPassword({
-        email: data.email,
-        password: data.password,
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password: pw,
       });
+      if (error) throw error;
 
-      if (error) {
-        if (error.message.includes("Invalid login credentials")) {
-          toast({
-            variant: "destructive",
-            title: "로그인 실패",
-            description: "이메일 또는 비밀번호를 확인해주세요.",
-          });
-        } else {
-          toast({
-            variant: "destructive",
-            title: "로그인 실패",
-            description: error.message,
-          });
-        }
-        return;
-      }
+      const user = data.user as any;
+      const appMeta = (user?.app_metadata ?? {}) as Record<string, any>;
+      const userMeta = (user?.user_metadata ?? {}) as Record<string, any>;
+      const role = appMeta?.role;
+      const planVal =
+        (appMeta?.plan as Plan) || (userMeta?.plan as Plan) || "free";
 
-      if (authData.user) {
-        toast({
-          title: "로그인 성공",
-          description: "환영합니다!",
-        });
-        onSuccess?.();
-        onClose();
+      // 유료회원 상태를 프론트에서 기억 (간단히 localStorage + 커스텀 이벤트)
+      const isPro = planVal === "pro";
+      localStorage.setItem("orca.plan", isPro ? "pro" : "free");
+      window.dispatchEvent(
+        new CustomEvent("orca:plan", { detail: { plan: isPro ? "pro" : "free" } })
+      );
+
+      // 관리자면 /admin 으로 직행
+      if (role === "admin") {
+        navigate("/admin");
+      } else {
+        // 현재 페이지가 / 또는 /map 이면 그대로 두고, 필요 시 토스트
+        // 원하면 성공 후 모달 닫기
+        setOpen(false);
       }
-    } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "오류 발생",
-        description: "로그인 중 오류가 발생했습니다.",
-      });
+    } catch (e: any) {
+      setErr(e?.message ?? "로그인에 실패했어요.");
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
-  const handleSignup = async (data: SignupFormData) => {
-    setIsLoading(true);
-    try {
-      const redirectUrl = `${window.location.origin}/`;
-      
-      const { data: authData, error } = await supabase.auth.signUp({
-        email: data.email,
-        password: data.password,
-        options: {
-          emailRedirectTo: redirectUrl,
-        },
-      });
-
-      if (error) {
-        if (error.message.includes("User already registered")) {
-          toast({
-            variant: "destructive",
-            title: "회원가입 실패",
-            description: "이미 가입된 이메일입니다. 로그인을 시도해주세요.",
-          });
-        } else {
-          toast({
-            variant: "destructive",
-            title: "회원가입 실패",
-            description: error.message,
-          });
-        }
-        return;
-      }
-
-      if (authData.user) {
-        toast({
-          title: "회원가입 성공",
-          description: "이메일을 확인하여 계정을 활성화해주세요.",
-        });
-        setIsSignup(false);
-        signupForm.reset();
-      }
-    } catch (error) {
-      toast({
-        variant: "destructive",
-        title: "오류 발생",
-        description: "회원가입 중 오류가 발생했습니다.",
-      });
-    } finally {
-      setIsLoading(false);
+  const handleLogout = async () => {
+    setErr(null);
+    await supabase.auth.signOut();
+    localStorage.setItem("orca.plan", "free");
+    window.dispatchEvent(new CustomEvent("orca:plan", { detail: { plan: "free" } }));
+    // 관리자 페이지에서 로그아웃하면 홈으로 돌려보냄
+    if (location.pathname.startsWith("/admin")) {
+      navigate("/");
     }
   };
 
-  const switchMode = () => {
-    setIsSignup(!isSignup);
-    loginForm.reset();
-    signupForm.reset();
-  };
+  // 유저 상태 라벨
+  const badge = useMemo(() => {
+    if (isAdmin) return "관리자";
+    if (plan === "pro") return "유료회원";
+    return "게스트";
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, plan, displayName]);
+
+  // 모달 루트 보장
+  ensureOverlayRoot();
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle className="text-center">
-            {isSignup ? "회원가입" : "로그인"}
-          </DialogTitle>
-          <DialogDescription className="text-center">
-            {isSignup 
-              ? "새 계정을 만들어 서비스를 이용해보세요" 
-              : "계정에 로그인하여 서비스를 이용해보세요"
-            }
-          </DialogDescription>
-        </DialogHeader>
-
-        {isSignup ? (
-          <form onSubmit={signupForm.handleSubmit(handleSignup)} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="signup-email">이메일</Label>
-              <Input
-                id="signup-email"
-                type="email"
-                placeholder="이메일을 입력해주세요"
-                {...signupForm.register("email")}
-              />
-              {signupForm.formState.errors.email && (
-                <p className="text-sm text-destructive">
-                  {signupForm.formState.errors.email.message}
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="signup-password">비밀번호</Label>
-              <Input
-                id="signup-password"
-                type="password"
-                placeholder="비밀번호를 입력해주세요"
-                {...signupForm.register("password")}
-              />
-              {signupForm.formState.errors.password && (
-                <p className="text-sm text-destructive">
-                  {signupForm.formState.errors.password.message}
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="signup-confirm-password">비밀번호 확인</Label>
-              <Input
-                id="signup-confirm-password"
-                type="password"
-                placeholder="비밀번호를 다시 입력해주세요"
-                {...signupForm.register("confirmPassword")}
-              />
-              {signupForm.formState.errors.confirmPassword && (
-                <p className="text-sm text-destructive">
-                  {signupForm.formState.errors.confirmPassword.message}
-                </p>
-              )}
-            </div>
-
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={isLoading}
+    <>
+      {/* 우상단 로그인/프로필 버튼 (원하는 위치에 배치되는 버튼) */}
+      <div className="flex items-center gap-2">
+        {displayName ? (
+          <>
+            <span
+              className="hidden sm:inline-block px-2 py-1 text-xs rounded-full bg-[#F4F0FB] text-[#6C2DFF] border border-[#E3D8FF]"
+              title={displayName}
             >
-              {isLoading ? "처리중..." : "회원가입"}
-            </Button>
-          </form>
+              {badge}
+            </span>
+            <button
+              className="h-9 px-3 rounded-md border border-[#6C2DFF] text-sm text-[#6C2DFF] hover:bg-[#F4F0FB]"
+              onClick={handleLogout}
+            >
+              로그아웃
+            </button>
+          </>
         ) : (
-          <form onSubmit={loginForm.handleSubmit(handleLogin)} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="login-email">이메일</Label>
-              <Input
-                id="login-email"
-                type="email"
-                placeholder="이메일을 입력해주세요"
-                {...loginForm.register("email")}
-              />
-              {loginForm.formState.errors.email && (
-                <p className="text-sm text-destructive">
-                  {loginForm.formState.errors.email.message}
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="login-password">비밀번호</Label>
-              <Input
-                id="login-password"
-                type="password"
-                placeholder="비밀번호를 입력해주세요"
-                {...loginForm.register("password")}
-              />
-              {loginForm.formState.errors.password && (
-                <p className="text-sm text-destructive">
-                  {loginForm.formState.errors.password.message}
-                </p>
-              )}
-            </div>
-
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={isLoading}
-            >
-              {isLoading ? "처리중..." : "로그인"}
-            </Button>
-          </form>
-        )}
-
-        <div className="text-center">
-          <Button
-            variant="ghost"
-            onClick={switchMode}
-            disabled={isLoading}
+          <button
+            className="h-9 px-3 rounded-md border border-[#6C2DFF] text-sm text-[#6C2DFF] hover:bg-[#F4F0FB]"
+            onClick={() => setOpen(true)}
           >
-            {isSignup 
-              ? "이미 계정이 있으신가요? 로그인" 
-              : "계정이 없으신가요? 회원가입"
-            }
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
+            로그인
+          </button>
+        )}
+      </div>
+
+      {/* 포털 모달 */}
+      {open &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[1000] flex items-center justify-center"
+            aria-modal="true"
+            role="dialog"
+          >
+            {/* Dim */}
+            <div
+              className="absolute inset-0 bg-black/40"
+              onClick={() => setOpen(false)}
+            />
+            {/* Panel */}
+            <div className="relative z-10 w-full max-w-[420px] rounded-2xl bg-white shadow-xl p-6">
+              <div className="mb-4">
+                <h2 className="text-lg font-bold">로그인</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  이메일과 비밀번호로 로그인하세요.
+                </p>
+              </div>
+
+              <form onSubmit={handleLogin} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">이메일</label>
+                  <input
+                    type="email"
+                    required
+                    className="w-full h-10 px-3 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#6C2DFF]"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium mb-1">비밀번호</label>
+                  <input
+                    type="password"
+                    required
+                    className="w-full h-10 px-3 rounded-md border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#6C2DFF]"
+                    placeholder="••••••••"
+                    value={pw}
+                    onChange={(e) => setPw(e.target.value)}
+                  />
+                </div>
+
+                {err && (
+                  <div className="text-sm text-red-600">
+                    {err}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between pt-2">
+                  <button
+                    type="button"
+                    className="h-9 px-3 rounded-md border text-sm text-gray-700 hover:bg-gray-50"
+                    onClick={() => setOpen(false)}
+                    disabled={loading}
+                  >
+                    취소
+                  </button>
+                  <button
+                    type="submit"
+                    className="h-9 px-4 rounded-md bg-[#6C2DFF] text-white text-sm hover:bg-[#5a1fff]"
+                    disabled={loading}
+                  >
+                    {loading ? "로그인 중..." : "로그인"}
+                  </button>
+                </div>
+              </form>
+
+              <div className="mt-4 text-xs text-gray-500">
+                <p>• 관리자 로그인: 로그인 즉시 관리자 페이지로 이동해요.</p>
+                <p>• 유료회원 로그인: 프론트에서 추가 기능이 활성화돼요.</p>
+              </div>
+            </div>
+          </div>,
+          document.getElementById(overlayRootId)!
+        )}
+    </>
   );
-}
+};
+
+export default LoginModal;
