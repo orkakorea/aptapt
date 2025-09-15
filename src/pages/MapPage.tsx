@@ -11,7 +11,6 @@ const FALLBACK_KAKAO_KEY = "a53075efe7a2256480b8650cec67ebae";
    ------------------------------------------------------------------------- */
 const PIN_PURPLE_URL = "/makers/pin-purple@2x.png"; // 기본
 const PIN_YELLOW_URL = "/makers/pin-yellow@2x.png"; // 담기됨
-const PIN_CLICKED_URL = "/makers/pin-purple@3x.png"; // ★ 클릭 상태
 const PIN_SIZE = 51; // 원본 102px(@2x)의 절반으로 표시
 const PIN_OFFSET = { x: PIN_SIZE / 2, y: PIN_SIZE }; // 바닥 중앙
 
@@ -21,8 +20,8 @@ function markerImages(maps: any) {
   const sz = new Size(PIN_SIZE, PIN_SIZE); // ★ 정사각
 
   const purple = new MarkerImage(PIN_PURPLE_URL, sz, opt);
-  const clicked = new MarkerImage(PIN_CLICKED_URL, sz, opt); // ★ 추가
-return { purple, yellow, clicked };
+  const yellow = new MarkerImage(PIN_YELLOW_URL, sz, opt);
+  return { purple, yellow };
 }
 
 /* =========================================================================
@@ -221,7 +220,6 @@ export default function MapPage() {
   const markerCacheRef = useRef<Map<string, KMarker>>(new Map()); // key → marker
   const nameIndexRef = useRef<Record<string, KMarker[]>>({});      // 정규화된 이름 → markers[]
   const selectedNameSetRef = useRef<Set<string>>(new Set());       // 노란아이콘 유지용
-  const lastClickedRef = useRef<KMarker | null>(null); // ★ 마지막 클릭 마커
   const lastReqIdRef = useRef<number>(0);
   const idleTimer = useRef<number | null>(null);
 
@@ -433,13 +431,9 @@ export default function MapPage() {
         mk.setPosition(pos);
         if (mk.getTitle?.() !== nameText) mk.setTitle?.(nameText);
 
-// ★ 선택/클릭 상태 유지
-const isSelected = nk && selectedNameSetRef.current.has(nk);
-let imgToUse = isSelected ? imgs.yellow : imgs.purple;
-if (lastClickedRef.current && lastClickedRef.current.__key === key) {
-  imgToUse = imgs.clicked; // ★ 클릭된 마커면 클릭 이미지 유지
-}
-mk.setImage(imgToUse);
+        // ★ 선택 상태 유지(줌/이동 후 보라색으로 돌아가는 문제 방지)
+        const isSelected = nk && selectedNameSetRef.current.has(nk);
+        mk.setImage(isSelected ? imgs.yellow : imgs.purple);
       }
 
       // 이름 인덱싱(담기/해제 시 여러 개 동시 전환)
@@ -537,17 +531,6 @@ mk.setImage(imgToUse);
           setSelected(sel);
           spiderRef.current?.spiderfy(`${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(7)}`);
         });
-// ★ 이전 클릭 마커 복구
-if (lastClickedRef.current && lastClickedRef.current !== mk) {
-  const prevRow = lastClickedRef.current.__row || {};
-  const prevName = String(getField(prevRow, ["단지명","name","아파트명"]) || "");
-  const prevKey = normName(prevName);
-  const prevSelected = prevKey && selectedNameSetRef.current.has(prevKey);
-  lastClickedRef.current.setImage(prevSelected ? imgs.yellow : imgs.purple);
-}
-// ★ 현재 클릭 마커 강조
-mk.setImage(imgs.clicked);
-lastClickedRef.current = mk;
 
         markerCacheRef.current.set(key, mk);
         clusterer.addMarker(mk);
