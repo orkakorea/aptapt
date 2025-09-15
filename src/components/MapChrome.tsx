@@ -5,10 +5,7 @@ import InquiryModal from "./InquiryModal"; // ✅ InquiryModal import
 import { supabase } from "../lib/supabase";               // ✅ Supabase import
 
 /** ====== 타입 ====== */
-// ✅ rowKey/rowId 추가: MapPage가 넘겨준 "행 구분 키"로 마커 색을 정확히 토글
 export type SelectedApt = {
-  rowKey?: string;             // ★ 행 고유 키 (id 우선, 없으면 좌표+상품명+설치위치)
-  rowId?: string;              // (옵션) DB id 문자열
   name: string;                // 단지명
   address?: string;            // 주소
   productName?: string;        // 상품명
@@ -31,10 +28,8 @@ type Props = {
   onCloseSelected?: () => void;
   onSearch?: (query: string) => void;
   initialQuery?: string;
-  // 🔽 구 버전(이름 기준)과의 호환을 위해 유지하되 사용 안 함
+  // 🔽 추가
   setMarkerState?: (name: string, state: "default" | "selected") => void;
-  // 🔽 새 버전: 행(rowKey) 단위로 마커 상태 토글
-  setMarkerStateByRowKey?: (rowKey: string, state: "default" | "selected") => void;
 };
 
 /** ====== 정적 에셋 경로 & 유틸 ====== */
@@ -170,10 +165,8 @@ function classifyProductForPolicy(
 
 
 /** ====== Cart(작은박스) 타입 ====== */
-// ✅ rowKey 보관: 제거 시 정확히 그 행만 보라색 복귀
 type CartItem = {
-  id: string;                 // name + product 조합 (UI용)
-  rowKey?: string;            // ★ MapPage의 rowKey (정확한 마커 토글용)
+  id: string;                 // name + product 조합
   name: string;
   productKey?: keyof DiscountPolicy;
   productName?: string;
@@ -195,8 +188,7 @@ export default function MapChrome({
   onCloseSelected,
   onSearch,
   initialQuery,
-  setMarkerState,       // (하위호환)
-  setMarkerStateByRowKey, // ★ 새 버전
+  setMarkerState,       // ✅ 추가
 }: Props) {
 
   /** 검색어 */
@@ -301,7 +293,7 @@ export default function MapChrome({
   const addSelectedToCart = () => {
     if (!selected) return;
 
-    // ID 안정화(공백 제거/소문자) - UI 식별용
+    // ID 안정화(공백 제거/소문자)
     const normKey = (v?: string) => (v ? v.replace(/\s+/g, "").toLowerCase() : "");
     const nameKey = normKey(selected.name || selected.address || "");
     const prodKey = normKey(selected.productName || "");
@@ -315,16 +307,16 @@ export default function MapChrome({
     setCart((prev) => {
       const exists = prev.find((x) => x.id === id);
       if (exists) {
-        // ✅ 이미 있는 항목은 months를 보존하고 나머지만 최신화 + rowKey 갱신
+        // ✅ 이미 있는 항목은 months를 보존하고 나머지만 최신화
         return prev.map((x) =>
           x.id === id
             ? {
                 ...x,
-                rowKey: selected.rowKey ?? x.rowKey, // ★ rowKey 유지/갱신
                 name: selected.name,
                 productKey,
                 productName: selected.productName,
                 baseMonthly: selected.monthlyFee,
+                // months: x.months (보존)
               }
             : x
         );
@@ -335,7 +327,6 @@ export default function MapChrome({
 
       const newItem: CartItem = {
         id,
-        rowKey: selected.rowKey, // ★ 행 기준으로 마커 토글을 위해 저장
         name: selected.name,
         productKey,
         productName: selected.productName,
@@ -363,7 +354,7 @@ export default function MapChrome({
       fetchStatsByNames([selected.name]);
     }
 
-    // ✅ 지도 마커: (이전 호환 코드 유지) — 필요 시 제거 가능
+    // ✅ (추가) 지도 핀 보라색으로 변경 (window.markerMap[단지명]이 있을 때만)
     try {
       const mk = (window as any)?.markerMap?.[selected.name];
       if (mk && (window as any).kakao?.maps) {
@@ -376,12 +367,9 @@ export default function MapChrome({
     } catch (e) {
       console.warn("marker color change skipped:", e);
     }
-
-    // ✅ 새 방식: 정확히 "그 행(rowKey)"만 노란색으로
-    if (selected.rowKey) {
-      setMarkerStateByRowKey?.(selected.rowKey, "selected");
-    } else if (selected.name) {
-      // (폴백) 구 방식 호출 — 가능하면 안타지만 데이터에 id가 없을 때 대비
+    
+    // ✅ 지도 마커: 담기한 단지명을 노란색으로
+    if (selected.name) {
       setMarkerState?.(selected.name, "selected");
     }
   };
@@ -394,29 +382,22 @@ export default function MapChrome({
       setCart((prev) => prev.map((x) => (x.id === id ? { ...x, months } : x)));
     }
   };
-
   const removeItem = (id: string) => {
     setCart((prev) => {
       const removed = prev.find((x) => x.id === id);
       const next = prev.filter((x) => x.id !== id);
 
-      // ✅ 지도 마커 복귀: 같은 rowKey가 더 이상 카트에 없으면 보라색
-      if (removed?.rowKey) {
-        const stillExists = next.some((x) => x.rowKey === removed.rowKey);
-        if (!stillExists) {
-          setMarkerStateByRowKey?.(removed.rowKey, "default");
-        }
-      } else if (removed?.name) {
-        // (폴백) 구 방식 – 이름 기준 (가능하면 rowKey 사용)
+      // ✅ 지도 마커: 같은 단지명이 next에 더 이상 없으면 보라색으로 복귀
+      if (removed?.name) {
         const stillExists = next.some((x) => x.name === removed.name);
         if (!stillExists) {
           setMarkerState?.(removed.name, "default");
         }
       }
-
       return next;
     });
   };
+
 
   /** ✅ 모달 열릴 때 카트 단지명으로 통계 일괄 동기화 */
   useEffect(() => {
@@ -493,7 +474,10 @@ export default function MapChrome({
       </div>
 
       {/* ===== 1탭(왼쪽) : CartBox ===== */}
-      <aside className="hidden md:flex fixed top-16 bottom-0 left-0 w-[var(--panel-w)] z-[60] bg-white border-r border-[#E5E7EB]">
+      <aside
+        className="hidden md:flex fixed top-16 bottom-0 left-0 z-[60] bg-white border-r border-[#E5E7EB]"
+        style={{ width: "var(--panel-w)" }}
+      >
         <div className="flex flex-col h-full w-full px-5 py-5 gap-3">
           {/* 클릭 박스 + 전화 버튼 */}
           <div className="flex gap-2">
@@ -610,8 +594,9 @@ export default function MapChrome({
 
       {/* ===== 2탭(오른쪽 상세 패널) — 기존과 동일 ===== */}
       {selected && (
-        + <aside className="hidden md:block fixed top-16 left-[var(--panel-w)] z-[60] w-[var(--panel-w)] pointer-events-none"
-          style={{ bottom: 0 }}
+        <aside
+          className="hidden md:block fixed top-16 z-[70] pointer-events-none"
+          style={{ left: "var(--panel-w)", width: "var(--panel-w)", bottom: 0 }}
         >
           <div className="h-full px-6 py-5 max-h-[calc(100vh-4rem)] overflow-y-auto">
             <div className="pointer-events-auto flex flex-col gap-4">
@@ -749,7 +734,7 @@ export default function MapChrome({
 /** ===== 공용 Row(상세정보) ===== */
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-start justify-between py-3 border-b border-[#F4F0F6] last:border-b-0">
+    <div className="flex items-start justify-between py-3 border-b border-[#F3F4F6] last:border-b-0">
       <dt className="text-[#6B7280]">{label}</dt>
       <dd className="text-black text-right leading-relaxed max-w-[60%] whitespace-pre-wrap break-words">
         {children}
@@ -833,3 +818,4 @@ function CartItemCard({ item, onChangeMonths, onRemove }: CartItemCardProps) {
     </div>
   );
 }
+
