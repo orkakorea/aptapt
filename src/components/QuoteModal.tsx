@@ -147,7 +147,7 @@ export default function QuoteModal({
   vatRate = 0.1,
   onClose,
   onSubmitInquiry,
-  title = "응답하라 - 입주민이여",
+  title = "응답하라 입주민이여",
   subtitle = "아파트 모니터광고 견적내용",
 }: QuoteModalProps) {
   if (typeof document === "undefined") return null;
