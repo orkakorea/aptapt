@@ -1,17 +1,15 @@
-@layer utilities {
-  .h1 { 
-    @apply text-4xl md:text-6xl font-bold leading-[72px] text-black; 
-  }
-  
-  .h2 { 
-    @apply text-2xl md:text-4xl font-bold text-black; 
-  }
-  
-  .body { 
-    @apply text-base md:text-lg text-gray-700 leading-relaxed; 
-  }
-  
-  .small { 
-    @apply text-xs text-gray-500; 
-  }
+.h1 { 
+  @apply text-4xl md:text-6xl font-bold leading-[72px] text-foreground; 
+}
+
+.h2 { 
+  @apply text-2xl md:text-4xl font-bold text-foreground; 
+}
+
+.body { 
+  @apply text-base md:text-lg text-muted-foreground leading-relaxed; 
+}
+
+.small { 
+  @apply text-xs text-muted-foreground; 
 }
