@@ -370,14 +370,14 @@ export default function QuoteModal({
 {/* CTA */}
 <div className="px-6 pb-6">
   <button
-onClick={() => {
-  onSubmitInquiry?.({
-    items,
-    subtotal: computed.subtotal,
-    vat: computed.vat,
-    total: computed.total,
-  });
-}}
+    onClick={() => {
+      openInquiryModal({
+        mode: "SEAT",
+        prefill: inquiryPrefill,
+        sourcePage: "/quote",
+      });
+      onClose?.(); // ⬅️ 견적서 닫기
+    }}
     className="w-full h-12 rounded-xl bg-[#6C2DFF] text-white font-semibold hover:opacity-95"
   >
     위 견적으로 구좌 (T.O.) 문의하기
@@ -388,15 +388,7 @@ onClick={() => {
         </div>
       </div>
 
-      {/* == 구좌문의 모달 붙이기 == */}
-      <InquiryModal
-        open={inquiryOpen}
-        mode="SEAT"
-        onClose={() => setInquiryOpen(false)}
-        prefill={inquiryPrefill}
-        sourcePage="/quote"
-        onSubmitted={() => setInquiryOpen(false)}
-      />
+
     </>,
     document.body
   );
