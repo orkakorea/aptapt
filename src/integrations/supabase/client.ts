@@ -4,15 +4,18 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-// ---- Fallbacks (env 우선, 없으면 하드코딩 값 사용) ----
-const SUPABASE_URL_FALLBACK = "https://qislrfbqilfqzkvkuknn.supabase.co";
-const SUPABASE_ANON_FALLBACK =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpc2xyZmJxaWxmcXprdmt1a25uIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYyNTczMDUsImV4cCI6MjA3MTgzMzMwNX0.JGOsDmD6yak6fMVw8MszVtjM4y2KxNtfMkJoH7PUQKo";
+// ⚠️ 보안: 하드코딩된 키/URL 절대 금지. 환경변수에서만 읽습니다.
+const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
 
-const url =
-  (import.meta as any).env?.VITE_SUPABASE_URL ?? SUPABASE_URL_FALLBACK;
-const key =
-  (import.meta as any).env?.VITE_SUPABASE_ANON_KEY ?? SUPABASE_ANON_FALLBACK;
+if (!url || !anon) {
+  // 개발/배포 환경변수 누락 시 바로 원인 파악 가능하게 에러 처리
+  const missing = [
+    !url ? 'VITE_SUPABASE_URL' : null,
+    !anon ? 'VITE_SUPABASE_ANON_KEY' : null,
+  ].filter(Boolean).join(', ');
+  throw new Error(`[supabase/client] Missing required env: ${missing}`);
+}
 
 // ---- HMR(개발/미리보기)에서 중복 생성을 막기 위한 전역 가드 ----
 declare global {
@@ -21,11 +24,11 @@ declare global {
 }
 
 // storageKey 를 프로젝트 전용으로 지정 (같은 도메인의 다른 앱과 충돌 방지)
-const AUTH_STORAGE_KEY = 'aptapt-auth'; // 원하는 이름으로 바꿔도 됨
+const AUTH_STORAGE_KEY = 'aptapt-auth';
 
 export const supabase: SupabaseClient<Database> =
   globalThis.__SB_CLIENT__ ??
-  (globalThis.__SB_CLIENT__ = createClient<Database>(url, key, {
+  (globalThis.__SB_CLIENT__ = createClient<Database>(url, anon, {
     auth: {
       storage: localStorage,
       persistSession: true,
@@ -34,4 +37,5 @@ export const supabase: SupabaseClient<Database> =
     },
   }));
 
+// 디버그/점검 편의를 위해 전역에 노출(운영 문제 없으면 유지)
 ;(window as any).supabase = supabase;
