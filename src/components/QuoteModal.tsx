@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import InquiryModal from "./InquiryModal";
-import openInquiryModal from "./openInquiryModal";
 
 /** =========================
  *  외부에서 사용할 라인아이템 타입
@@ -371,13 +370,13 @@ export default function QuoteModal({
 <div className="px-6 pb-6">
   <button
     onClick={() => {
-      openInquiryModal({
-        mode: "SEAT",
-        prefill: inquiryPrefill,
-        sourcePage: "/quote",
-      });
-      onClose?.(); // ⬅️ 견적서 닫기
-    }}
+  onSubmitInquiry?.({
+    items,
+    subtotal: computed.subtotal,
+    vat: computed.vat,
+    total: computed.total,
+  });
+}}
     className="w-full h-12 rounded-xl bg-[#6C2DFF] text-white font-semibold hover:opacity-95"
   >
     위 견적으로 구좌 (T.O.) 문의하기
