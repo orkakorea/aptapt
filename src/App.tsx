@@ -28,7 +28,7 @@ function AppLayout({ children }: PropsWithChildren) {
 export default function App() {
   return (
     <BrowserRouter>
-      <Suspense fallback={<div className="p-6">로딩중…</div>}>
+      <Suspense fallback={<div className="p-6">까꿍 !</div>}>
         <AppLayout>
           <Routes>
             <Route path="/" element={<HomePage />} />
