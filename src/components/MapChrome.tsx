@@ -731,7 +731,7 @@ export default function MapChrome({
         onSubmitInquiry={({ items, subtotal, vat, total }) => {
   console.log("[T.O 문의]", { count: items.length, subtotal, vat, total });
   setOpenQuote(false);               // 견적 모달 닫고
-  setOpenSeatInquiry(true);          // 구좌문의 모달 열기
+  setTimeout(() => setOpenSeatInquiry(true);          // 구좌문의 모달 열기
 }}
       />
 
