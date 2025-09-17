@@ -26,7 +26,7 @@ export default function HomePage() {
           </h1>
 
           <p className="text-[16px] leading-[24px] text-[#9CA3AF] text-center mb-6">
-            지역명, 아파트 이름, 단지명, 건물명을 입력해주세요
+            지역명, 아파트명, 건물명을 입력해주세요
           </p>
 
           {/* Search Bar */}
@@ -35,7 +35,7 @@ export default function HomePage() {
               value={q}
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && goSearch()}
-              placeholder="지역명, 아파트 이름, 단지명, 건물명을 입력해주세요"
+              placeholder="지역명, 아파트명, 건물명을 입력해주세요"
               className="w-full h-12 pl-4 pr-12 text-[16px] text-[#111827] placeholder:text-[#9CA3AF] bg-transparent outline-none"
               aria-label="검색어 입력"
             />
