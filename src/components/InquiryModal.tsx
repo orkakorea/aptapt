@@ -525,7 +525,6 @@ export default function InquiryModal({
                 onClick={() => {
                   setSuccessOpen(false);
                   onClose();
-                  if (typeof window !== "undefined") window.location.href = "/map";
                 }}
                 aria-label="close-success"
               >
@@ -556,7 +555,6 @@ export default function InquiryModal({
                 onClick={() => {
                   setSuccessOpen(false);
                   onClose();
-                  if (typeof window !== "undefined") window.location.href = "/map";
                 }}
               >
                 확인
