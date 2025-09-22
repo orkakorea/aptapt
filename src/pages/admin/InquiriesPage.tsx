@@ -2,12 +2,15 @@ import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 /**
- * InquiriesPage
- * - 유입경로(SEAT/PACKAGE) 컬럼 추가
- * - 상세 드로어 상단에도 유입경로 배지 표시
- * - 진행상황/유효성/담당자는 목록 테이블에서 드롭다운/인풋으로 수정 가능
+ * InquiriesPage (서버사이드 필터 + 상세 드로어 단지/상품 세트)
+ * - 목록: 상태/유효성/담당자 인라인 수정
+ * - 서버사이드 필터/검색/페이지네이션 (count 정확)
+ * - 상세 드로어: inquiry_apartments → 없으면 cart_snapshot.fallback 사용
  */
 
+/* =========================
+ *  Types & Constants
+ * ========================= */
 type SourceType = "SEAT" | "PACKAGE";
 type InquiryStatus = "new" | "pending" | "assigned" | "contract";
 type Validity = "valid" | "invalid";
@@ -26,6 +29,7 @@ type InquiryRow = {
   email?: string | null;
   start_at_wish?: string | null;
   request_note?: string | null;
+  cart_snapshot?: any; // 상세 드로어 fallback 용
 };
 
 const STATUS_OPTIONS: { value: InquiryStatus; label: string }[] = [
@@ -74,38 +78,61 @@ const APT_COL = {
   productName: "product_name",
 } as const;
 
+/* =========================
+ *  Page
+ * ========================= */
 const InquiriesPage: React.FC = () => {
   const [rows, setRows] = useState<InquiryRow[]>([]);
   const [selected, setSelected] = useState<InquiryRow | null>(null);
+
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] =
     useState<(typeof PAGE_SIZE_OPTIONS)[number]>(20);
   const [total, setTotal] = useState(0);
+
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<"all" | InquiryStatus>("all");
   const [validity, setValidity] = useState<"all" | Validity>("all");
   const [sourceType, setSourceType] = useState<"all" | SourceType>("all");
-  const [loading, setLoading] = useState(false);
 
-  const range = useMemo(() => {
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const { fromIdx, toIdx } = useMemo(() => {
     const fromIdx = (page - 1) * pageSize;
     const toIdx = fromIdx + pageSize - 1;
     return { fromIdx, toIdx };
   }, [page, pageSize]);
 
+  /* -------------------------
+   * 서버사이드 로드
+   * ------------------------- */
   useEffect(() => {
     let ignore = false;
     const load = async () => {
       setLoading(true);
+      setErr(null);
       try {
         const sb: any = supabase;
-        let base = sb
+
+        let q = sb
           .from(TBL.main)
           .select("*", { count: "exact" })
-          .order(COL.createdAt, { ascending: false })
-          .range(range.fromIdx, range.toIdx);
+          .order(COL.createdAt, { ascending: false });
 
-        const { data, error, count } = await base;
+        // 서버사이드 필터
+        if (status !== "all") q = q.eq(COL.status, status);
+        if (validity !== "all") q = q.eq(COL.valid, validity === "valid");
+        if (sourceType !== "all") q = q.eq(COL.sourceType, sourceType);
+        if (query.trim()) {
+          const k = query.trim();
+          // brand_name, campaign_type, manager_name 에 대한 부분 검색
+          q = q.or(
+            `${COL.brand}.ilike.%${k}%,${COL.campaignType}.ilike.%${k}%,${COL.manager}.ilike.%${k}%`
+          );
+        }
+
+        const { data, error, count } = await q.range(fromIdx, toIdx);
         if (error) throw error;
 
         const mapped: InquiryRow[] = (data || []).map((d: any) => ({
@@ -122,33 +149,16 @@ const InquiriesPage: React.FC = () => {
           email: d[COL.email],
           start_at_wish: d[COL.startWish],
           request_note: d[COL.requestNote],
+          cart_snapshot: d.cart_snapshot,
         }));
 
-        // 클라이언트 필터
-        const filtered = mapped.filter((r) => {
-          if (status !== "all" && r.status !== status) return false;
-          if (validity !== "all") {
-            const v = r.valid ? "valid" : "invalid";
-            if (v !== validity) return false;
-          }
-          if (sourceType !== "all" && r.source_type !== sourceType) return false;
-          if (query.trim()) {
-            const q = query.trim().toLowerCase();
-            const hay = [r.brand_name, r.campaign_type, r.manager_name]
-              .filter(Boolean)
-              .join(" ")
-              .toLowerCase();
-            if (!hay.includes(q)) return false;
-          }
-          return true;
-        });
-
         if (!ignore) {
-          setRows(filtered);
-          setTotal(count ?? filtered.length);
+          setRows(mapped);
+          setTotal(typeof count === "number" ? count : mapped.length);
         }
-      } catch (e) {
-        console.error(e);
+      } catch (e: any) {
+        if (!ignore) setErr(e?.message || "데이터 로드 중 오류가 발생했습니다.");
+        console.error("[InquiriesPage] load error:", e);
       } finally {
         if (!ignore) setLoading(false);
       }
@@ -157,13 +167,113 @@ const InquiriesPage: React.FC = () => {
     return () => {
       ignore = true;
     };
-  }, [page, pageSize, query, status, validity, sourceType, range.fromIdx, range.toIdx]);
+  }, [page, pageSize, query, status, validity, sourceType, fromIdx, toIdx]);
 
+  /* -------------------------
+   * 렌더
+   * ------------------------- */
   return (
-    <div className="space-y-6">
-      <header>
-        <h2 className="text-xl font-semibold">문의상세 관리</h2>
-      </header>
+    <div className="p-6 space-y-6">
+      {/* 헤더 */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Admin</h1>
+          <p className="text-sm text-gray-500">관리 전용 페이지</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setPage(1)}
+            className="h-9 px-3 rounded-md border text-sm"
+            disabled={loading}
+          >
+            {loading ? "불러오는 중…" : "새로고침"}
+          </button>
+        </div>
+      </div>
+
+      <h2 className="text-xl font-semibold">문의상세 관리</h2>
+
+      {/* 필터 바 */}
+      <div className="rounded-xl border bg-white p-4 flex flex-wrap items-center gap-2">
+        <input
+          placeholder="브랜드/캠페인/담당자 검색"
+          value={query}
+          onChange={(e) => {
+            setPage(1);
+            setQuery(e.target.value);
+          }}
+          className="h-9 w-64 px-3 rounded-md border text-sm"
+        />
+        <select
+          value={status}
+          onChange={(e) => {
+            setPage(1);
+            setStatus(e.target.value as any);
+          }}
+          className="h-9 px-2 rounded-md border text-sm"
+        >
+          <option value="all">전체 상태</option>
+          {STATUS_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <select
+          value={validity}
+          onChange={(e) => {
+            setPage(1);
+            setValidity(e.target.value as any);
+          }}
+          className="h-9 px-2 rounded-md border text-sm"
+        >
+          <option value="all">전체 유효성</option>
+          {VALIDITY_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        <select
+          value={sourceType}
+          onChange={(e) => {
+            setPage(1);
+            setSourceType(e.target.value as any);
+          }}
+          className="h-9 px-2 rounded-md border text-sm"
+        >
+          {SOURCE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+
+        <div className="ml-auto flex items-center gap-2">
+          <label className="text-sm text-gray-500">페이지당</label>
+          <select
+            value={pageSize}
+            onChange={(e) => {
+              setPage(1);
+              setPageSize(Number(e.target.value) as any);
+            }}
+            className="h-9 px-2 rounded-md border text-sm"
+          >
+            {PAGE_SIZE_OPTIONS.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* 오류 */}
+      {err && (
+        <div className="rounded-md border border-red-300 bg-red-50 p-3 text-red-700 text-sm">
+          {err}
+        </div>
+      )}
 
       {/* 테이블 */}
       <section className="rounded-2xl bg-white border border-gray-100 shadow-sm overflow-hidden">
@@ -204,15 +314,18 @@ const InquiriesPage: React.FC = () => {
                       value={r.status ?? "new"}
                       onChange={async (e) => {
                         const sb: any = supabase;
+                        const next = e.target.value as InquiryStatus;
                         const { error } = await sb
                           .from(TBL.main)
-                          .update({ [COL.status]: e.target.value })
+                          .update({ [COL.status]: next })
                           .eq("id", r.id);
-                        if (!error) setRows((prev) =>
-                          prev.map((row) =>
-                            row.id === r.id ? { ...row, status: e.target.value as InquiryStatus } : row
-                          )
-                        );
+                        if (!error) {
+                          setRows((prev) =>
+                            prev.map((row) =>
+                              row.id === r.id ? { ...row, status: next } : row
+                            )
+                          );
+                        }
                       }}
                       className="border rounded px-2 py-1 text-sm"
                     >
@@ -233,11 +346,13 @@ const InquiriesPage: React.FC = () => {
                           .from(TBL.main)
                           .update({ [COL.valid]: next })
                           .eq("id", r.id);
-                        if (!error) setRows((prev) =>
-                          prev.map((row) =>
-                            row.id === r.id ? { ...row, valid: next } : row
-                          )
-                        );
+                        if (!error) {
+                          setRows((prev) =>
+                            prev.map((row) =>
+                              row.id === r.id ? { ...row, valid: next } : row
+                            )
+                          );
+                        }
                       }}
                       className="border rounded px-2 py-1 text-sm"
                     >
@@ -254,15 +369,20 @@ const InquiriesPage: React.FC = () => {
                       defaultValue={r.manager_name || ""}
                       onBlur={async (e) => {
                         const sb: any = supabase;
+                        const val = e.target.value;
                         const { error } = await sb
                           .from(TBL.main)
-                          .update({ [COL.manager]: e.target.value })
+                          .update({ [COL.manager]: val })
                           .eq("id", r.id);
-                        if (!error) setRows((prev) =>
-                          prev.map((row) =>
-                            row.id === r.id ? { ...row, manager_name: e.target.value } : row
-                          )
-                        );
+                        if (!error) {
+                          setRows((prev) =>
+                            prev.map((row) =>
+                              row.id === r.id
+                                ? { ...row, manager_name: val }
+                                : row
+                            )
+                          );
+                        }
                       }}
                       className="border rounded px-2 py-1 text-sm w-full"
                     />
@@ -272,11 +392,41 @@ const InquiriesPage: React.FC = () => {
             </tbody>
           </table>
         </div>
+
+        {/* 하단 페이저 */}
+        <div className="flex items-center justify-between px-4 py-3 border-t bg-white">
+          <div className="text-xs text-gray-500">
+            총 {total.toLocaleString()}건 / {page}페이지
+          </div>
+          <div className="flex gap-2">
+            <button
+              className="h-8 px-3 rounded-md border text-sm disabled:opacity-50"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={loading || page <= 1}
+            >
+              이전
+            </button>
+            <button
+              className="h-8 px-3 rounded-md border text-sm disabled:opacity-50"
+              onClick={() =>
+                setPage((p) =>
+                  p * pageSize < Math.max(1, total) ? p + 1 : p
+                )
+              }
+              disabled={loading || page * pageSize >= Math.max(1, total)}
+            >
+              다음
+            </button>
+          </div>
+        </div>
       </section>
 
       {/* 상세 드로어 */}
       {selected && (
-        <DetailDrawer row={selected} onClose={() => setSelected(null)} />
+        <DetailDrawer
+          row={selected}
+          onClose={() => setSelected(null)}
+        />
       )}
     </div>
   );
@@ -284,11 +434,54 @@ const InquiriesPage: React.FC = () => {
 
 export default InquiriesPage;
 
-/* ====== Detail Drawer ====== */
+/* =========================
+ *  Detail Drawer
+ * ========================= */
 const DetailDrawer: React.FC<{
   row: InquiryRow;
   onClose: () => void;
 }> = ({ row, onClose }) => {
+  const [aptRows, setAptRows] = useState<
+    { apt_name: string; product_name: string }[]
+  >([]);
+  const [aptLoading, setAptLoading] = useState(false);
+
+  // inquiry_apartments 조회
+  useEffect(() => {
+    let ignore = false;
+    (async () => {
+      setAptLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from(TBL.apartments)
+          .select(`${APT_COL.aptName}, ${APT_COL.productName}`)
+          .eq(APT_COL.inquiryId, row.id);
+
+        if (!ignore) {
+          setAptRows(error ? [] : ((data as any) ?? []));
+        }
+      } finally {
+        if (!ignore) setAptLoading(false);
+      }
+    })();
+    return () => {
+      ignore = true;
+    };
+  }, [row.id]);
+
+  // cart_snapshot fallback
+  const fallbackFromSnapshot = useMemo(() => {
+    const items = (row as any)?.cart_snapshot?.items;
+    if (!Array.isArray(items)) return [];
+    return items.map((it: any) => ({
+      apt_name: it.apt_name ?? it.name ?? "",
+      product_name: it.mediaName ?? it.product_name ?? "",
+    }));
+  }, [row]);
+
+  const listToRender =
+    aptRows && aptRows.length > 0 ? aptRows : fallbackFromSnapshot;
+
   return (
     <div className="fixed inset-0 z-40">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
@@ -298,7 +491,7 @@ const DetailDrawer: React.FC<{
             <div className="text-sm text-gray-500">브랜드</div>
             <div className="text-lg font-semibold flex items-center gap-2">
               {row.brand_name || "브랜드명 없음"}
-              <SourceBadge value={row.source_type} /> {/* ⬅️ 유입경로 표시 */}
+              <SourceBadge value={row.source_type} />
             </div>
           </div>
           <button
@@ -320,12 +513,46 @@ const DetailDrawer: React.FC<{
             value={row.start_at_wish ? formatDateTime(row.start_at_wish) : "—"}
           />
           <InfoItem label="요청사항" value={row.request_note || "—"} />
+
+          <div className="border-t border-gray-100 pt-4">
+            <div className="text-sm font-medium mb-2">선택 단지/상품</div>
+
+            {aptLoading ? (
+              <div className="text-sm text-gray-500">불러오는 중…</div>
+            ) : listToRender.length === 0 ? (
+              <div className="text-sm text-gray-500">데이터 없음</div>
+            ) : (
+              <div className="max-h-52 overflow-auto rounded-md border">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left">단지명</th>
+                      <th className="px-3 py-2 text-left">상품명</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {listToRender.map((it, i) => (
+                      <tr key={i} className="border-t">
+                        <td className="px-3 py-2">{it.apt_name || "—"}</td>
+                        <td className="px-3 py-2">
+                          {it.product_name || "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
   );
 };
 
+/* =========================
+ *  Small Components & Utils
+ * ========================= */
 const InfoItem: React.FC<{ label: string; value: React.ReactNode }> = ({
   label,
   value,
@@ -336,7 +563,6 @@ const InfoItem: React.FC<{ label: string; value: React.ReactNode }> = ({
   </div>
 );
 
-/* ====== 작은 컴포넌트 ====== */
 const Th: React.FC<React.PropsWithChildren<{ className?: string }>> = ({
   className,
   children,
@@ -374,7 +600,6 @@ const SourceBadge: React.FC<{ value?: SourceType | null }> = ({ value }) => {
   );
 };
 
-/* ====== 유틸 ====== */
 function formatDateTime(iso: string) {
   try {
     const d = new Date(iso);
