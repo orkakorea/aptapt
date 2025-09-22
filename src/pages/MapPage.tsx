@@ -250,12 +250,11 @@ export default function MapPage() {
   const placesRef = useRef<any>(null);
   const spiderRef = useRef<SpiderController | null>(null);
 
-  // 검색 핀 & 반경(5km) 오버레이
+  // 검색 핀 & 반경(1km) 오버레이
   const searchPinRef = useRef<any>(null);
   const radiusCircleRef = useRef<any>(null);
   const radiusLabelRef = useRef<any>(null);
-const xMarkRef = useRef<any>(null);
-  
+
   // 마커/상태/그룹 캐시
   const markerCacheRef = useRef<Map<string, KMarker>>(new Map());
   const keyIndexRef = useRef<Record<string, KMarker[]>>({});
@@ -320,7 +319,6 @@ const xMarkRef = useRef<any>(null);
     let resizeHandler: any;
     let map: any;
 
-    // 시작할 때 혹시 남아있을지도 모르는 중복 SDK 제거
     cleanupKakaoScripts();
 
     loadKakao()
@@ -334,7 +332,6 @@ const xMarkRef = useRef<any>(null);
         map = new kakao.maps.Map(mapRef.current, { center, level: 6 });
         mapObjRef.current = map;
 
-        // MapChrome 등에서 필요 시 접근할 수 있게 전역으로도 꽂아둠(선택)
         (window as any).kakaoMap = map;
         (window as any).__kakaoMap = map;
 
@@ -376,12 +373,10 @@ const xMarkRef = useRef<any>(null);
       if (w.kakaoMap === mapObjRef.current) w.kakaoMap = null;
       if (w.__kakaoMap === mapObjRef.current) w.__kakaoMap = null;
 
-      // 검색 오버레이 정리
       try {
         radiusCircleRef.current?.setMap(null);
         radiusLabelRef.current?.setMap(null);
         searchPinRef.current?.setMap?.(null);
-        xMarkRef.current?.setMap?.(null);
       } catch {}
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -667,31 +662,37 @@ const xMarkRef = useRef<any>(null);
     if (!kakao?.maps || !mapObjRef.current) return;
     const map = mapObjRef.current;
 
-    // 1) 반경 5km 원 (마커 뒤에)
+    // 1) 반경 1km 원 (마커 뒤에)
     if (!radiusCircleRef.current) {
       radiusCircleRef.current = new kakao.maps.Circle({
         map,
         center: latlng,
         radius: 1000,                 // 1km
         strokeWeight: 2,
-        strokeColor: "#FFD400",
+        strokeColor: "#FFD400",       // 노란색 테두리
         strokeOpacity: 0.6,
         strokeStyle: "solid",
-        fillColor: "#FFD400",
-        fillOpacity: 0.10,            // 32% 투명
+        fillColor: "#FFD400",         // 노란색 채움
+        fillOpacity: 0.11,            // 11% 불투명도
         zIndex: -1000,                // 마커 뒤로
       });
     } else {
-      radiusCircleRef.current.setOptions({ center: latlng, radius: 1000 });
+      radiusCircleRef.current.setOptions({
+        center: latlng,
+        radius: 1000,                 // 1km
+        strokeColor: "#FFD400",
+        fillColor: "#FFD400",
+        fillOpacity: 0.11,
+      });
       radiusCircleRef.current.setZIndex?.(-1000);
       radiusCircleRef.current.setMap(map);
     }
 
-    // 2) “반경 1km” 라벨 (가독성 위해 위에)
+    // 2) “반경 1km” 라벨 (가독성 좋게 노란 배경 + 진한 글자)
     const labelHTML = `
       <div style="
         padding:6px 10px;border-radius:999px;
-        background:#6C2DFF;color:#fff;font-size:12px;
+        background:#FFD400;color:#222;font-size:12px;
         font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,0.15);
         white-space:nowrap;user-select:none;">
         반경 1km
@@ -719,7 +720,7 @@ const xMarkRef = useRef<any>(null);
         map,
         position: latlng,
         image: imgs.purple,
-        zIndex: 500000, // 마커들 위로 (원 위/라벨 아래 상관없음)
+        zIndex: 500000, // 라벨보단 아래, 일반 마커 위
         clickable: false,
       });
     } else {
@@ -729,38 +730,7 @@ const xMarkRef = useRef<any>(null);
       searchPinRef.current.setMap(map);
     }
   }
-// 4) 마커 위 X표시 (라벨보다 살짝 아래, 핀보다 위)
-const xHTML = `
-  <div style="
-    width:24px;height:24px;
-    pointer-events:none;
-    display:flex;align-items:center;justify-content:center;
-  ">
-    <svg width="24" height="24" viewBox="0 0 24 24"
-         xmlns="http://www.w3.org/2000/svg"
-         style="filter: drop-shadow(0 1px 2px rgba(0,0,0,0.35));">
-      <line x1="4" y1="4" x2="20" y2="20" stroke="#FFD400" stroke-width="3" stroke-linecap="round"/>
-      <line x1="20" y1="4" x2="4" y2="20" stroke="#FFD400" stroke-width="3" stroke-linecap="round"/>
-    </svg>
-  </div>
-`;
 
-if (!xMarkRef.current) {
-  xMarkRef.current = new kakao.maps.CustomOverlay({
-    map,
-    position: latlng,
-    content: xHTML,
-    xAnchor: 0.5,   // 중심 정렬
-    yAnchor: 0.5,   // 중심 정렬 (마커 정가운데에 X가 오도록)
-    zIndex: 800000, // 라벨(1000000)보단 아래, 핀(500000)보단 위면 600~900k 추천
-  });
-} else {
-  xMarkRef.current.setPosition(latlng);
-  xMarkRef.current.setContent(xHTML);
-  xMarkRef.current.setZIndex?.(800000);
-  xMarkRef.current.setMap(map);
-}
-  
   /* ------------------ 장소 검색 → 이동 ------------------ */
   function runPlaceSearch(query: string) {
     const kakao = (window as KakaoNS).kakao;
@@ -776,7 +746,7 @@ if (!xMarkRef.current) {
       mapObjRef.current.setLevel(4);
       mapObjRef.current.setCenter(latlng);
 
-      // ✅ 검색 지점에 핀 찍고, 5km 원(32%) + "반경 5km" 라벨 추가/갱신
+      // ✅ 검색 지점에 핀 + 반경 1km(노랑, 11%) + "반경 1km" 라벨
       drawSearchOverlays(latlng);
 
       // 주변 마커 재로딩
