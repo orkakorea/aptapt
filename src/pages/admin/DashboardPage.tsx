@@ -1,202 +1,373 @@
-import { useEffect, useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Users, MapPin, MessageSquare, TrendingUp, Calendar, Eye } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+  Cell,
+} from "recharts";
 
-interface DashboardStats {
-  totalUsers: number;
-  totalPlaces: number;
-  totalInquiries: number;
-  todayVisits: number;
-}
+/**
+ * DashboardPage
+ * - 관리자 대시보드(KPI + 차트 4종)
+ * - 현재 프로젝트의 Supabase 타입에 'inquiries'가 없으므로 any 캐스팅으로 최소 동작 보장
+ * - 집계 쿼리는 count 전용 호출(HEAD) 위주, 차트는 최근 6개월/7일만 로드
+ * - 이후 supabase 타입 재생성 시 any 제거 가능
+ */
 
-export default function DashboardPage() {
-  const [stats, setStats] = useState<DashboardStats>({
-    totalUsers: 0,
-    totalPlaces: 0,
-    totalInquiries: 0,
-    todayVisits: 0,
-  });
+type InquiryStatus = "new" | "pending" | "in_progress" | "done" | "canceled";
+
+type Kpis = {
+  todayNew: number;
+  unread: number; // 미확인(new)
+  total: number;
+  valid: number;
+  invalid: number;
+  inProgress: number;
+  done: number;
+};
+
+type ChartMonthPoint = { month: string; count: number };
+type ChartDonutPoint = { name: string; value: number };
+type ChartDayPoint = { day: string; count: number };
+
+const MONTHS = ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"];
+const WEEKDAYS = ["월","화","수","목","금","토","일"];
+
+const DashboardPage: React.FC = () => {
+  const [kpis, setKpis] = useState<Kpis | null>(null);
+  const [monthly, setMonthly] = useState<ChartMonthPoint[]>([]);
+  const [validDonut, setValidDonut] = useState<ChartDonutPoint[]>([]);
+  const [statusDonut, setStatusDonut] = useState<ChartDonutPoint[]>([]);
+  const [last7, setLast7] = useState<ChartDayPoint[]>([]);
   const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+
+  // 기간 기준 계산
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1); // 이번 달 포함 6개월
+  const sevenDaysAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
 
   useEffect(() => {
-    loadDashboardStats();
+    let ignore = false;
+    const run = async () => {
+      setLoading(true);
+      setErr(null);
+      try {
+        const sb: any = supabase;
+
+        // === KPI: count 전용 호출들 ===
+        const [
+          totalRes,
+          validRes,
+          invalidRes,
+          unreadRes,
+          inprogRes,
+          doneRes,
+          todayNewRes,
+        ] = await Promise.all([
+          sb.from("inquiries").select("id", { count: "exact", head: true }),
+          sb.from("inquiries").select("id", { count: "exact", head: true }).eq("valid", true),
+          sb.from("inquiries").select("id", { count: "exact", head: true }).eq("valid", false),
+          sb.from("inquiries").select("id", { count: "exact", head: true }).eq("status", "new"),
+          sb.from("inquiries").select("id", { count: "exact", head: true }).eq("status", "in_progress"),
+          sb.from("inquiries").select("id", { count: "exact", head: true }).eq("status", "done"),
+          sb
+            .from("inquiries")
+            .select("id", { count: "exact", head: true })
+            .gte("created_at", toIso(todayStart))
+            .lt("created_at", toIso(todayEnd)),
+        ]);
+
+        if (anyError([totalRes, validRes, invalidRes, unreadRes, inprogRes, doneRes, todayNewRes])) {
+          throw new Error("KPI 집계 중 오류가 발생했습니다.");
+        }
+
+        const k: Kpis = {
+          todayNew: todayNewRes.count ?? 0,
+          unread: unreadRes.count ?? 0,
+          total: totalRes.count ?? 0,
+          valid: validRes.count ?? 0,
+          invalid: invalidRes.count ?? 0,
+          inProgress: inprogRes.count ?? 0,
+          done: doneRes.count ?? 0,
+        };
+
+        // === 차트용 원본 데이터 (최근 6개월 / 최근 7일) ===
+        // created_at, valid, status 만 조회
+        const [{ data: sixM }, { data: sevenD }] = await Promise.all([
+          sb
+            .from("inquiries")
+            .select("id, created_at, valid, status")
+            .gte("created_at", toIso(sixMonthsAgo))
+            .order("created_at", { ascending: true }),
+          sb
+            .from("inquiries")
+            .select("id, created_at, valid, status")
+            .gte("created_at", toIso(sevenDaysAgo))
+            .order("created_at", { ascending: true }),
+        ]);
+
+        // 월별 추이
+        const monthMap = new Map<string, number>();
+        // 6개월 라벨 먼저 채우기(데이터 없어도 0 표시)
+        const labels6 = listLastSixMonthLabels(now);
+        labels6.forEach((m) => monthMap.set(m, 0));
+        (sixM || []).forEach((r: any) => {
+          const d = new Date(r.created_at);
+          const key = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, "0")}`;
+          const label = `${d.getFullYear()}.${MONTHS[d.getMonth()]}`;
+          // label 표준화: labels6에 맞춰 매핑
+          const match = labels6.find((l) => l.startsWith(`${d.getFullYear()}.`) && l.endsWith(MONTHS[d.getMonth()]));
+          const use = match ?? label;
+          monthMap.set(use, (monthMap.get(use) || 0) + 1);
+        });
+        const monthSeries: ChartMonthPoint[] = Array.from(monthMap.entries()).map(([month, count]) => ({ month, count }));
+
+        // 유효/무효 도넛
+        const validCount = (sixM || []).filter((r: any) => !!r.valid).length;
+        const invalidCount = (sixM || []).filter((r: any) => r.valid === false).length;
+        const validSeries: ChartDonutPoint[] = [
+          { name: "유효", value: validCount },
+          { name: "무효", value: invalidCount },
+        ];
+
+        // 처리 상태 도넛
+        const statusBuckets: Record<string, number> = {};
+        (sixM || []).forEach((r: any) => {
+          const s: InquiryStatus = r.status || "pending";
+          statusBuckets[s] = (statusBuckets[s] || 0) + 1;
+        });
+        const statusSeries: ChartDonutPoint[] = Object.entries(statusBuckets).map(([name, value]) => ({
+          name: toStatusLabel(name as InquiryStatus),
+          value,
+        }));
+
+        // 최근 7일 추이
+        const dayMap = new Map<string, number>();
+        const days = listLast7Days(now);
+        days.forEach((d) => dayMap.set(d, 0));
+        (sevenD || []).forEach((r: any) => {
+          const d = new Date(r.created_at);
+          const label = WEEKDAYS[(d.getDay() + 6) % 7]; // 월=0 … 일=6
+          dayMap.set(label, (dayMap.get(label) || 0) + 1);
+        });
+        const daySeries: ChartDayPoint[] = days.map((d) => ({ day: d, count: dayMap.get(d) || 0 }));
+
+        if (ignore) return;
+        setKpis(k);
+        setMonthly(monthSeries);
+        setValidDonut(validSeries);
+        setStatusDonut(statusSeries);
+        setLast7(daySeries);
+      } catch (e: any) {
+        if (!ignore) setErr(e?.message ?? "대시보드 로딩 오류");
+      } finally {
+        if (!ignore) setLoading(false);
+      }
+    };
+
+    run();
+    return () => {
+      ignore = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const loadDashboardStats = async () => {
-    try {
-      setLoading(true);
-      
-      // Get total places count
-      const { count: placesCount } = await supabase
-        .from('raw_places')
-        .select('*', { count: 'exact', head: true });
-
-      setStats({
-        totalUsers: 150, // Mock data for now
-        totalPlaces: placesCount || 0,
-        totalInquiries: 24, // Mock data for now
-        todayVisits: 89, // Mock data for now
-      });
-    } catch (error) {
-      console.error('Error loading dashboard stats:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const statCards = [
-    {
-      title: "총 사용자",
-      value: stats.totalUsers,
-      icon: Users,
-      description: "등록된 전체 사용자 수",
-      trend: "+12%",
-      color: "text-primary",
-    },
-    {
-      title: "등록된 장소",
-      value: stats.totalPlaces,
-      icon: MapPin,
-      description: "데이터베이스 내 장소 수",
-      trend: "+5%",
-      color: "text-secondary",
-    },
-    {
-      title: "문의 사항",
-      value: stats.totalInquiries,
-      icon: MessageSquare,
-      description: "접수된 문의 건수",
-      trend: "+8%",
-      color: "text-accent",
-    },
-    {
-      title: "오늘 방문자",
-      value: stats.todayVisits,
-      icon: Eye,
-      description: "금일 사이트 방문자 수",
-      trend: "+15%",
-      color: "text-primary",
-    },
-  ];
-
   return (
-    <div className="p-6 space-y-8 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">관리자 대시보드</h1>
-          <p className="text-muted-foreground mt-2">시스템 현황과 주요 지표를 확인하세요</p>
+    <div className="space-y-6">
+      <header>
+        <h2 className="text-xl font-semibold">대시보드 개요</h2>
+        <p className="text-sm text-gray-500">광고 문의 현황 및 통계 정보</p>
+      </header>
+
+      {/* KPI 카드 */}
+      <section className="grid gap-4 md:grid-cols-3 xl:grid-cols-4">
+        <StatCard title="신규 광고문의" value={kpis?.todayNew} hint="오늘 접수" />
+        <StatCard title="미확인" value={kpis?.unread} hint="status=new" />
+        <StatCard title="누적 문의 수" value={kpis?.total} emphasize />
+        <StatCard title="누적 유효 문의" value={kpis?.valid} />
+        <StatCard title="누적 무효 문의" value={kpis?.invalid} />
+        <StatCard title="진행중" value={kpis?.inProgress} />
+        <StatCard title="완료건" value={kpis?.done} emphasize />
+      </section>
+
+      {err && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {err}
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm">
-            <Calendar className="h-4 w-4 mr-2" />
-            오늘
-          </Button>
-          <Button size="sm" onClick={loadDashboardStats}>
-            새로고침
-          </Button>
-        </div>
-      </div>
+      )}
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {statCards.map((stat, index) => (
-          <Card key={index} className="relative overflow-hidden">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-medium text-muted-foreground flex items-center justify-between">
-                {stat.title}
-                <stat.icon className={`h-5 w-5 ${stat.color}`} />
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <div className="text-3xl font-bold text-foreground">
-                  {loading ? "..." : stat.value.toLocaleString()}
-                </div>
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-muted-foreground">{stat.description}</p>
-                  <Badge variant="secondary" className="text-xs">
-                    <TrendingUp className="h-3 w-3 mr-1" />
-                    {stat.trend}
-                  </Badge>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {/* 차트 1행 */}
+      <section className="grid gap-4 md:grid-cols-2">
+        <ChartPanel title="월별 문의의 추이">
+          <ResponsiveContainer width="100%" height={280}>
+            <BarChart data={monthly}>
+              <CartesianGrid vertical={false} strokeDasharray="3 3" />
+              <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+              <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+              <Tooltip />
+              <Bar dataKey="count" radius={[8, 8, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartPanel>
 
-      {/* Recent Activity */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <MessageSquare className="h-5 w-5" />
-              최근 문의
-            </CardTitle>
-            <CardDescription>
-              최근 접수된 문의 사항들입니다
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {loading ? (
-                <p className="text-muted-foreground">로딩 중...</p>
-              ) : (
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center py-2 border-b">
-                    <span className="text-sm">새로운 문의가 접수되었습니다</span>
-                    <Badge variant="outline">신규</Badge>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b">
-                    <span className="text-sm">장소 정보 수정 요청</span>
-                    <Badge variant="secondary">진행중</Badge>
-                  </div>
-                  <div className="flex justify-between items-center py-2">
-                    <span className="text-sm">지도 오류 신고</span>
-                    <Badge variant="destructive">긴급</Badge>
-                  </div>
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
+        <ChartPanel title="유효/무효 문의의 비율">
+          <ResponsiveContainer width="100%" height={280}>
+            <PieChart>
+              <Tooltip />
+              <Pie
+                data={validDonut}
+                dataKey="value"
+                nameKey="name"
+                innerRadius={70}
+                outerRadius={100}
+                paddingAngle={2}
+              >
+                {validDonut.map((_, i) => (
+                  <Cell key={i} />
+                ))}
+              </Pie>
+            </PieChart>
+          </ResponsiveContainer>
+        </ChartPanel>
+      </section>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="h-5 w-5" />
-              시스템 상태
-            </CardTitle>
-            <CardDescription>
-              현재 시스템 운영 상태입니다
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <span className="text-sm">서버 상태</span>
-                <Badge className="bg-green-500 text-white">정상</Badge>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm">데이터베이스</span>
-                <Badge className="bg-green-500 text-white">정상</Badge>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm">지오코딩 서비스</span>
-                <Badge className="bg-yellow-500 text-white">점검중</Badge>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-sm">맵 서비스</span>
-                <Badge className="bg-green-500 text-white">정상</Badge>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      {/* 차트 2행 */}
+      <section className="grid gap-4 md:grid-cols-2">
+        <ChartPanel title="처리 상태 현황">
+          <ResponsiveContainer width="100%" height={280}>
+            <PieChart>
+              <Tooltip />
+              <Pie
+                data={statusDonut}
+                dataKey="value"
+                nameKey="name"
+                innerRadius={70}
+                outerRadius={100}
+                paddingAngle={2}
+              >
+                {statusDonut.map((_, i) => (
+                  <Cell key={i} />
+                ))}
+              </Pie>
+            </PieChart>
+          </ResponsiveContainer>
+        </ChartPanel>
+
+        <ChartPanel title="최근 7일 문의의 추이">
+          <ResponsiveContainer width="100%" height={280}>
+            <LineChart data={last7}>
+              <CartesianGrid vertical={false} strokeDasharray="3 3" />
+              <XAxis dataKey="day" tick={{ fontSize: 12 }} />
+              <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+              <Tooltip />
+              <Line type="monotone" dataKey="count" dot />
+            </LineChart>
+          </ResponsiveContainer>
+        </ChartPanel>
+      </section>
+
+      {loading && <SkeletonNote text="대시보드 데이터를 불러오는 중…" />}
     </div>
   );
+};
+
+export default DashboardPage;
+
+/* =========================
+ *  작은 프레젠테이션 컴포넌트
+ * ========================= */
+
+const StatCard: React.FC<{
+  title: string;
+  value?: number | null;
+  hint?: string;
+  emphasize?: boolean;
+}> = ({ title, value, hint, emphasize }) => {
+  return (
+    <div className="rounded-2xl bg-white border border-gray-100 shadow-sm p-5">
+      <div className="text-sm text-gray-500">{title}</div>
+      <div className={"mt-2 font-bold " + (emphasize ? "text-2xl" : "text-xl")}>
+        {value ?? 0}
+        <span className="sr-only">건</span>
+      </div>
+      {hint && <div className="mt-1 text-xs text-gray-400">{hint}</div>}
+    </div>
+  );
+};
+
+const ChartPanel: React.FC<React.PropsWithChildren<{ title: string }>> = ({
+  title,
+  children,
+}) => (
+  <div className="rounded-2xl bg-white border border-gray-100 shadow-sm p-5">
+    <div className="mb-3 font-semibold">{title}</div>
+    <div className="h-[280px]">{children}</div>
+  </div>
+);
+
+const SkeletonNote: React.FC<{ text: string }> = ({ text }) => (
+  <div className="rounded-lg border border-gray-200 bg-white p-4">
+    <div className="animate-pulse text-gray-500 text-sm">{text}</div>
+  </div>
+);
+
+/* =========================
+ *  유틸
+ * ========================= */
+
+function toIso(d: Date) {
+  // YYYY-MM-DDTHH:mm:ss.sssZ 형태
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString();
+}
+
+function anyError(resArr: any[]) {
+  return resArr.some((r) => r?.error);
+}
+
+function listLastSixMonthLabels(now: Date) {
+  const out: string[] = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    out.push(`${d.getFullYear()}.${MONTHS[d.getMonth()]}`);
+  }
+  return out;
+}
+
+function listLast7Days(now: Date) {
+  // 월~일 순으로 정렬
+  const days: string[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
+    days.push(WEEKDAYS[(d.getDay() + 6) % 7]);
+  }
+  return days;
+}
+
+function toStatusLabel(s: InquiryStatus) {
+  switch (s) {
+    case "new":
+      return "신규";
+    case "pending":
+      return "대기";
+    case "in_progress":
+      return "진행중";
+    case "done":
+      return "완료";
+    case "canceled":
+      return "취소";
+    default:
+      return s;
+  }
 }
