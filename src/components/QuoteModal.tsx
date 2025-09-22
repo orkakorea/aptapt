@@ -1,421 +1,760 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import InquiryModal from "./InquiryModal";
+import React, { useEffect, useMemo, useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
 
-/** =========================
- *  외부에서 사용할 라인아이템 타입
- *  ========================= */
-export type QuoteLineItem = {
+/**
+ * InquiriesPage (타입 제약 우회 버전)
+ * - 현재 supabase 타입 정의에 'inquiries'가 없어 TS 에러가 발생하므로
+ *   최소한의 any 캐스팅으로 빌드는 통과시키고 기능은 정상 동작하게 구성.
+ * - select("*") 후 안전 매핑: 존재하지 않는 칼럼은 자동으로 "—" 처리.
+ * - 나중에 supabase 타입 재생성 후, 필드명을 확정하면 제네릭 타입으로 되돌리면 됨.
+ */
+
+type InquiryStatus = "new" | "pending" | "in_progress" | "done" | "canceled";
+type Validity = "valid" | "invalid";
+
+type InquiryRow = {
   id: string;
-  name: string;                 // 단지명
-  months: number;
-  startDate?: string;
-  endDate?: string;
-
-  mediaName?: string;           // 상품명
-  households?: number;
-  residents?: number;
-  monthlyImpressions?: number;
-  monitors?: number;
-  baseMonthly?: number;         // 월광고료(기준)
-
-  productKeyHint?: keyof DiscountPolicy;
+  created_at: string;
+  status?: InquiryStatus | null;
+  valid?: boolean | null;
+  campaign_name?: string | null;
+  contact_name?: string | null;
+  phone?: string | null;
+  promo_code?: string | null;
+  apt_name?: string | null;
+  memo?: string | null;
+  extra?: any | null;
 };
 
-/** =========================
- *  할인 정책 / 유틸
- *  ========================= */
-type RangeRule = { min: number; max: number; rate: number };
-type ProductRules = { precomp?: RangeRule[]; period: RangeRule[] };
-type DiscountPolicy = Record<string, ProductRules>;
+const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 
-const DEFAULT_POLICY: DiscountPolicy = {
-  "ELEVATOR TV": {
-    precomp: [
-      { min: 1, max: 2, rate: 0.03 },
-      { min: 3, max: 12, rate: 0.05 },
-    ],
-    period: [
-      { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.15 },
-      { min: 12, max: 12, rate: 0.2 },
-    ],
-  },
-  "TOWNBORD_S": {
-    period: [
-      { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.15 },
-      { min: 12, max: 12, rate: 0.2 },
-    ],
-  },
-  "TOWNBORD_L": {
-    period: [
-      { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.2 },
-      { min: 12, max: 12, rate: 0.3 },
-    ],
-  },
-  "MEDIA MEET": {
-    period: [
-      { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.2 },
-      { min: 12, max: 12, rate: 0.3 },
-    ],
-  },
-  "SPACE LIVING": {
-    period: [
-      { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.2 },
-      { min: 12, max: 12, rate: 0.3 },
-    ],
-  },
-  "HI-POST": {
-    period: [
-      { min: 1, max: 5, rate: 0 },
-      { min: 6, max: 11, rate: 0.05 },
-      { min: 12, max: 12, rate: 0.1 },
-    ],
-  },
+const STATUS_OPTIONS: { value: "all" | InquiryStatus; label: string }[] = [
+  { value: "all", label: "전체" },
+  { value: "new", label: "신규" },
+  { value: "pending", label: "대기" },
+  { value: "in_progress", label: "진행중" },
+  { value: "done", label: "완료" },
+  { value: "canceled", label: "취소" },
+];
+
+const VALIDITY_OPTIONS: { value: "all" | Validity; label: string }[] = [
+  { value: "all", label: "전체" },
+  { value: "valid", label: "유효" },
+  { value: "invalid", label: "무효" },
+];
+
+/** =========================
+ *  워터마크 오버레이
+ *  - 모달/패널 등 특정 컨테이너 안에만 깔림
+ *  - 접근성: aria-hidden, pointer-events-none
+ *  - 성능: 단순 그리드/텍스트 (이미지 없음), 불투명도 낮게
+ * ========================= */
+const WatermarkOverlay: React.FC<{
+  text?: string;
+  angleDeg?: number;
+  rows?: number;
+  cols?: number;
+  className?: string;
+}> = ({
+  text = "ORKA KOREA ALL RIGHTS RESERVED",
+  angleDeg = -30,
+  rows = 6,
+  cols = 6,
+  className = "",
+}) => {
+  const total = rows * cols;
+  return (
+    <div
+      aria-hidden="true"
+      className={
+        "pointer-events-none absolute inset-0 overflow-hidden [mask-image:linear-gradient(to_bottom,transparent,black_10%,black_90%,transparent)] " +
+        className
+      }
+    >
+      <div
+        className="absolute left-1/2 top-1/2 h-[200%] w-[200%] -translate-x-1/2 -translate-y-1/2 opacity-5"
+        style={{ transform: `translate(-50%, -50%) rotate(${angleDeg}deg)` }}
+      >
+        <div
+          className="grid h-full w-full"
+          style={{
+            gridTemplateRows: `repeat(${rows}, 1fr)`,
+            gridTemplateColumns: `repeat(${cols}, 1fr)`,
+          }}
+        >
+          {Array.from({ length: total }).map((_, i) => (
+            <div key={i} className="flex items-center justify-center">
+              <span className="select-none whitespace-nowrap text-lg md:text-2xl font-semibold tracking-[0.35em] uppercase text-gray-900/90">
+                {text}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 };
 
-const norm = (s?: string) => (s ? s.replace(/\s+/g, "").toLowerCase() : "");
-function findRate(rules: RangeRule[] | undefined, months: number): number {
-  if (!rules || !Number.isFinite(months)) return 0;
-  return rules.find((r) => months >= r.min && months <= r.max)?.rate ?? 0;
-}
-function classifyProductForPolicy(productName?: string): keyof DiscountPolicy | undefined {
-  const pn = norm(productName);
-  if (!pn) return undefined;
+const InquiriesPage: React.FC = () => {
+  // ====== 필터/검색 상태 ======
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState<(typeof STATUS_OPTIONS)[number]["value"]>(
+    "all"
+  );
+  const [validity, setValidity] =
+    useState<(typeof VALIDITY_OPTIONS)[number]["value"]>("all");
+  const [from, setFrom] = useState<string>(""); // YYYY-MM-DD
+  const [to, setTo] = useState<string>(""); // YYYY-MM-DD
 
-  if (
-    pn.includes("townbord_l") || pn.includes("townboard_l") ||
-    /\btownbord[-_\s]?l\b/.test(pn) || /\btownboard[-_\s]?l\b/.test(pn)
-  ) return "TOWNBORD_L";
-  if (
-    pn.includes("townbord_s") || pn.includes("townboard_s") ||
-    /\btownbord[-_\s]?s\b/.test(pn) || /\btownboard[-_\s]?s\b/.test(pn)
-  ) return "TOWNBORD_S";
+  // ====== 페이지네이션 ======
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] =
+    useState<(typeof PAGE_SIZE_OPTIONS)[number]>(20);
 
-  if (pn.includes("elevatortv") || pn.includes("엘리베이터tv") || pn.includes("elevator")) return "ELEVATOR TV";
-  if (pn.includes("mediameet") || pn.includes("media-meet") || pn.includes("미디어")) return "MEDIA MEET";
-  if (pn.includes("spaceliving") || pn.includes("스페이스") || pn.includes("living")) return "SPACE LIVING";
-  if (pn.includes("hipost") || pn.includes("hi-post") || pn.includes("하이포스트")) return "HI-POST";
+  // ====== 데이터 상태 ======
+  const [rows, setRows] = useState<InquiryRow[]>([]);
+  const [total, setTotal] = useState<number>(0);
+  const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState<InquiryRow | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  if (pn.includes("townbord") || pn.includes("townboard") || pn.includes("타운보드")) return "TOWNBORD_S";
-  return undefined;
-}
+  const range = useMemo(() => {
+    const fromIdx = (page - 1) * pageSize;
+    const toIdx = fromIdx + pageSize - 1;
+    return { fromIdx, toIdx };
+  }, [page, pageSize]);
 
-/** =========================
- *  포맷터
- *  ========================= */
-const fmtWon = (n?: number) =>
-  typeof n === "number" && Number.isFinite(n) ? `${n.toLocaleString()}원` : "—";
-const fmtNum = (n?: number, unit = "") =>
-  typeof n === "number" && Number.isFinite(n) ? `${n.toLocaleString()}${unit ? unit : ""}` : "—";
-const safe = (s?: string) => (s && s.trim().length > 0 ? s : "—");
-
-/** =========================
- *  컴포넌트 Props
- *  ========================= */
-type QuoteModalProps = {
-  open: boolean;
-  items: QuoteLineItem[];
-  vatRate?: number;
-  onClose?: () => void;
-  onSubmitInquiry?: (payload: {
-    items: QuoteLineItem[];
-    subtotal: number;
-    vat: number;
-    total: number;
-  }) => void;
-  title?: string;
-  subtitle?: string;
-};
-
-/** =========================
- *  기본 내보내기: QuoteModal
- *  ========================= */
-export default function QuoteModal({
-  open,
-  items,
-  vatRate = 0.1,
-  onClose,
-  onSubmitInquiry,
-  title = "응답하라 - 입주민이여",
-  subtitle = "아파트 모니터광고 견적내용",
-}: QuoteModalProps) {
-  if (typeof document === "undefined") return null;
-  if (!open) return null;
-
-  const panelRef = useRef<HTMLDivElement | null>(null);
-  const [inquiryOpen, setInquiryOpen] = useState(false); // 견적 하단 CTA → 구좌문의 모달
-
-  // Body 스크롤 잠금 + ESC 닫기
+  // ====== 데이터 로딩 ======
   useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose?.(); };
-    window.addEventListener("keydown", onKey);
+    let ignore = false;
+
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        // any로 한정된 지역 변수에서만 캐스팅
+        const sb: any = supabase;
+
+        // 1) 기본 쿼리
+        let base = sb.from("inquiries").select("*", { count: "exact" });
+
+        // 검색(여러 필드에 or) — 칼럼이 없어도 서버에서 무시되도록, 우선 id/phone 정도만 안전하게
+        if (query.trim()) {
+          const q = query.trim();
+          base = base.or([`id.ilike.%${q}%`, `phone.ilike.%${q}%`].join(","));
+        }
+
+        // 날짜 범위 (created_at)
+        if (from) base = base.gte("created_at", `${from}T00:00:00`);
+        if (to) base = base.lte("created_at", `${to}T23:59:59.999`);
+
+        // 정렬 + 페이지 범위
+        base = base.order("created_at", { ascending: false });
+
+        const { data, error, count } = await base.range(
+          range.fromIdx,
+          range.toIdx
+        );
+
+        if (error) throw error;
+        if (ignore) return;
+
+        // 2) 안전 매핑
+        const mapped: InquiryRow[] = (data || []).map((d: any) => ({
+          id: String(d.id ?? ""),
+          created_at: d.created_at ?? new Date().toISOString(),
+          status: (d.status as InquiryStatus) ?? null,
+          valid: typeof d.valid === "boolean" ? d.valid : null,
+          campaign_name: d.campaign_name ?? d.campaign ?? null,
+          contact_name: d.contact_name ?? d.name ?? null,
+          phone: d.phone ?? d.contact ?? null,
+          promo_code: d.promo_code ?? d.promo ?? null,
+          apt_name: d.apt_name ?? d.apartment_name ?? d.place_name ?? null,
+          memo: d.memo ?? null,
+          extra: d.extra ?? null,
+        }));
+
+        // 3) 클라 필터
+        const clientFiltered = mapped.filter((r) => {
+          if (status !== "all" && r.status !== status) return false;
+          if (validity !== "all") {
+            const v = r.valid ? "valid" : "invalid";
+            if (v !== validity) return false;
+          }
+          if (query.trim()) {
+            const q = query.trim().toLowerCase();
+            const hay =
+              [
+                r.id,
+                r.campaign_name,
+                r.contact_name,
+                r.phone,
+                r.promo_code,
+                r.apt_name,
+              ]
+                .filter(Boolean)
+                .join(" ")
+                .toLowerCase() || "";
+            if (!hay.includes(q)) return false;
+          }
+          return true;
+        });
+
+        setRows(clientFiltered);
+        setTotal(count ?? clientFiltered.length);
+      } catch (e: any) {
+        if (!ignore) setError(e?.message ?? "데이터 로딩 실패");
+      } finally {
+        if (!ignore) setLoading(false);
+      }
+    };
+
+    load();
     return () => {
-      document.body.style.overflow = prev;
-      window.removeEventListener("keydown", onKey);
+      ignore = true;
     };
-  }, [onClose]);
+  }, [query, status, validity, from, to, range.fromIdx, range.toIdx]);
 
-  const computed = useMemo(() => {
-    const rows = (items ?? []).map((it) => {
-      const productKey = it.productKeyHint || classifyProductForPolicy(it.mediaName);
-      const rule = productKey ? DEFAULT_POLICY[productKey] : undefined;
-      const periodRate = findRate(rule?.period, it.months);
-      const precompRate = productKey === "ELEVATOR TV" ? findRate(rule?.precomp, it.months) : 0;
+  // 페이지 수 계산
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-      const baseMonthly = it.baseMonthly ?? 0;
-      const baseTotal = baseMonthly * it.months;
-      const monthlyAfter = Math.round(baseMonthly * (1 - precompRate) * (1 - periodRate));
-      const lineTotal = monthlyAfter * it.months;
+  // 페이지 변경 시 스크롤 상단으로
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [page]);
 
-      return { it, productKey, periodRate, precompRate, baseMonthly, baseTotal, monthlyAfter, lineTotal };
-    });
+  return (
+    <div className="space-y-6">
+      {/* 페이지 헤더 */}
+      <header>
+        <h2 className="text-xl font-semibold">문의상세 관리</h2>
+        <p className="text-sm text-gray-500">
+          광고 문의 내역 조회 및 관리 (검색·필터·상세)
+        </p>
+      </header>
 
-    const subtotal = rows.reduce((s, r) => s + r.lineTotal, 0);
-    const vat = Math.round(subtotal * vatRate);
-    const total = subtotal + vat;
+      {/* 필터/검색 */}
+      <section className="rounded-2xl bg-white border border-gray-100 shadow-sm">
+        <div className="p-4 md:p-5 grid gap-3 md:grid-cols-[1fr_160px_160px]">
+          <div className="flex items-center gap-2">
+            <div className="text-gray-400">🔎</div>
+            <input
+              value={query}
+              onChange={(e) => {
+                setPage(1);
+                setQuery(e.target.value);
+              }}
+              placeholder="캠페인명, 담당자명, 연락처, 프로모션코드, 단지명…"
+              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#6C2DFF]/40"
+            />
+          </div>
 
-    const sum = <T extends keyof QuoteLineItem>(key: T) =>
-      (items ?? []).reduce((acc, cur) => {
-        const v = cur[key] as unknown as number | undefined;
-        return acc + (Number.isFinite(v) ? (v as number) : 0);
-      }, 0);
+          <div className="flex gap-2">
+            <Select
+              value={status}
+              onChange={(v) => {
+                setPage(1);
+                setStatus(v as any);
+              }}
+              options={STATUS_OPTIONS}
+            />
+            <Select
+              value={validity}
+              onChange={(v) => {
+                setPage(1);
+                setValidity(v as any);
+              }}
+              options={VALIDITY_OPTIONS}
+            />
+          </div>
 
-    const totals = {
-      households: sum("households"),
-      residents: sum("residents"),
-      monthlyImpressions: sum("monthlyImpressions"),
-      monitors: sum("monitors"),
-      count: items?.length ?? 0,
-    };
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={from}
+              onChange={(e) => {
+                setPage(1);
+                setFrom(e.target.value);
+              }}
+              className="w-[50%] rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#6C2DFF]/40"
+            />
+            <span className="text-gray-400 text-sm">~</span>
+            <input
+              type="date"
+              value={to}
+              onChange={(e) => {
+                setPage(1);
+                setTo(e.target.value);
+              }}
+              className="w-[50%] rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#6C2DFF]/40"
+            />
+          </div>
+        </div>
 
-    return { rows, subtotal, vat, total, totals };
-  }, [items, vatRate]);
+        <div className="px-4 pb-4 md:px-5 md:pb-5 flex items-center justify-between gap-3 text-sm">
+          <div className="text-gray-500">
+            총 <b className="text-gray-800">{total}</b>건 / 페이지{" "}
+            <b className="text-gray-800">{page}</b> / {totalPages}
+          </div>
+          <div className="flex items-center gap-2">
+            <select
+              className="rounded-lg border border-gray-200 px-2 py-1"
+              value={pageSize}
+              onChange={(e) => {
+                setPage(1);
+                setPageSize(Number(e.target.value) as any);
+              }}
+            >
+              {PAGE_SIZE_OPTIONS.map((n) => (
+                <option key={n} value={n}>
+                  {n}개씩
+                </option>
+              ))}
+            </select>
 
-  // InquiryModal에 넘길 prefill 생성 (InquiryModal.pickCartTotal과 호환)
-  const inquiryPrefill = useMemo(() => {
-    const first = items?.[0];
-    const monthsMax = Math.max(...(items.map((i) => i.months) as number[]), 0);
-
-    // InquiryModal의 pickCartTotal이 인식하는 필드명(cartTotal / items[].item_total_won 등) 사용
-    const cart_snapshot = {
-      months: monthsMax || undefined,
-      cartTotal: computed.subtotal,
-      items: (items ?? []).map((it) => {
-        // lineTotal 계산 로직을 여기서도 동일하게 재현
-        const productKey = it.productKeyHint || classifyProductForPolicy(it.mediaName);
-        const rule = productKey ? DEFAULT_POLICY[productKey] : undefined;
-        const periodRate = findRate(rule?.period, it.months);
-        const precompRate = productKey === "ELEVATOR TV" ? findRate(rule?.precomp, it.months) : 0;
-
-        const baseMonthly = it.baseMonthly ?? 0;
-        const monthlyAfter = Math.round(baseMonthly * (1 - precompRate) * (1 - periodRate));
-        const lineTotal = monthlyAfter * it.months;
-
-        return {
-          apt_name: it.name,
-          product_name: it.mediaName,
-          product_code: productKey,
-          months: it.months,
-          item_total_won: lineTotal,
-          total_won: lineTotal,
-        };
-      }),
-    };
-
-    return {
-      apt_id: null,
-      apt_name: first?.name ?? null,
-      product_code: undefined,
-      product_name: first?.mediaName ?? null,
-      cart_snapshot,
-    };
-  }, [items, computed.subtotal]);
-
-  return createPortal(
-    <>
-      <div className="fixed inset-0 z-[9999]">
-        {/* 딤드 */}
-        <div className="absolute inset-0 bg-black/60" onClick={onClose} aria-hidden="true" />
-
-        {/* 패널 */}
-        <div className="absolute inset-0 overflow-x-auto overflow-y-auto">
-          <div
-            ref={panelRef}
-            className="min-w-[1600px] max-w-[1600px] mx-auto my-10 bg-white rounded-2xl shadow-xl border border-[#E5E7EB]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* 헤더 */}
-            <div className="px-6 py-5 border-b border-[#E5E7EB] flex items-start justify-between sticky top-0 bg-white rounded-t-2xl">
-              <div>
-                <div className="text-lg font-bold text-black">{title}</div>
-                <div className="text-sm text-[#6B7280] mt-1">{subtitle}</div>
-              </div>
+            <div className="flex gap-1">
               <button
-                onClick={onClose}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB]"
-                aria-label="닫기"
+                className="px-3 py-1.5 rounded-lg border border-gray-200 disabled:opacity-50"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" fill="none">
-                  <path d="M6 6L18 18M6 18L18 6" strokeWidth="2" strokeLinecap="round" />
-                </svg>
+                이전
+              </button>
+              <button
+                className="px-3 py-1.5 rounded-lg border border-gray-200 disabled:opacity-50"
+                onClick={() => onNext(setPage, totalPages)}
+                disabled={page >= totalPages}
+              >
+                다음
               </button>
             </div>
+          </div>
+        </div>
+      </section>
 
-            {/* 상단 카운터 + (단위) */}
-            <div className="px-6 pt-4 pb-2 flex items-center justify-between">
-              <div className="text-sm text-[#4B5563] flex flex-wrap gap-x-4 gap-y-1">
-                <span className="font-semibold">{`총 ${computed.totals.count}개 단지`}</span>
-                <span>· 세대수 <b>{fmtNum(computed.totals.households)}</b> 세대</span>
-                <span>· 거주인원 <b>{fmtNum(computed.totals.residents)}</b> 명</span>
-                <span>· 송출횟수 <b>{fmtNum(computed.totals.monthlyImpressions)}</b> 회</span>
-                <span>· 모니터수량 <b>{fmtNum(computed.totals.monitors)}</b> 대</span>
-              </div>
-              <div className="text-xs text-[#9CA3AF]">(단위 · 원 / VAT별도)</div>
-            </div>
+      {/* 에러/로딩 */}
+      {error && (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          로딩 오류: {error}
+        </div>
+      )}
+      {loading && (
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <div className="animate-pulse text-gray-500 text-sm">
+            데이터를 불러오는 중…
+          </div>
+        </div>
+      )}
 
-            {/* 테이블 */}
-            <div className="px-6 pb-4">
-              <div className="rounded-xl border border-[#E5E7EB]">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-[#F9FAFB] text-[#111827]">
-                      <Th className="text-left">단지명</Th>
-                      <Th>광고기간</Th>
-                      {/* 날짜열 삭제됨 */}
-                      <Th>상품명</Th>
-                      <Th>세대수</Th>
-                      <Th>거주인원</Th>
-                      <Th>월송출횟수</Th>
-                      <Th>모니터 수량</Th>
-                      <Th>월광고료(FMK=4주)</Th>
-                      <Th>기준금액</Th>
-                      <Th>기간할인</Th>
-                      <Th>사전보상할인</Th>
-                      <Th className="!text-[#6C2DFF]">총광고료</Th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {computed.rows.length === 0 ? (
-                      <tr>
-                        <td colSpan={12} className="px-6 py-10 text-center text-[#6B7280]">
-                          담은 단지가 없습니다.
-                        </td>
-                      </tr>
-                    ) : (
-                      computed.rows.map(({ it, periodRate, precompRate, baseMonthly, baseTotal, lineTotal }) => (
-                        <tr key={it.id} className="border-t border-[#F3F4F6]">
-                          <Td className="text-left font-medium text-black">{it.name}</Td>
-                          <Td center nowrap>{fmtNum(it.months, "개월")}</Td>
-                          <Td center nowrap>{safe(it.mediaName)}</Td>
-                          <Td center nowrap>{fmtNum(it.households, "세대")}</Td>
-                          <Td center nowrap>{fmtNum(it.residents, "명")}</Td>
-                          <Td center nowrap>{fmtNum(it.monthlyImpressions, "회")}</Td>
-                          <Td center nowrap>{fmtNum(it.monitors, "대")}</Td>
-                          <Td center nowrap>{fmtWon(baseMonthly)}</Td>
-                          <Td center nowrap>{fmtWon(baseTotal)}</Td>
-                          <Td center nowrap>{periodRate > 0 ? `${Math.round(periodRate * 100)}%` : "-"}</Td>
-                          <Td center nowrap>{precompRate > 0 ? `${Math.round(precompRate * 100)}%` : "-"}</Td>
-                          <Td center nowrap className="font-bold text-[#6C2DFF]">{fmtWon(lineTotal)}</Td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t border-[#E5E7EB]">
-                      <td colSpan={11} className="text-right px-4 py-4 bg-[#F7F5FF] text-[#6B7280] font-medium">
-                        TOTAL
-                      </td>
-                      <td className="px-4 py-4 bg-[#F7F5FF] text-right font-bold text-[#6C2DFF]">
-                        {fmtWon(computed.subtotal)}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            </div>
+      {/* 테이블 */}
+      {!loading && (
+        <section className="rounded-2xl bg-white border border-gray-100 shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-[920px] w-full text-sm">
+              <thead className="bg-gray-50 text-gray-600">
+                <tr>
+                  <Th>날짜</Th>
+                  <Th>캠페인명</Th>
+                  <Th>담당자</Th>
+                  <Th>연락처</Th>
+                  <Th>프로모션코드</Th>
+                  <Th className="text-center">진행상황</Th>
+                  <Th className="text-center">유효성</Th>
+                  <Th className="text-center">단지정보</Th>
+                  <Th className="text-center">상세</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="py-10 text-center text-gray-500">
+                      조건에 해당하는 데이터가 없습니다.
+                    </td>
+                  </tr>
+                )}
+                {rows.map((r) => (
+                  <tr
+                    key={r.id}
+                    className="border-t border-gray-100 hover:bg-gray-50"
+                  >
+                    <Td>{formatDate(r.created_at)}</Td>
+                    <Td className="max-w-[220px]">
+                      <span className="line-clamp-1">
+                        {r.campaign_name || "—"}
+                      </span>
+                    </Td>
+                    <Td>{r.contact_name || "—"}</Td>
+                    <Td>{r.phone || "—"}</Td>
+                    <Td>
+                      {r.promo_code ? (
+                        <code className="rounded bg-gray-100 px-2 py-0.5 text-xs">
+                          {r.promo_code}
+                        </code>
+                      ) : (
+                        "—"
+                      )}
+                    </Td>
+                    <Td className="text-center">
+                      <StatusBadge value={(r.status as any) || "pending"} />
+                    </Td>
+                    <Td className="text-center">
+                      <ValidityBadge value={toValidity(r.valid)} />
+                    </Td>
+                    <Td className="text-center">
+                      <button
+                        className="inline-flex items-center gap-1 rounded border border-gray-200 px-2 py-1 text-xs hover:bg-gray-50"
+                        title={r.apt_name || "단지정보"}
+                      >
+                        👁️ <span className="hidden sm:inline">상세보기</span>
+                      </button>
+                    </Td>
+                    <Td className="text-center">
+                      <button
+                        onClick={() => setSelected(r)}
+                        className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-3 py-1.5 text-xs hover:bg-gray-50"
+                      >
+                        🔍 상세
+                      </button>
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
-            {/* 부가세/최종 */}
-            <div className="px-6 pb-6">
-              <div className="rounded-xl border border-[#E5E7EB] bg-[#F8F7FF] p-4">
-                <div className="flex items-center justify-between text-sm text-[#6B7280]">
-                  <span>부가세</span>
-                  <span className="text-black">{fmtWon(computed.vat)}</span>
-                </div>
-                <div className="mt-2 flex items-center justify-between">
-                  {/* 30% 확대 + 밑줄 제거 */}
-                  <span className="text-[18px] text-[#6C2DFF] font-semibold">
-                    최종광고료
-                  </span>
-                  {/* 오른쪽 금액도 동일 비율 확대 */}
-                  <span className="text-[21px] font-bold text-[#6C2DFF]">
-                    {fmtWon(computed.total)} <span className="text-xs text-[#6B7280] font-medium">(VAT 포함)</span>
-                  </span>
-                </div>
-              </div>
-            </div>
+      {/* 상세 드로어 (여기에만 워터마크 적용) */}
+      {selected && (
+        <DetailDrawer
+          row={selected}
+          onClose={() => setSelected(null)}
+          onStatusChange={async (next) => {
+            const sb: any = supabase;
+            const { error } = await sb
+              .from("inquiries")
+              .update({ status: next })
+              .eq("id", selected.id);
+            if (!error) {
+              setSelected({ ...selected, status: next });
+              setPage((p) => p); // 재조회 트리거
+            }
+            return !error;
+          }}
+          onValidityToggle={async () => {
+            const sb: any = supabase;
+            const nextValid = !(selected.valid ?? false);
+            const { error } = await sb
+              .from("inquiries")
+              .update({ valid: nextValid })
+              .eq("id", selected.id);
+            if (!error) {
+              setSelected({ ...selected, valid: nextValid });
+              setPage((p) => p);
+            }
+            return !error;
+          }}
+        />
+      )}
+    </div>
+  );
+};
 
-{/* CTA */}
-<div className="px-6 pb-6">
-  <button
-    onClick={() => {
-  onSubmitInquiry?.({
-    items,
-    subtotal: computed.subtotal,
-    vat: computed.vat,
-    total: computed.total,
-  });
-}}
-    className="w-full h-12 rounded-xl bg-[#6C2DFF] text-white font-semibold hover:opacity-95"
+export default InquiriesPage;
+
+/* =========================
+ *  작은 프레젠테이션 컴포넌트들
+ * ========================= */
+
+const Th: React.FC<React.PropsWithChildren<{ className?: string }>> = ({
+  className,
+  children,
+}) => (
+  <th
+    className={
+      "px-4 py-3 text-left font-medium tracking-tight " + (className ?? "")
+    }
   >
-    위 견적으로 구좌 (T.O.) 문의하기
-  </button>
-</div>
+    {children}
+  </th>
+);
 
+const Td: React.FC<React.PropsWithChildren<{ className?: string }>> = ({
+  className,
+  children,
+}) => (
+  <td className={"px-4 py-3 align-middle " + (className ?? "")}>{children}</td>
+);
+
+const Select: React.FC<{
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}> = ({ value, onChange, options }) => {
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#6C2DFF]/40"
+    >
+      {options.map((opt) => (
+        <option key={opt.value} value={opt.value}>
+          {opt.label}
+        </option>
+      ))}
+    </select>
+  );
+};
+
+const StatusBadge: React.FC<{ value: InquiryStatus }> = ({ value }) => {
+  const map: Record<
+    InquiryStatus,
+    { label: string; cn: string; dot: string }
+  > = {
+    new: {
+      label: "신규",
+      cn: "bg-[#F4F0FB] text-[#6C2DFF]",
+      dot: "bg-[#6C2DFF]",
+    },
+    pending: {
+      label: "대기",
+      cn: "bg-yellow-50 text-yellow-700",
+      dot: "bg-yellow-500",
+    },
+    in_progress: {
+      label: "진행중",
+      cn: "bg-blue-50 text-blue-700",
+      dot: "bg-blue-500",
+    },
+    done: {
+      label: "완료",
+      cn: "bg-green-50 text-green-700",
+      dot: "bg-green-500",
+    },
+    canceled: {
+      label: "취소",
+      cn: "bg-gray-100 text-gray-600",
+      dot: "bg-gray-400",
+    },
+  };
+  const { label, cn, dot } = map[value] ?? map.pending;
+  return (
+    <span
+      className={
+        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs " +
+        cn
+      }
+    >
+      <span className={"h-1.5 w-1.5 rounded-full " + dot} />
+      {label}
+    </span>
+  );
+};
+
+const ValidityBadge: React.FC<{ value: Validity }> = ({ value }) => {
+  const isValid = value === "valid";
+  return (
+    <span
+      className={
+        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs " +
+        (isValid ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700")
+      }
+    >
+      <span
+        className={
+          "h-1.5 w-1.5 rounded-full " +
+          (isValid ? "bg-green-500" : "bg-red-500")
+        }
+      />
+      {isValid ? "유효" : "무효"}
+    </span>
+  );
+};
+
+/** =========================
+ *  상세 드로어 (워터마크 포함)
+ * ========================= */
+const DetailDrawer: React.FC<{
+  row: InquiryRow;
+  onClose: () => void;
+  onStatusChange: (s: InquiryStatus) => Promise<boolean>;
+  onValidityToggle: () => Promise<boolean>;
+}> = ({ row, onClose, onStatusChange, onValidityToggle }) => {
+  const [busy, setBusy] = useState<"status" | "valid" | null>(null);
+
+  return (
+    <div className="fixed inset-0 z-40">
+      {/* overlay */}
+      <div
+        className="absolute inset-0 bg-black/30"
+        onClick={() => (busy ? null : onClose())}
+      />
+      {/* panel (워터마크는 이 컨테이너 안에서만) */}
+      <div className="absolute right-0 top-0 h-full w-full max-w-[520px] bg-white shadow-2xl relative">
+        {/* 워터마크: 필요 시 문구 교체 가능 */}
+        <WatermarkOverlay text="ORKA KOREA ALL RIGHTS RESERVED" />
+
+        {/* 실제 콘텐츠는 워터마크 위에 렌더링 */}
+        <div className="relative z-10">
+          <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4 bg-white/70 backdrop-blur-[1px]">
+            <div>
+              <div className="text-sm text-gray-500">문의 상세</div>
+              <div className="text-lg font-semibold">
+                {row.campaign_name || "캠페인명 없음"}
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm hover:bg-gray-50"
+            >
+              닫기
+            </button>
+          </div>
+
+          <div className="p-5 space-y-5 overflow-y-auto h-[calc(100%-56px)]">
+            {/* 기본 정보 */}
+            <section className="grid grid-cols-2 gap-3">
+              <InfoItem label="문의 ID" value={row.id} mono />
+              <InfoItem
+                label="문의일시"
+                value={formatDateTime(row.created_at)}
+              />
+              <InfoItem label="담당자" value={row.contact_name || "—"} />
+              <InfoItem label="연락처" value={row.phone || "—"} />
+              <InfoItem label="프로모션코드" value={row.promo_code || "—"} />
+              <InfoItem label="단지명" value={row.apt_name || "—"} />
+            </section>
+
+            {/* 상태/유효성 제어 */}
+            <section className="rounded-xl border border-gray-100 p-4 bg-white/80">
+              <div className="text-sm font-medium mb-3">처리 상태</div>
+              <div className="flex flex-wrap items-center gap-2">
+                {STATUS_OPTIONS.filter((s) => s.value !== "all").map((opt) => (
+                  <button
+                    key={opt.value}
+                    disabled={busy === "status"}
+                    onClick={async () => {
+                      setBusy("status");
+                      await onStatusChange(opt.value as InquiryStatus);
+                      setBusy(null);
+                    }}
+                    className={
+                      "rounded-full px-3 py-1.5 text-xs border " +
+                      (row.status === opt.value
+                        ? "border-[#6C2DFF] text-[#6C2DFF] bg-[#F4F0FB]"
+                        : "border-gray-200 text-gray-700 hover:bg-gray-50")
+                    }
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="mt-4 flex items-center justify-between">
+                <div className="text-sm">유효성</div>
+                <button
+                  disabled={busy === "valid"}
+                  onClick={async () => {
+                    setBusy("valid");
+                    await onValidityToggle();
+                    setBusy(null);
+                  }}
+                  className={
+                    "rounded-lg px-3 py-1.5 text-xs border " +
+                    ((row.valid ?? false)
+                      ? "border-green-300 text-green-700 bg-green-50"
+                      : "border-red-300 text-red-700 bg-red-50")
+                  }
+                >
+                  {(row.valid ?? false)
+                    ? "유효 → 무효로 전환"
+                    : "무효 → 유효로 전환"}
+                </button>
+              </div>
+            </section>
+
+            {/* 메모/부가 */}
+            {(row.memo || row.extra) && (
+              <section className="space-y-3">
+                {row.memo && (
+                  <div>
+                    <div className="text-sm font-medium mb-1">메모</div>
+                    <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm">
+                      {row.memo}
+                    </div>
+                  </div>
+                )}
+                {row.extra && (
+                  <div>
+                    <div className="text-sm font-medium mb-1">추가 데이터</div>
+                    <pre className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs overflow-auto">
+                      {JSON.stringify(row.extra, null, 2)}
+                    </pre>
+                  </div>
+                )}
+              </section>
+            )}
           </div>
         </div>
       </div>
-
-
-    </>,
-    document.body
+    </div>
   );
+};
+
+const InfoItem: React.FC<{
+  label: string;
+  value: React.ReactNode;
+  mono?: boolean;
+}> = ({ label, value, mono }) => {
+  return (
+    <div>
+      <div className="text-xs text-gray-500">{label}</div>
+      <div
+        className={
+          "mt-0.5 text-sm " + (mono ? "font-mono text-gray-700" : "text-gray-800")
+        }
+      >
+        {value}
+      </div>
+    </div>
+  );
+};
+
+/* =========================
+ *  유틸
+ * ========================= */
+
+function toValidity(valid?: boolean | null): Validity {
+  return valid ? "valid" : "invalid";
 }
 
-/** 헤더 셀: 가운데 정렬 + 내용과 동일한 크기(text-sm) + Bold */
-function Th({ children, className = "" }: React.PropsWithChildren<{ className?: string }>) {
-  return (
-    <th className={`px-6 py-4 text-center text-sm font-bold border-b border-[#E5E7EB] ${className}`}>
-      {children}
-    </th>
-  );
+function formatDate(iso: string) {
+  try {
+    const d = new Date(iso);
+    const y = d.getFullYear();
+    const m = (d.getMonth() + 1).toString().padStart(2, "0");
+    const day = d.getDate().toString().padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  } catch {
+    return iso;
+  }
 }
 
-/** 데이터 셀: 기본 가운데, 필요 시 text-left/nowrap 조합 사용 */
-function Td({
-  children,
-  className = "",
-  center,
-  nowrap,
-}: React.PropsWithChildren<{ className?: string; center?: boolean; nowrap?: boolean }>) {
-  return (
-    <td
-      className={`px-6 py-4 align-middle text-[#111827] ${center ? "text-center" : ""} ${
-        nowrap ? "whitespace-nowrap" : ""
-      } ${className}`}
-    >
-      {children}
-    </td>
-  );
+function formatDateTime(iso: string) {
+  try {
+    const d = new Date(iso);
+    const y = d.getFullYear();
+    const m = (d.getMonth() + 1).toString().padStart(2, "0");
+    const day = d.getDate().toString().padStart(2, "0");
+    const hh = d.getHours().toString().padStart(2, "0");
+    const mm = d.getMinutes().toString().padStart(2, "0");
+    return `${y}-${m}-${day} ${hh}:${mm}`;
+  } catch {
+    return iso;
+  }
+}
+
+function onNext(setPage: React.Dispatch<React.SetStateAction<number>>, totalPages: number) {
+  setPage((p) => Math.min(totalPages, p + 1));
 }
