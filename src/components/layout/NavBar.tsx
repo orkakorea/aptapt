@@ -11,7 +11,7 @@ export default function NavBar() {
             className="text-[16px] leading-[24px] font-semibold tracking-[-0.01em] text-[#0A0A0A]"
             title="홈으로"
           >
-            응답하라-입주민이여
+            응답하라 입주민이여
           </span>
 
           {/* 타이틀 바로 옆 로그인 버튼(모달 포함) */}
