@@ -251,9 +251,11 @@ export default function MapPage() {
   const spiderRef = useRef<SpiderController | null>(null);
 
   // 검색 핀 & 반경(1km) 오버레이
-  const searchPinRef = useRef<any>(null);
-  const radiusCircleRef = useRef<any>(null);
-  const radiusLabelRef = useRef<any>(null);
+const searchPinRef = useRef<any>(null);
+const radiusCircleRef = useRef<any>(null);
+const radiusLabelRef = useRef<any>(null);
+const xMarkRef = useRef<any>(null);   // ← 추가
+
 
   // 마커/상태/그룹 캐시
   const markerCacheRef = useRef<Map<string, KMarker>>(new Map());
@@ -374,10 +376,11 @@ export default function MapPage() {
       if (w.__kakaoMap === mapObjRef.current) w.__kakaoMap = null;
 
       try {
-        radiusCircleRef.current?.setMap(null);
-        radiusLabelRef.current?.setMap(null);
-        searchPinRef.current?.setMap?.(null);
-      } catch {}
+  radiusCircleRef.current?.setMap(null);
+  radiusLabelRef.current?.setMap(null);
+  searchPinRef.current?.setMap?.(null);
+  xMarkRef.current?.setMap?.(null);    // ← 추가
+} catch {}
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
