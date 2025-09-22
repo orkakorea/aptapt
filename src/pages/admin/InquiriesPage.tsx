@@ -6,6 +6,9 @@ import { supabase } from "@/integrations/supabase/client";
  * - 목록: 상태/유효성/담당자 인라인 수정
  * - 서버사이드 필터/검색/페이지네이션 (count 정확)
  * - 상세 드로어: inquiry_apartments → 없으면 cart_snapshot.fallback 사용
+ *
+ * ※ 주의: 현재 프로젝트의 Supabase 타입에 inquiries/inquiry_apartments가 없어서
+ *   제네릭 과심화 오류(TS2589)가 뜨므로, supabase를 sb:any로 캐스팅해 사용합니다.
  */
 
 /* =========================
@@ -113,7 +116,7 @@ const InquiriesPage: React.FC = () => {
       setLoading(true);
       setErr(null);
       try {
-        const sb: any = supabase;
+        const sb: any = supabase; // ✅ 타입 캐스팅(프로젝트 타입 미정의 테이블 회피)
 
         let q = sb
           .from(TBL.main)
@@ -313,7 +316,7 @@ const InquiriesPage: React.FC = () => {
                     <select
                       value={r.status ?? "new"}
                       onChange={async (e) => {
-                        const sb: any = supabase;
+                        const sb: any = supabase; // ✅ any 캐스팅
                         const next = e.target.value as InquiryStatus;
                         const { error } = await sb
                           .from(TBL.main)
@@ -340,7 +343,7 @@ const InquiriesPage: React.FC = () => {
                     <select
                       value={r.valid ? "valid" : "invalid"}
                       onChange={async (e) => {
-                        const sb: any = supabase;
+                        const sb: any = supabase; // ✅ any 캐스팅
                         const next = e.target.value === "valid";
                         const { error } = await sb
                           .from(TBL.main)
@@ -368,7 +371,7 @@ const InquiriesPage: React.FC = () => {
                       type="text"
                       defaultValue={r.manager_name || ""}
                       onBlur={async (e) => {
-                        const sb: any = supabase;
+                        const sb: any = supabase; // ✅ any 캐스팅
                         const val = e.target.value;
                         const { error } = await sb
                           .from(TBL.main)
@@ -452,7 +455,8 @@ const DetailDrawer: React.FC<{
     (async () => {
       setAptLoading(true);
       try {
-        const { data, error } = await supabase
+        const sb: any = supabase; // ✅ any 캐스팅 (타입 오류 방지)
+        const { data, error } = await sb
           .from(TBL.apartments)
           .select(`${APT_COL.aptName}, ${APT_COL.productName}`)
           .eq(APT_COL.inquiryId, row.id);
