@@ -11,12 +11,12 @@ import { supabase } from "@/integrations/supabase/client";
  * ⚠️ 기본 경로는 당분간 /admin/inquiries 로 유지
  *    (대시보드 페이지가 생기면 '/admin/dashboard' 로 바꾸자)
  */
-const DEFAULT_ADMIN_ENTRY = "/admin/inquiries";
+const DEFAULT_ADMIN_ENTRY = "/admin/dashboard";
 
 type NavItem = { label: string; to: string; emoji?: string; disabled?: boolean };
 
 const NAV_ITEMS: NavItem[] = [
-  { label: "MAIN", to: "/admin/dashboard", emoji: "🏠", disabled: true }, // TODO: 페이지 완성 후 disabled 제거
+  { label: "MAIN", to: "/admin/dashboard", emoji: "🏠" },
   { label: "문의상세", to: "/admin/inquiries", emoji: "🗂️" },
   { label: "기간별 통계", to: "/admin/stats", emoji: "📈", disabled: true }, // TODO
   { label: "계약서 확인", to: "/admin/contracts", emoji: "📄", disabled: true }, // TODO
