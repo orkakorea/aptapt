@@ -659,7 +659,7 @@ export default function MapPage() {
     }
   }
 
-  /* ------------------ 검색 핀 + 반경 5km 오버레이 ------------------ */
+  /* ------------------ 검색 핀 + 반경 1km 오버레이 ------------------ */
   function drawSearchOverlays(latlng: any) {
     const kakao = (window as KakaoNS).kakao;
     if (!kakao?.maps || !mapObjRef.current) return;
@@ -670,29 +670,29 @@ export default function MapPage() {
       radiusCircleRef.current = new kakao.maps.Circle({
         map,
         center: latlng,
-        radius: 5000,                 // 5km
+        radius: 1000,                 // 1km
         strokeWeight: 2,
-        strokeColor: "#6C2DFF",
+        strokeColor: "#FFD400",
         strokeOpacity: 0.6,
         strokeStyle: "solid",
-        fillColor: "#6C2DFF",
-        fillOpacity: 0.32,            // 32% 투명
+        fillColor: "#FFD400",
+        fillOpacity: 0.10,            // 32% 투명
         zIndex: -1000,                // 마커 뒤로
       });
     } else {
-      radiusCircleRef.current.setOptions({ center: latlng, radius: 5000 });
+      radiusCircleRef.current.setOptions({ center: latlng, radius: 1000 });
       radiusCircleRef.current.setZIndex?.(-1000);
       radiusCircleRef.current.setMap(map);
     }
 
-    // 2) “반경 5km” 라벨 (가독성 위해 위에)
+    // 2) “반경 1km” 라벨 (가독성 위해 위에)
     const labelHTML = `
       <div style="
         padding:6px 10px;border-radius:999px;
         background:#6C2DFF;color:#fff;font-size:12px;
         font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,0.15);
         white-space:nowrap;user-select:none;">
-        반경 5km
+        반경 1km
       </div>
     `;
     if (!radiusLabelRef.current) {
