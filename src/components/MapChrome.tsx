@@ -1,5 +1,5 @@
 // src/components/MapChrome.tsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import QuoteModal, { QuoteLineItem } from "./QuoteModal"; // ✅ 모달 import
 import InquiryModal from "./InquiryModal"; // ✅ InquiryModal import
 import { supabase } from "@/integrations/supabase/client"; // ✅ Supabase import
@@ -170,7 +170,7 @@ function classifyProductForPolicy(
 }
 
 
-/** ===== Cart(작은박스) 타입 ====== */
+/** ====== Cart(작은박스) 타입 ====== */
 // ✅ rowKey 보관: 제거 시 정확히 그 행만 보라색 복귀
 type CartItem = {
   id: string;                 // name + product 조합 (UI용)
@@ -189,16 +189,6 @@ type AptStats = {
   monthlyImpressions?: number;
   monitors?: number;
 };
-
-/** ===== 지도 검색 핀/원 오버레이 상태 ===== */
-type Kakao = typeof window & {
-  kakao: any;
-};
-function getGlobalMap(): any | null {
-  // 맵을 생성한 곳에서 한 번만: window.kakaoMap = map; 해두면 여기서 잡아쓴다.
-  const g = window as any;
-  return g.kakaoMap || g.__kakaoMap || g.map || null;
-}
 
 /** ====== 컴포넌트 ====== */
 export default function MapChrome({
@@ -229,11 +219,6 @@ export default function MapChrome({
 
   /** ✅ Supabase에서 받은 단지 통계 캐시 (key: 단지명 정규화) */
   const [statsMap, setStatsMap] = useState<Record<string, AptStats>>({});
-
-  /** ===== 지도 오버레이 ref (검색핀/5km 원/라벨) ===== */
-  const searchPinRef = useRef<any>(null);
-  const searchCircleRef = useRef<any>(null);
-  const radiusLabelRef = useRef<any>(null);
 
   /** 포맷터 */
   const fmtNum = (n?: number, unit = "") =>
@@ -276,181 +261,12 @@ export default function MapChrome({
     }, 0);
   }, [cart]);
 
-  /** ===== 검색 → 기존 로직 유지 + 지도에 핀/5km 원 생성 ===== */
+  /** 검색 실행 */
   const runSearch = () => {
     const q = query.trim();
     if (!q) return;
-    onSearch?.(q); // ✅ 기존 검색 동작 유지
-
-    // 지도에 표시 (카카오 지오코딩/장소검색)
-    placeSearchPinAndCircle(q);
+    onSearch?.(q);
   };
-
-  /** Kakao Geocoder/Places 준비 */
-  function getServices() {
-    const w = window as unknown as Kakao;
-    const kk = (w as any).kakao;
-    if (!kk || !kk.maps) return null;
-    const hasServices = !!kk.maps.services;
-    return {
-      kakao: kk,
-      Geocoder: hasServices ? new kk.maps.services.Geocoder() : null,
-      Places: hasServices ? new kk.maps.services.Places() : null,
-    };
-  }
-
-  /** 기존 핀/원/라벨 정리 */
-  function clearSearchOverlays() {
-    if (searchPinRef.current) {
-      searchPinRef.current.setMap(null);
-      searchPinRef.current = null;
-    }
-    if (searchCircleRef.current) {
-      searchCircleRef.current.setMap(null);
-      searchCircleRef.current = null;
-    }
-    if (radiusLabelRef.current) {
-      radiusLabelRef.current.setMap(null);
-      radiusLabelRef.current = null;
-    }
-  }
-
-  /** 라벨용 커스텀 오버레이 콘텐츠 */
-  function buildRadiusLabelContent() {
-    const el = document.createElement("div");
-    el.style.padding = "2px 6px";
-    el.style.fontSize = "11px";
-    el.style.fontWeight = "600";
-    el.style.background = "rgba(17,17,17,0.75)";
-    el.style.color = "#fff";
-    el.style.borderRadius = "999px";
-    el.style.boxShadow = "0 1px 2px rgba(0,0,0,0.25)";
-    el.style.whiteSpace = "nowrap";
-    el.textContent = "반경 5km";
-    return el;
-  }
-
-  /** 중심(lat,lng)에서 동쪽으로 d미터 이동한 좌표(라벨 위치) */
-  function offsetLngForMeters(lat: number, meters: number) {
-    // 위도 1도 ≒ 111,320m, 경도는 cos(lat) 보정
-    const metersPerDegLng = 111320 * Math.cos((lat * Math.PI) / 180);
-    return meters / metersPerDegLng;
-  }
-
-  /** 지도에 핀 + 5km 원(투명도 32%) + "반경 5km" 라벨 생성 (마커 뒤쪽 zIndex) */
-  function placePinAndCircle(lat: number, lng: number, title?: string) {
-    const services = getServices();
-    const map = getGlobalMap();
-    if (!services || !map) {
-      console.warn("[MapChrome] kakao map/services 준비 안됨. window.kakaoMap = map 지정 필요");
-      return;
-    }
-    const { kakao } = services;
-
-    clearSearchOverlays();
-
-    const center = new kakao.maps.LatLng(lat, lng);
-
-    // 1) 핀(검색 위치)
-    searchPinRef.current = new kakao.maps.Marker({
-      position: center,
-      map,
-      title: title || "검색 위치",
-      zIndex: 0, // 아파트 마커가 1 이상이면 자연스레 뒤/앞 조절됨
-    });
-
-    // 2) 반경 5km 원 (fillOpacity=0.32), 아파트 마커 뒤에(낮은 zIndex)
-    searchCircleRef.current = new kakao.maps.Circle({
-      center,
-      radius: 5000, // 5km
-      strokeWeight: 1,
-      strokeColor: "#6C2DFF",
-      strokeOpacity: 0.6,
-      strokeStyle: "solid",
-      fillColor: "#6C2DFF",
-      fillOpacity: 0.32, // ✅ 요구사항: 32% 투명도
-      zIndex: -10, // ✅ 낮은 zIndex로 "아파트 마커 뒤"에 배치 의도
-      map,
-    });
-
-    // 3) "반경 5km" 라벨: 원의 동쪽 가장자리에 표시
-    const labelNode = buildRadiusLabelContent();
-    const lngOffset = offsetLngForMeters(lat, 5000); // 동쪽 가장자리
-    const labelPos = new kakao.maps.LatLng(lat, lng + lngOffset);
-    radiusLabelRef.current = new kakao.maps.CustomOverlay({
-      position: labelPos,
-      content: labelNode,
-      yAnchor: 0.5,
-      xAnchor: 0.0,
-      zIndex: -9, // 원보다 살짝 위이되, 아파트 마커보단 아래가 되도록 낮게
-      map,
-    });
-
-    // 4) 뷰 조정: 원이 화면에 잘 들어오도록
-    try {
-      const bounds = searchCircleRef.current.getBounds?.();
-      if (bounds) map.setBounds(bounds);
-      else map.panTo(center);
-    } catch {
-      map.panTo(center);
-    }
-  }
-
-  /** 주소→좌표(1차), 실패 시 키워드→좌표(2차) 후 핀/원 생성 */
-  function placeSearchPinAndCircle(text: string) {
-    const services = getServices();
-    const map = getGlobalMap();
-    if (!services || !map) return;
-    const { kakao, Geocoder, Places } = services;
-    if (!kakao || (!Geocoder && !Places)) return;
-
-    const usePin = (lat: number, lng: number, title?: string) => {
-      placePinAndCircle(lat, lng, title);
-    };
-
-    // 1차: 주소 검색
-    if (Geocoder && Geocoder.addressSearch) {
-      Geocoder.addressSearch(text, (result: any, status: string) => {
-        if (status === kakao.maps.services.Status.OK && result?.length > 0) {
-          const r = result[0];
-          const lat = parseFloat(r.y);
-          const lng = parseFloat(r.x);
-          const title =
-            r.address_name ?? r.road_address?.address_name ?? text;
-          usePin(lat, lng, title);
-        } else if (Places && Places.keywordSearch) {
-          // 2차: 키워드(장소) 검색
-          Places.keywordSearch(text, (items: any, st: string) => {
-            if (st === kakao.maps.services.Status.OK && items?.length > 0) {
-              const p = items[0];
-              const lat = parseFloat(p.y);
-              const lng = parseFloat(p.x);
-              usePin(lat, lng, p.place_name);
-            } else {
-              alert("검색 결과가 없습니다. 검색어를 바꿔보세요.");
-            }
-          });
-        } else {
-          alert("검색에 실패했습니다.");
-        }
-      });
-      return;
-    }
-
-    // services에 Geocoder가 없다면 바로 Places 시도
-    if (Places && Places.keywordSearch) {
-      Places.keywordSearch(text, (items: any, st: string) => {
-        if (st === kakao.maps.services.Status.OK && items?.length > 0) {
-          const p = items[0];
-          const lat = parseFloat(p.y);
-          const lng = parseFloat(p.x);
-          usePin(lat, lng, p.place_name);
-        } else {
-          alert("검색 결과가 없습니다. 검색어를 바꿔보세요.");
-        }
-      });
-    }
-  }
 
   /** ✅ Supabase 조회 함수 (raw_places 한글 컬럼명 사용) */
   async function fetchStatsByNames(names: string[]) {
