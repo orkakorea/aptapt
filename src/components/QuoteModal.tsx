@@ -166,7 +166,7 @@ export default function QuoteModal({
   // 타이틀의 가운데 "-" 제거
   title = "응답하라 입주민이여",
   // 부제목 교체
-  subtitle = "주식회사 오르카코리아 아파트 엘리베이터 광고 견적안",
+  subtitle = "주식회사 오르카코리아 아파트 엘리베이터 광고 견적",
 }: QuoteModalProps) {
   if (typeof document === "undefined") return null;
   if (!open) return null;
@@ -180,7 +180,7 @@ export default function QuoteModal({
     return {
       position: "absolute",
       inset: 0,
-      opacity: 0.15,
+      opacity: 0.08,
       transform: "rotate(-30deg) scale(1.4)",
       transformOrigin: "center",
       backgroundImage: buildWatermarkDataURL(text),
