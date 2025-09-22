@@ -3,7 +3,6 @@ import React, { useMemo } from "react";
 /** =========================================
  *  외부에서 사용하는 라인아이템 타입 (Named Export)
  *  - MapChrome.tsx 등에서 import { QuoteLineItem } ... 형태로 사용
- *  - 일부 필드는 선택(optional)로 두어 유연성 확보
  * ========================================= */
 export type QuoteLineItem = {
   id: string;
@@ -19,11 +18,11 @@ export type QuoteLineItem = {
   monitors?: number;
   baseMonthly?: number;         // 월광고료(기준)
 
-  /** 선택 확장 필드: 최종 라인합계/월가 등 외부에서 계산해 전달할 수 있음 */
-  monthlyPrice?: number;        // 할인/정책 반영된 "월" 금액 (있으면 사용)
-  lineTotal?: number;           // 할인/정책 포함된 라인 합계 (있으면 사용)
+  // (선택) 외부에서 계산된 값이 있으면 우선 사용
+  monthlyPrice?: number;        // 할인 반영된 월 가격
+  lineTotal?: number;           // 라인 합계(월가*개월)
 
-  productKeyHint?: string;      // 할인 정책 키 힌트
+  productKeyHint?: string;      // 할인정책 키 힌트(선택)
 };
 
 /** =========================================
@@ -43,26 +42,18 @@ type QuoteModalProps = {
 };
 
 /** =========================================
- *  계산 유틸
- *  - 외부에서 lineTotal/monthlyPrice를 주면 우선 사용
- *  - 없을 때는 baseMonthly * months 로 보수적 계산
- *  - VAT는 10% 가정 (스샷 기준)
+ *  계산/표시 유틸
  * ========================================= */
 const VAT_RATE = 0.1;
 
 function getLineTotal(it: QuoteLineItem): number {
-  if (typeof it.lineTotal === "number") return it.lineTotal;
-  // 월가(할인 반영) * 개월수 우선
-  if (typeof it.monthlyPrice === "number") {
+  if (typeof it.lineTotal === "number") return Math.max(0, Math.round(it.lineTotal));
+  if (typeof it.monthlyPrice === "number")
     return Math.max(0, Math.round(it.monthlyPrice * (it.months || 1)));
-  }
-  // 없으면 기준 월광고료(baseMonthly) * 개월수
-  if (typeof it.baseMonthly === "number") {
+  if (typeof it.baseMonthly === "number")
     return Math.max(0, Math.round(it.baseMonthly * (it.months || 1)));
-  }
   return 0;
 }
-
 function fmtWon(n: number): string {
   try {
     return n.toLocaleString("ko-KR") + "원";
@@ -72,9 +63,9 @@ function fmtWon(n: number): string {
 }
 
 /** =========================================
- *  워터마크 오버레이
- *  - 모달 내부에만 깔림
- *  - 텍스트 기반(해상도 독립, PDF 내보내기 유리)
+ *  촘촘한 텍스트 워터마크 오버레이
+ *  - 모달 내부에만 적용 (absolute/relative 컨테이너)
+ *  - 훨씬 더 촘촘: 기본 rows/cols ↑, 글자 크기 ↓, 자간 약간
  * ========================================= */
 const WatermarkOverlay: React.FC<{
   text?: string;
@@ -85,8 +76,8 @@ const WatermarkOverlay: React.FC<{
 }> = ({
   text = "ORKA KOREA ALL RIGHTS RESERVED",
   angleDeg = -30,
-  rows = 6,
-  cols = 6,
+  rows = 14,     // 촘촘도를 크게 올림 (기존 대비 ↑)
+  cols = 14,     // 촘촘도를 크게 올림 (기존 대비 ↑)
   className = "",
 }) => {
   const total = rows * cols;
@@ -99,7 +90,7 @@ const WatermarkOverlay: React.FC<{
       }
     >
       <div
-        className="absolute left-1/2 top-1/2 h-[200%] w-[200%] -translate-x-1/2 -translate-y-1/2 opacity-5"
+        className="absolute left-1/2 top-1/2 h-[220%] w-[220%] -translate-x-1/2 -translate-y-1/2 opacity-5"
         style={{ transform: `translate(-50%, -50%) rotate(${angleDeg}deg)` }}
       >
         <div
@@ -111,7 +102,7 @@ const WatermarkOverlay: React.FC<{
         >
           {Array.from({ length: total }).map((_, i) => (
             <div key={i} className="flex items-center justify-center">
-              <span className="select-none whitespace-nowrap text-lg md:text-2xl font-semibold tracking-[0.35em] uppercase text-gray-900/90">
+              <span className="select-none whitespace-nowrap text-[10px] md:text-xs font-semibold tracking-[0.35em] uppercase text-gray-900/90">
                 {text}
               </span>
             </div>
@@ -150,14 +141,14 @@ const QuoteModal: React.FC<QuoteModalProps> = ({
 
       {/* Panel (워터마크 적용 컨테이너) */}
       <div className="absolute left-1/2 top-8 w-[calc(100%-32px)] max-w-[1120px] -translate-x-1/2 rounded-2xl bg-white shadow-2xl border border-gray-100 overflow-hidden">
-        {/* 워터마크 */}
-        <WatermarkOverlay text={watermarkText} />
+        {/* 워터마크: 매우 촘촘 */}
+        <WatermarkOverlay text={watermarkText} rows={18} cols={18} />
 
         {/* Header */}
         <div className="relative z-10 flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-white/70 backdrop-blur-[1px]">
           <div>
             <div className="text-lg font-semibold">아파트 모니터광고 견적내용</div>
-            <div className="text-xs text-gray-500">단위: 원 / VAT 별도</div>
+            <div className="text-xs text-gray-500">(단위 · 원 / VAT별도)</div>
           </div>
           <button
             onClick={onClose}
@@ -197,6 +188,7 @@ const QuoteModal: React.FC<QuoteModalProps> = ({
                     </td>
                   </tr>
                 )}
+
                 {items.map((it) => {
                   const line = getLineTotal(it);
                   return (
@@ -205,9 +197,7 @@ const QuoteModal: React.FC<QuoteModalProps> = ({
                       <Td className="text-center">
                         {it.months ? `${it.months}개월` : "—"}
                       </Td>
-                      <Td className="text-center">
-                        {it.mediaName || "—"}
-                      </Td>
+                      <Td className="text-center">{it.mediaName || "—"}</Td>
                       <Td className="text-center">
                         {it.households ? `${it.households}세대` : "—"}
                       </Td>
@@ -228,12 +218,15 @@ const QuoteModal: React.FC<QuoteModalProps> = ({
                     </tr>
                   );
                 })}
+
                 {items.length > 0 && (
                   <tr className="bg-gray-50 border-t border-gray-100">
                     <Td colSpan={7} className="text-right font-semibold">
                       TOTAL
                     </Td>
-                    <Td className="text-right font-semibold">{fmtWon(subtotal)}</Td>
+                    <Td className="text-right font-semibold">
+                      {fmtWon(subtotal)}
+                    </Td>
                   </tr>
                 )}
               </tbody>
@@ -249,7 +242,10 @@ const QuoteModal: React.FC<QuoteModalProps> = ({
             <div className="mt-2 flex items-center justify-between">
               <div className="text-base font-semibold">최종광고료</div>
               <div className="text-2xl font-extrabold text-[#6C2DFF]">
-                {fmtWon(total)} <span className="text-sm font-medium text-gray-500">(VAT 포함)</span>
+                {fmtWon(total)}{" "}
+                <span className="text-sm font-medium text-gray-500">
+                  (VAT 포함)
+                </span>
               </div>
             </div>
           </div>
@@ -270,7 +266,7 @@ const QuoteModal: React.FC<QuoteModalProps> = ({
 };
 
 /** =========================
- *  작은 프레젠테이션용 컴포넌트
+ *  프레젠테이션용 셀
  * ========================= */
 const Th: React.FC<React.PropsWithChildren<{ className?: string }>> = ({
   className,
@@ -294,3 +290,4 @@ const Td: React.FC<
 );
 
 export default QuoteModal;
+
