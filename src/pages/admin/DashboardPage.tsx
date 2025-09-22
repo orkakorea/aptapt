@@ -66,57 +66,47 @@ const DashboardPage: React.FC = () => {
       try {
         const sb: any = supabase;
 
-        // === KPI: count 전용 호출들 ===
-        const [
-          totalRes,
-          validRes,
-          invalidRes,
-          unreadRes,
-          inprogRes,
-          doneRes,
-          todayNewRes,
-        ] = await Promise.all([
-          sb.from("inquiries").select("id", { count: "exact", head: true }),
-          sb.from("inquiries").select("id", { count: "exact", head: true }).eq("valid", true),
-          sb.from("inquiries").select("id", { count: "exact", head: true }).eq("valid", false),
-          sb.from("inquiries").select("id", { count: "exact", head: true }).eq("status", "new"),
-          sb.from("inquiries").select("id", { count: "exact", head: true }).eq("status", "in_progress"),
-          sb.from("inquiries").select("id", { count: "exact", head: true }).eq("status", "done"),
-          sb
-            .from("inquiries")
-            .select("id", { count: "exact", head: true })
-            .gte("created_at", toIso(todayStart))
-            .lt("created_at", toIso(todayEnd)),
-        ]);
+// === KPI: count 전용 호출들 (안전 모드) ===
+// 실제 스키마에 status/valid 없으므로 "총 개수"와 "오늘 신규"만 서버 카운트
+const [totalRes, todayNewRes] = await Promise.all([
+  sb.from("inquiries").select("id", { count: "exact", head: true }),
+  sb
+    .from("inquiries")
+    .select("id", { count: "exact", head: true })
+    .gte("created_at", toIso(todayStart))
+    .lt("created_at", toIso(todayEnd)),
+]);
 
-        if (anyError([totalRes, validRes, invalidRes, unreadRes, inprogRes, doneRes, todayNewRes])) {
-          throw new Error("KPI 집계 중 오류가 발생했습니다.");
-        }
+if (anyError([totalRes, todayNewRes])) {
+  throw new Error("기본 KPI 집계 실패");
+}
 
-        const k: Kpis = {
-          todayNew: todayNewRes.count ?? 0,
-          unread: unreadRes.count ?? 0,
-          total: totalRes.count ?? 0,
-          valid: validRes.count ?? 0,
-          invalid: invalidRes.count ?? 0,
-          inProgress: inprogRes.count ?? 0,
-          done: doneRes.count ?? 0,
-        };
+const k: Kpis = {
+  todayNew: todayNewRes.count ?? 0,
+  unread: 0,       // 칼럼 연결 전까지 0
+  total: totalRes.count ?? 0,
+  valid: 0,        // 칼럼 연결 전까지 0
+  invalid: 0,      // 칼럼 연결 전까지 0
+  inProgress: 0,   // 칼럼 연결 전까지 0
+  done: 0,         // 칼럼 연결 전까지 0
+};
 
-        // === 차트용 원본 데이터 (최근 6개월 / 최근 7일) ===
-        // created_at, valid, status 만 조회
-        const [{ data: sixM }, { data: sevenD }] = await Promise.all([
-          sb
-            .from("inquiries")
-            .select("id, created_at, valid, status")
-            .gte("created_at", toIso(sixMonthsAgo))
-            .order("created_at", { ascending: true }),
-          sb
-            .from("inquiries")
-            .select("id, created_at, valid, status")
-            .gte("created_at", toIso(sevenDaysAgo))
-            .order("created_at", { ascending: true }),
-        ]);
+
+// === 차트용 원본 데이터 (최근 6개월 / 최근 7일) ===
+// 안전하게 id, created_at만 조회
+const [{ data: sixM }, { data: sevenD }] = await Promise.all([
+  sb
+    .from("inquiries")
+    .select("id, created_at")
+    .gte("created_at", toIso(sixMonthsAgo))
+    .order("created_at", { ascending: true }),
+  sb
+    .from("inquiries")
+    .select("id, created_at")
+    .gte("created_at", toIso(sevenDaysAgo))
+    .order("created_at", { ascending: true }),
+]);
+
 
         // 월별 추이
         const monthMap = new Map<string, number>();
@@ -134,24 +124,15 @@ const DashboardPage: React.FC = () => {
         });
         const monthSeries: ChartMonthPoint[] = Array.from(monthMap.entries()).map(([month, count]) => ({ month, count }));
 
-        // 유효/무효 도넛
-        const validCount = (sixM || []).filter((r: any) => !!r.valid).length;
-        const invalidCount = (sixM || []).filter((r: any) => r.valid === false).length;
-        const validSeries: ChartDonutPoint[] = [
-          { name: "유효", value: validCount },
-          { name: "무효", value: invalidCount },
-        ];
+// 유효/무효 도넛 (칼럼 미연결 상태에서는 0으로 표시)
+const validSeries: ChartDonutPoint[] = [
+  { name: "유효", value: 0 },
+  { name: "무효", value: 0 },
+];
 
-        // 처리 상태 도넛
-        const statusBuckets: Record<string, number> = {};
-        (sixM || []).forEach((r: any) => {
-          const s: InquiryStatus = r.status || "pending";
-          statusBuckets[s] = (statusBuckets[s] || 0) + 1;
-        });
-        const statusSeries: ChartDonutPoint[] = Object.entries(statusBuckets).map(([name, value]) => ({
-          name: toStatusLabel(name as InquiryStatus),
-          value,
-        }));
+// 처리 상태 도넛 (칼럼 미연결 상태에서는 비워둠)
+const statusSeries: ChartDonutPoint[] = [];
+
 
         // 최근 7일 추이
         const dayMap = new Map<string, number>();
