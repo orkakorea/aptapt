@@ -27,28 +27,57 @@ function markerImages(maps: any) {
 }
 
 /* =========================================================================
-   ② Supabase / Kakao 로더
+   ② Kakao SDK 정리 + 로더
    ------------------------------------------------------------------------- */
-// [removed] getSupabase() — use the shared { supabase } from "@/integrations/supabase/client"
+/** Kakao SDK가 다른 경로로 삽입된 흔적을 전부 제거 */
+function cleanupKakaoScripts() {
+  const candidates = Array.from(document.scripts).filter((s) =>
+    s.src.includes("dapi.kakao.com/v2/maps/sdk.js")
+  );
+  candidates.forEach((s) => s.parentElement?.removeChild(s));
 
+  const w = window as any;
+  if (w.kakao) {
+    try { delete w.kakao; } catch { w.kakao = undefined; }
+  }
+}
+
+/** 안전한 단일 로더 */
 function loadKakao(): Promise<any> {
   const w = window as any;
-  if (w.kakao?.maps) return Promise.resolve(w.kakao);
+
+  // 이미 정상 로드
+  if (w.kakao?.maps && typeof w.kakao.maps.LatLng === "function") {
+    return Promise.resolve(w.kakao);
+  }
+  // 동시 호출 가드
+  if (w.__kakaoLoadingPromise) return w.__kakaoLoadingPromise;
+
   const envKey = (import.meta as any).env?.VITE_KAKAO_JS_KEY as string | undefined;
   const key = envKey && envKey.trim() ? envKey : FALLBACK_KAKAO_KEY;
-  return new Promise((resolve, reject) => {
-    const id = "kakao-maps-sdk";
-    if (document.getElementById(id)) {
-      const tryLoad = () => (w.kakao?.maps ? resolve(w.kakao) : setTimeout(tryLoad, 50));
-      return tryLoad();
-    }
+
+  // 기존 잘못 붙은 태그/전역 제거 후 시작
+  cleanupKakaoScripts();
+
+  w.__kakaoLoadingPromise = new Promise((resolve, reject) => {
     const s = document.createElement("script");
-    s.id = id;
+    s.id = "kakao-maps-sdk";
+    s.charset = "utf-8";
     s.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${key}&autoload=false&libraries=services,clusterer`;
-    s.onload = () => { if (!w.kakao) return reject(new Error("kakao object not found")); w.kakao.maps.load(() => resolve(w.kakao)); };
+    s.onload = () => {
+      if (!w.kakao?.maps) return reject(new Error("kakao maps namespace missing"));
+      w.kakao.maps.load(() => {
+        if (typeof w.kakao.maps.LatLng !== "function") {
+          return reject(new Error("LatLng constructor not ready"));
+        }
+        resolve(w.kakao);
+      });
+    };
     s.onerror = () => reject(new Error("Failed to load Kakao Maps SDK"));
     document.head.appendChild(s);
   });
+
+  return w.__kakaoLoadingPromise;
 }
 
 /* =========================================================================
@@ -60,7 +89,8 @@ function readQuery() {
 }
 function writeQuery(v: string) {
   const u = new URL(window.location.href);
-  if (v) u.searchParams.set("q", v); else u.searchParams.delete("q");
+  if (v) u.searchParams.set("q", v);
+  else u.searchParams.delete("q");
   window.history.replaceState(null, "", u.toString());
 }
 function toNumLoose(v: any): number | undefined {
@@ -220,11 +250,16 @@ export default function MapPage() {
   const placesRef = useRef<any>(null);
   const spiderRef = useRef<SpiderController | null>(null);
 
+  // 검색 핀 & 반경(5km) 오버레이
+  const searchPinRef = useRef<any>(null);
+  const radiusCircleRef = useRef<any>(null);
+  const radiusLabelRef = useRef<any>(null);
+
   // 마커/상태/그룹 캐시
-  const markerCacheRef = useRef<Map<string, KMarker>>(new Map()); // key → marker
-  const keyIndexRef = useRef<Record<string, KMarker[]>>({});       // rowKey → markers[]
-  const groupsRef = useRef<Map<string, KMarker[]>>(new Map());     // groupKey → markers[]
-  const selectedRowKeySetRef = useRef<Set<string>>(new Set());     // 담김(노랑) 추적
+  const markerCacheRef = useRef<Map<string, KMarker>>(new Map());
+  const keyIndexRef = useRef<Record<string, KMarker[]>>({});
+  const groupsRef = useRef<Map<string, KMarker[]>>(new Map());
+  const selectedRowKeySetRef = useRef<Set<string>>(new Set());
   const lastReqIdRef = useRef<number>(0);
   const idleTimer = useRef<number | null>(null);
 
@@ -243,8 +278,6 @@ export default function MapPage() {
   // === 그룹 우선순위: 옐로(담김) > 월광고료 내림차순 ===
   const orderAndApplyZIndex = useCallback((arr: KMarker[]) => {
     if (!arr || arr.length <= 1) return arr;
-
-    // 정렬: selected desc, monthlyFee desc
     const sorted = arr.slice().sort((a, b) => {
       const ra = a.__row as PlaceRow;
       const rb = b.__row as PlaceRow;
@@ -252,20 +285,17 @@ export default function MapPage() {
       const bRowKey = buildRowKeyFromRow(rb);
       const aSel = selectedRowKeySetRef.current.has(aRowKey) ? 1 : 0;
       const bSel = selectedRowKeySetRef.current.has(bRowKey) ? 1 : 0;
-      if (aSel !== bSel) return bSel - aSel; // 담김 우선
+      if (aSel !== bSel) return bSel - aSel;
       const aFee = monthlyFeeOf(ra);
       const bFee = monthlyFeeOf(rb);
-      if (aFee !== bFee) return bFee - aFee; // 월광고료 높은 순
-      return 0; // 동점은 원래 순서 유지(안정성)
+      if (aFee !== bFee) return bFee - aFee;
+      return 0;
     });
 
-    // zIndex: 가장 우선(인덱스 0)이 가장 큰 zIndex
-    const TOP = 100000; // 넉넉한 베이스
+    const TOP = 100000;
     for (let i = 0; i < sorted.length; i++) {
       try { sorted[i].setZIndex?.(TOP - i); } catch {}
     }
-
-    // 원본 배열을 교체하여 spiderRef 그룹에도 반영되게
     arr.length = 0;
     sorted.forEach((m) => arr.push(m));
     return arr;
@@ -289,6 +319,9 @@ export default function MapPage() {
     let resizeHandler: any;
     let map: any;
 
+    // 시작할 때 혹시 남아있을지도 모르는 중복 SDK 제거
+    cleanupKakaoScripts();
+
     loadKakao()
       .then((kakao) => {
         setKakaoError(null);
@@ -299,6 +332,10 @@ export default function MapPage() {
         const center = new kakao.maps.LatLng(37.5665, 126.978);
         map = new kakao.maps.Map(mapRef.current, { center, level: 6 });
         mapObjRef.current = map;
+
+        // MapChrome 등에서 필요 시 접근할 수 있게 전역으로도 꽂아둠(선택)
+        (window as any).kakaoMap = map;
+        (window as any).__kakaoMap = map;
 
         placesRef.current = new kakao.maps.services.Places();
         clustererRef.current = new kakao.maps.MarkerClusterer({
@@ -312,12 +349,9 @@ export default function MapPage() {
           m.setLevel(Math.max(m.getLevel() - 1, 1), { anchor: cluster.getCenter() });
         });
 
-        // 사용자 지도 조작 시에만 unspiderfy
         kakao.maps.event.addListener(map, "zoom_changed", () => spiderRef.current?.unspiderfy());
         kakao.maps.event.addListener(map, "dragstart", () => spiderRef.current?.unspiderfy());
         kakao.maps.event.addListener(map, "click", () => spiderRef.current?.unspiderfy());
-
-        // idle에서는 마커 데이터만 업데이트 (★ unspiderfy 하지 않음)
         kakao.maps.event.addListener(map, "idle", () => debounceIdle(loadMarkersInBounds, 250));
 
         setTimeout(() => map && map.relayout(), 0);
@@ -335,7 +369,19 @@ export default function MapPage() {
         setKakaoError(err?.message || String(err));
       });
 
-    return () => window.removeEventListener("resize", resizeHandler);
+    return () => {
+      window.removeEventListener("resize", resizeHandler);
+      const w = window as any;
+      if (w.kakaoMap === mapObjRef.current) w.kakaoMap = null;
+      if (w.__kakaoMap === mapObjRef.current) w.__kakaoMap = null;
+
+      // 검색 오버레이 정리
+      try {
+        radiusCircleRef.current?.setMap(null);
+        radiusLabelRef.current?.setMap(null);
+        searchPinRef.current?.setMap?.(null);
+      } catch {}
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -358,15 +404,12 @@ export default function MapPage() {
     const list = keyIndexRef.current[rowKey];
     if (list?.length) {
       list.forEach((mk) => {
-        // 클릭 강조 마커는 우선순위 높음(이미지)
         if (lastClickedRef.current && lastClickedRef.current === mk) {
           mk.setImage(imgs.clicked);
         } else {
           mk.setImage(state === "selected" ? imgs.yellow : imgs.purple);
         }
       });
-
-      // ★ 담김/해제 시 해당 그룹 우선순위 재적용 → 옐로 우선/월가 높은 순
       applyGroupPrioritiesForRowKey(rowKey);
     }
   }, [applyGroupPrioritiesForRowKey]);
@@ -403,7 +446,6 @@ export default function MapPage() {
     const rows = (data ?? []) as PlaceRow[];
     const imgs = markerImages(maps);
 
-    // 이번 프레임 key 집합 및 그룹 구성
     const nowKeys = new Set<string>();
     const groups = new Map<string, KMarker[]>();
     const keyOf = (row: PlaceRow) => {
@@ -414,9 +456,7 @@ export default function MapPage() {
       return `${lat.toFixed(7)},${lng.toFixed(7)}|${idPart}|${prod}|${loc}`;
     };
 
-    // rowKey 인덱스 초기화
     keyIndexRef.current = {};
-
     const toAdd: KMarker[] = [];
     const newMarkers: KMarker[] = [];
 
@@ -430,11 +470,9 @@ export default function MapPage() {
       let mk = markerCacheRef.current.get(key);
       const lat = Number(row.lat), lng = Number(row.lng);
       const pos = new maps.LatLng(lat, lng);
-
       const nameText = String(getField(row, ["단지명","name","아파트명"]) || "");
 
       if (!mk) {
-        // 새 마커
         const isSelected = selectedRowKeySetRef.current.has(rowKey);
         mk = new maps.Marker({
           position: pos,
@@ -445,7 +483,6 @@ export default function MapPage() {
         mk.__basePos = pos;
         mk.__row = row;
 
-        // 클릭 핸들러
         maps.event.addListener(mk, "click", () => {
           const name = getField(row, ["단지명","단지 명","name","아파트명"]) || "";
           const address = getField(row, ["주소","도로명주소","지번주소","address"]) || "";
@@ -472,10 +509,8 @@ export default function MapPage() {
           };
           setSelected(sel);
 
-          // 같은 좌표 군을 spiderfy (★ idle 재로딩 시에도 펼침 유지)
           spiderRef.current?.spiderfy(groupKeyFromRow(row));
 
-          // 이전 클릭 복구
           if (lastClickedRef.current && lastClickedRef.current !== mk) {
             const prev = lastClickedRef.current;
             const prevRow = prev.__row as PlaceRow;
@@ -483,7 +518,6 @@ export default function MapPage() {
             const prevSelected = selectedRowKeySetRef.current.has(prevRowKey);
             prev.setImage(prevSelected ? imgs.yellow : imgs.purple);
           }
-          // 현재 클릭 강조
           mk.setImage(imgs.clicked);
           lastClickedRef.current = mk;
         });
@@ -491,24 +525,17 @@ export default function MapPage() {
         markerCacheRef.current.set(key, mk);
         toAdd.push(mk);
       } else {
-        // 위치/타이틀 최신화
         mk.setPosition(pos);
         if (mk.getTitle?.() !== nameText) mk.setTitle?.(nameText);
-
-        // 선택/클릭 상태 유지
         const isSelected = selectedRowKeySetRef.current.has(rowKey);
         let imgToUse = isSelected ? imgs.yellow : imgs.purple;
-        if (lastClickedRef.current && lastClickedRef.current.__key === key) {
-          imgToUse = imgs.clicked;
-        }
+        if (lastClickedRef.current && lastClickedRef.current.__key === key) imgToUse = imgs.clicked;
         mk.setImage(imgToUse);
       }
 
-      // rowKey → markers 인덱싱
       if (!keyIndexRef.current[rowKey]) keyIndexRef.current[rowKey] = [];
       keyIndexRef.current[rowKey].push(mk);
 
-      // 그룹 구성
       const gk = groupKeyFromRow(row);
       if (!groups.has(gk)) groups.set(gk, []);
       groups.get(gk)!.push(mk);
@@ -516,10 +543,8 @@ export default function MapPage() {
       newMarkers.push(mk);
     });
 
-    // 1) 새로 추가할 마커만 add
     if (toAdd.length) clusterer.addMarkers(toAdd);
 
-    // 2) 빠진 마커만 제거
     const toRemove: KMarker[] = [];
     markerCacheRef.current.forEach((mk, key) => {
       if (!nowKeys.has(key)) {
@@ -529,19 +554,15 @@ export default function MapPage() {
     });
     if (toRemove.length) clusterer.removeMarkers(toRemove);
 
-    // 클릭 마커가 제거됐다면 참조 해제
     if (lastClickedRef.current && toRemove.includes(lastClickedRef.current)) {
       lastClickedRef.current = null;
     }
 
-    // ★ 그룹 우선순위 적용(옐로 우선 → 월가 높은 순) + zIndex 부여
     applyGroupPrioritiesMap(groups);
 
-    // spiderfy 그룹 최신화 + 보관
     spiderRef.current?.setGroups(groups);
     groupsRef.current = groups;
 
-    // 0건이면 → 확장 바운드 1회 재시도
     if (!newMarkers.length) {
       const pad = expandBounds(bounds, 0.12);
       const { data: data2, error: err2 } = await supabase
@@ -615,18 +636,15 @@ export default function MapPage() {
 
         markerCacheRef.current.set(key, mk);
 
-        // 상태 반영
         let imgToUse = isSelected ? imgs.yellow : imgs.purple;
         if (lastClickedRef.current && lastClickedRef.current.__key === key) imgToUse = imgs.clicked;
         mk.setImage(imgToUse);
 
-        // 인덱싱/클러스터
         if (!keyIndexRef.current[rowKey]) keyIndexRef.current[rowKey] = [];
         keyIndexRef.current[rowKey].push(mk);
         clusterer.addMarker(mk);
       });
 
-      // 그룹 갱신(전체 캐시에서 재구성)
       const groups2 = new Map<string, KMarker[]>();
       markerCacheRef.current.forEach((m) => {
         const r = m.__row as PlaceRow;
@@ -635,10 +653,78 @@ export default function MapPage() {
         groups2.get(gk)!.push(m);
       });
 
-      // ★ 우선순위 재적용 + 보관/적용
       applyGroupPrioritiesMap(groups2);
       spiderRef.current?.setGroups(groups2);
       groupsRef.current = groups2;
+    }
+  }
+
+  /* ------------------ 검색 핀 + 반경 5km 오버레이 ------------------ */
+  function drawSearchOverlays(latlng: any) {
+    const kakao = (window as KakaoNS).kakao;
+    if (!kakao?.maps || !mapObjRef.current) return;
+    const map = mapObjRef.current;
+
+    // 1) 반경 5km 원 (마커 뒤에)
+    if (!radiusCircleRef.current) {
+      radiusCircleRef.current = new kakao.maps.Circle({
+        map,
+        center: latlng,
+        radius: 5000,                 // 5km
+        strokeWeight: 2,
+        strokeColor: "#6C2DFF",
+        strokeOpacity: 0.6,
+        strokeStyle: "solid",
+        fillColor: "#6C2DFF",
+        fillOpacity: 0.32,            // 32% 투명
+        zIndex: -1000,                // 마커 뒤로
+      });
+    } else {
+      radiusCircleRef.current.setOptions({ center: latlng, radius: 5000 });
+      radiusCircleRef.current.setZIndex?.(-1000);
+      radiusCircleRef.current.setMap(map);
+    }
+
+    // 2) “반경 5km” 라벨 (가독성 위해 위에)
+    const labelHTML = `
+      <div style="
+        padding:6px 10px;border-radius:999px;
+        background:#6C2DFF;color:#fff;font-size:12px;
+        font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,0.15);
+        white-space:nowrap;user-select:none;">
+        반경 5km
+      </div>
+    `;
+    if (!radiusLabelRef.current) {
+      radiusLabelRef.current = new kakao.maps.CustomOverlay({
+        map,
+        position: latlng,
+        content: labelHTML,
+        yAnchor: 1.6,            // 핀 머리 위쪽에 뜨도록
+        zIndex: 1000000,         // 라벨은 위로
+      });
+    } else {
+      radiusLabelRef.current.setPosition(latlng);
+      radiusLabelRef.current.setContent(labelHTML);
+      radiusLabelRef.current.setMap(map);
+      radiusLabelRef.current.setZIndex?.(1000000);
+    }
+
+    // 3) 검색 핀 (보라색 핀 재활용)
+    const imgs = markerImages(kakao.maps);
+    if (!searchPinRef.current) {
+      searchPinRef.current = new kakao.maps.Marker({
+        map,
+        position: latlng,
+        image: imgs.purple,
+        zIndex: 500000, // 마커들 위로 (원 위/라벨 아래 상관없음)
+        clickable: false,
+      });
+    } else {
+      searchPinRef.current.setPosition(latlng);
+      searchPinRef.current.setImage(imgs.purple);
+      searchPinRef.current.setZIndex?.(500000);
+      searchPinRef.current.setMap(map);
     }
   }
 
@@ -653,8 +739,14 @@ export default function MapPage() {
       const lat = Number(first.y), lng = Number(first.x);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
       const latlng = new kakao.maps.LatLng(lat, lng);
+
       mapObjRef.current.setLevel(4);
       mapObjRef.current.setCenter(latlng);
+
+      // ✅ 검색 지점에 핀 찍고, 5km 원(32%) + "반경 5km" 라벨 추가/갱신
+      drawSearchOverlays(latlng);
+
+      // 주변 마커 재로딩
       loadMarkersInBounds();
     });
   }
@@ -674,7 +766,6 @@ export default function MapPage() {
         onCloseSelected={closeSelected}
         onSearch={handleSearch}
         initialQuery={initialQ}
-        // ✅ 이름이 아닌 "rowKey" 기준으로 아이콘 상태 토글 + 그룹 우선순위 반영
         setMarkerStateByRowKey={setMarkerStateByRowKey}
       />
       {kakaoError && (
@@ -685,4 +776,3 @@ export default function MapPage() {
     </div>
   );
 }
-
