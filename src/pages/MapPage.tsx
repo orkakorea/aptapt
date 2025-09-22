@@ -251,9 +251,11 @@ export default function MapPage() {
   const spiderRef = useRef<SpiderController | null>(null);
 
   // 검색 핀 & 반경(1km) 오버레이
-  const searchPinRef = useRef<any>(null);
-  const radiusCircleRef = useRef<any>(null);
-  const radiusLabelRef = useRef<any>(null);
+const searchPinRef = useRef<any>(null);
+const radiusCircleRef = useRef<any>(null);
+const radiusLabelRef = useRef<any>(null);
+const xMarkRef = useRef<any>(null);   // ← 추가
+
 
   // 마커/상태/그룹 캐시
   const markerCacheRef = useRef<Map<string, KMarker>>(new Map());
@@ -374,10 +376,11 @@ export default function MapPage() {
       if (w.__kakaoMap === mapObjRef.current) w.__kakaoMap = null;
 
       try {
-        radiusCircleRef.current?.setMap(null);
-        radiusLabelRef.current?.setMap(null);
-        searchPinRef.current?.setMap?.(null);
-      } catch {}
+  radiusCircleRef.current?.setMap(null);
+  radiusLabelRef.current?.setMap(null);
+  searchPinRef.current?.setMap?.(null);
+  xMarkRef.current?.setMap?.(null);    // ← 추가
+} catch {}
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -729,38 +732,6 @@ export default function MapPage() {
       searchPinRef.current.setZIndex?.(500000);
       searchPinRef.current.setMap(map);
     }
-    // 4) 마커 위 X표시 (라벨보다 살짝 아래, 핀보다 위)
-const xHTML = `
-  <div style="
-    width:24px;height:24px;
-    pointer-events:none;
-    display:flex;align-items:center;justify-content:center;
-  ">
-    <svg width="24" height="24" viewBox="0 0 24 24"
-         xmlns="http://www.w3.org/2000/svg"
-         style="filter: drop-shadow(0 1px 2px rgba(0,0,0,0.35));">
-      <line x1="4" y1="4" x2="20" y2="20" stroke="#FFD400" stroke-width="3" stroke-linecap="round"/>
-      <line x1="20" y1="4" x2="4" y2="20" stroke="#FFD400" stroke-width="3" stroke-linecap="round"/>
-    </svg>
-  </div>
-`;
-
-if (!xMarkRef.current) {
-  xMarkRef.current = new kakao.maps.CustomOverlay({
-    map,
-    position: latlng,
-    content: xHTML,
-    xAnchor: 0.5,   // 중심 정렬
-    yAnchor: 0.5,   // 중심 정렬 (마커 정가운데에 X가 오도록)
-    zIndex: 800000, // 라벨(1000000)보단 아래, 핀(500000)보단 위면 600~900k 추천
-  });
-} else {
-  xMarkRef.current.setPosition(latlng);
-  xMarkRef.current.setContent(xHTML);
-  xMarkRef.current.setZIndex?.(800000);
-  xMarkRef.current.setMap(map);
-}
-
   }
 
   /* ------------------ 장소 검색 → 이동 ------------------ */
