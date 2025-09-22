@@ -254,6 +254,7 @@ export default function MapPage() {
   const searchPinRef = useRef<any>(null);
   const radiusCircleRef = useRef<any>(null);
   const radiusLabelRef = useRef<any>(null);
+  const xMarkRef = useRef<any>(null);
 
   // 마커/상태/그룹 캐시
   const markerCacheRef = useRef<Map<string, KMarker>>(new Map());
@@ -377,6 +378,7 @@ export default function MapPage() {
         radiusCircleRef.current?.setMap(null);
         radiusLabelRef.current?.setMap(null);
         searchPinRef.current?.setMap?.(null);
+        xMarkRef.current?.setMap?.(null);
       } catch {}
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
