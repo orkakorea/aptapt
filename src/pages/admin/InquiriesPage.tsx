@@ -1,26 +1,18 @@
+// src/pages/admin/InquiriesPage.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
-/**
- * InquiriesPage
- * - 유입경로(SEAT/PACKAGE) 컬럼 추가
- * - 상세 드로어 상단에도 유입경로 배지 표시
- * - 진행상황/유효성/담당자는 목록 테이블에서 드롭다운/인풋으로 수정 가능
- */
-
-type SourceType = "SEAT" | "PACKAGE";
-type InquiryStatus = "new" | "pending" | "assigned" | "contract";
+type InquiryStatus = "new" | "pending" | "in_progress" | "done" | "canceled";
 type Validity = "valid" | "invalid";
 
 type InquiryRow = {
   id: string;
   created_at: string;
-  brand_name?: string | null;
-  campaign_type?: string | null;
   status?: InquiryStatus | null;
   valid?: boolean | null;
-  manager_name?: string | null;
-  source_type?: SourceType | null;
+
+  brand_name?: string | null;
+  campaign_type?: string | null;
   contact_name?: string | null;
   phone?: string | null;
   email?: string | null;
@@ -28,44 +20,39 @@ type InquiryRow = {
   request_note?: string | null;
 };
 
-const STATUS_OPTIONS: { value: InquiryStatus; label: string }[] = [
+const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
+
+const STATUS_OPTIONS = [
+  { value: "all", label: "전체" },
   { value: "new", label: "신규" },
   { value: "pending", label: "대기" },
-  { value: "assigned", label: "배정" },
-  { value: "contract", label: "계약" },
-];
+  { value: "in_progress", label: "진행중" },
+  { value: "done", label: "완료" },
+  { value: "canceled", label: "취소" },
+] as const;
 
-const VALIDITY_OPTIONS: { value: Validity; label: string }[] = [
+const VALIDITY_OPTIONS = [
+  { value: "all", label: "전체" },
   { value: "valid", label: "유효" },
   { value: "invalid", label: "무효" },
-];
+] as const;
 
-const SOURCE_OPTIONS: { value: "all" | SourceType; label: string }[] = [
-  { value: "all", label: "전체" },
-  { value: "SEAT", label: "SEAT" },
-  { value: "PACKAGE", label: "PACKAGE" },
-];
-
-const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
+const TBL = {
+  main: "inquiries",
+  apartments: "inquiry_apartments",
+} as const;
 
 const COL = {
   createdAt: "created_at",
-  brand: "brand_name",
-  campaignType: "campaign_type",
   status: "status",
   valid: "valid",
-  manager: "manager_name",
-  sourceType: "source_type",
+  brand: "brand_name",
+  campaignType: "campaign_type",
   contactName: "contact_name",
   phone: "phone",
   email: "email",
   startWish: "start_at_wish",
   requestNote: "request_note",
-} as const;
-
-const TBL = {
-  main: "inquiries",
-  apartments: "inquiry_apartments",
 } as const;
 
 const APT_COL = {
@@ -75,17 +62,23 @@ const APT_COL = {
 } as const;
 
 const InquiriesPage: React.FC = () => {
-  const [rows, setRows] = useState<InquiryRow[]>([]);
-  const [selected, setSelected] = useState<InquiryRow | null>(null);
+  const [query, setQuery] = useState("");
+  const [status, setStatus] =
+    useState<(typeof STATUS_OPTIONS)[number]["value"]>("all");
+  const [validity, setValidity] =
+    useState<(typeof VALIDITY_OPTIONS)[number]["value"]>("all");
+  const [from, setFrom] = useState<string>("");
+  const [to, setTo] = useState<string>("");
+
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] =
     useState<(typeof PAGE_SIZE_OPTIONS)[number]>(20);
-  const [total, setTotal] = useState(0);
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<"all" | InquiryStatus>("all");
-  const [validity, setValidity] = useState<"all" | Validity>("all");
-  const [sourceType, setSourceType] = useState<"all" | SourceType>("all");
+
+  const [rows, setRows] = useState<InquiryRow[]>([]);
+  const [total, setTotal] = useState<number>(0);
   const [loading, setLoading] = useState(false);
+  const [selected, setSelected] = useState<InquiryRow | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const range = useMemo(() => {
     const fromIdx = (page - 1) * pageSize;
@@ -97,26 +90,31 @@ const InquiriesPage: React.FC = () => {
     let ignore = false;
     const load = async () => {
       setLoading(true);
+      setError(null);
       try {
         const sb: any = supabase;
+
         let base = sb
           .from(TBL.main)
           .select("*", { count: "exact" })
-          .order(COL.createdAt, { ascending: false })
-          .range(range.fromIdx, range.toIdx);
+          .order(COL.createdAt, { ascending: false });
 
-        const { data, error, count } = await base;
+        if (from) base = base.gte(COL.createdAt, `${from}T00:00:00`);
+        if (to) base = base.lte(COL.createdAt, `${to}T23:59:59.999`);
+
+        const { data, error, count } = await base.range(
+          range.fromIdx,
+          range.toIdx
+        );
         if (error) throw error;
 
         const mapped: InquiryRow[] = (data || []).map((d: any) => ({
-          id: String(d.id),
-          created_at: d[COL.createdAt],
+          id: String(d.id ?? ""),
+          created_at: d[COL.createdAt] ?? new Date().toISOString(),
+          status: d[COL.status] ?? null,
+          valid: d[COL.valid] ?? null,
           brand_name: d[COL.brand],
           campaign_type: d[COL.campaignType],
-          status: d[COL.status],
-          valid: d[COL.valid],
-          manager_name: d[COL.manager],
-          source_type: d[COL.sourceType],
           contact_name: d[COL.contactName],
           phone: d[COL.phone],
           email: d[COL.email],
@@ -124,17 +122,22 @@ const InquiriesPage: React.FC = () => {
           request_note: d[COL.requestNote],
         }));
 
-        // 클라이언트 필터
         const filtered = mapped.filter((r) => {
           if (status !== "all" && r.status !== status) return false;
           if (validity !== "all") {
             const v = r.valid ? "valid" : "invalid";
             if (v !== validity) return false;
           }
-          if (sourceType !== "all" && r.source_type !== sourceType) return false;
           if (query.trim()) {
             const q = query.trim().toLowerCase();
-            const hay = [r.brand_name, r.campaign_type, r.manager_name]
+            const hay = [
+              r.brand_name,
+              r.campaign_type,
+              r.contact_name,
+              r.phone,
+              r.email,
+              r.request_note,
+            ]
               .filter(Boolean)
               .join(" ")
               .toLowerCase();
@@ -147,8 +150,8 @@ const InquiriesPage: React.FC = () => {
           setRows(filtered);
           setTotal(count ?? filtered.length);
         }
-      } catch (e) {
-        console.error(e);
+      } catch (e: any) {
+        if (!ignore) setError(e?.message ?? "데이터 로딩 실패");
       } finally {
         if (!ignore) setLoading(false);
       }
@@ -157,7 +160,13 @@ const InquiriesPage: React.FC = () => {
     return () => {
       ignore = true;
     };
-  }, [page, pageSize, query, status, validity, sourceType, range.fromIdx, range.toIdx]);
+  }, [query, status, validity, from, to, range.fromIdx, range.toIdx]);
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [page]);
 
   return (
     <div className="space-y-6">
@@ -166,115 +175,59 @@ const InquiriesPage: React.FC = () => {
       </header>
 
       {/* 테이블 */}
-      <section className="rounded-2xl bg-white border border-gray-100 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-[980px] w-full text-sm">
-            <thead className="bg-gray-50 text-gray-600">
-              <tr>
-                <Th>날짜</Th>
-                <Th className="text-center">유입경로</Th>
-                <Th>브랜드명</Th>
-                <Th>캠페인 유형</Th>
-                <Th>진행상황</Th>
-                <Th>유효성</Th>
-                <Th>담당자</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr
-                  key={r.id}
-                  className="border-t border-gray-100 hover:bg-gray-50"
-                >
-                  <Td>{formatDateTime(r.created_at)}</Td>
-                  <Td className="text-center">
-                    <SourceBadge value={r.source_type} />
-                  </Td>
-                  <Td>
-                    <button
-                      className="text-left text-gray-900 hover:text-[#6C2DFF] font-medium"
-                      onClick={() => setSelected(r)}
-                    >
-                      {r.brand_name || "—"}
-                    </button>
-                  </Td>
-                  <Td>{r.campaign_type || "—"}</Td>
-                  <Td>
-                    <select
-                      value={r.status ?? "new"}
-                      onChange={async (e) => {
-                        const sb: any = supabase;
-                        const { error } = await sb
-                          .from(TBL.main)
-                          .update({ [COL.status]: e.target.value })
-                          .eq("id", r.id);
-                        if (!error) setRows((prev) =>
-                          prev.map((row) =>
-                            row.id === r.id ? { ...row, status: e.target.value as InquiryStatus } : row
-                          )
-                        );
-                      }}
-                      className="border rounded px-2 py-1 text-sm"
-                    >
-                      {STATUS_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
-                  </Td>
-                  <Td>
-                    <select
-                      value={r.valid ? "valid" : "invalid"}
-                      onChange={async (e) => {
-                        const sb: any = supabase;
-                        const next = e.target.value === "valid";
-                        const { error } = await sb
-                          .from(TBL.main)
-                          .update({ [COL.valid]: next })
-                          .eq("id", r.id);
-                        if (!error) setRows((prev) =>
-                          prev.map((row) =>
-                            row.id === r.id ? { ...row, valid: next } : row
-                          )
-                        );
-                      }}
-                      className="border rounded px-2 py-1 text-sm"
-                    >
-                      {VALIDITY_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
-                  </Td>
-                  <Td>
-                    <input
-                      type="text"
-                      defaultValue={r.manager_name || ""}
-                      onBlur={async (e) => {
-                        const sb: any = supabase;
-                        const { error } = await sb
-                          .from(TBL.main)
-                          .update({ [COL.manager]: e.target.value })
-                          .eq("id", r.id);
-                        if (!error) setRows((prev) =>
-                          prev.map((row) =>
-                            row.id === r.id ? { ...row, manager_name: e.target.value } : row
-                          )
-                        );
-                      }}
-                      className="border rounded px-2 py-1 text-sm w-full"
-                    />
-                  </Td>
+      {!loading && (
+        <section className="rounded-2xl bg-white border shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="min-w-[980px] w-full text-sm">
+              <thead className="bg-gray-50 text-gray-600">
+                <tr>
+                  <Th>날짜</Th>
+                  <Th>브랜드명</Th>
+                  <Th>담당자</Th>
+                  <Th>연락처</Th>
+                  <Th>이메일</Th>
+                  <Th className="text-center">진행상황</Th>
+                  <Th className="text-center">유효성</Th>
+                  <Th className="text-center">상세</Th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.id} className="border-t hover:bg-gray-50">
+                    <Td>{formatDateTime(r.created_at)}</Td>
+                    <Td>
+                      <button
+                        className="text-left text-gray-900 hover:text-[#6C2DFF] font-medium"
+                        onClick={() => setSelected(r)}
+                      >
+                        {r.brand_name || "—"}
+                      </button>
+                    </Td>
+                    <Td>{r.contact_name || "—"}</Td>
+                    <Td>{r.phone || "—"}</Td>
+                    <Td>{r.email || "—"}</Td>
+                    <Td className="text-center">
+                      <StatusBadge value={(r.status as any) || "pending"} />
+                    </Td>
+                    <Td className="text-center">
+                      <ValidityBadge value={toValidity(r.valid)} />
+                    </Td>
+                    <Td className="text-center">
+                      <button
+                        onClick={() => setSelected(r)}
+                        className="inline-flex items-center gap-1 rounded-md border px-3 py-1.5 text-xs hover:bg-gray-50"
+                      >
+                        🔍 상세
+                      </button>
+                    </Td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
-      {/* 상세 드로어 */}
       {selected && (
         <DetailDrawer row={selected} onClose={() => setSelected(null)} />
       )}
@@ -284,26 +237,105 @@ const InquiriesPage: React.FC = () => {
 
 export default InquiriesPage;
 
-/* ====== Detail Drawer ====== */
-const DetailDrawer: React.FC<{
-  row: InquiryRow;
-  onClose: () => void;
-}> = ({ row, onClose }) => {
+/* =============== 프레젠테이션 컴포넌트 =============== */
+
+const Th: React.FC<React.PropsWithChildren<{ className?: string }>> = ({
+  className,
+  children,
+}) => (
+  <th className={"px-4 py-3 text-left font-medium " + (className ?? "")}>
+    {children}
+  </th>
+);
+const Td: React.FC<React.PropsWithChildren<{ className?: string }>> = ({
+  className,
+  children,
+}) => <td className={"px-4 py-3 " + (className ?? "")}>{children}</td>;
+
+const StatusBadge: React.FC<{ value: InquiryStatus }> = ({ value }) => {
+  const map: Record<InquiryStatus, { label: string; cn: string }> = {
+    new: { label: "신규", cn: "bg-purple-50 text-purple-700" },
+    pending: { label: "대기", cn: "bg-yellow-50 text-yellow-700" },
+    in_progress: { label: "진행중", cn: "bg-blue-50 text-blue-700" },
+    done: { label: "완료", cn: "bg-green-50 text-green-700" },
+    canceled: { label: "취소", cn: "bg-gray-100 text-gray-600" },
+  };
+  const { label, cn } = map[value] ?? map.pending;
+  return (
+    <span className={"inline-flex px-2 py-0.5 rounded-full text-xs " + cn}>
+      {label}
+    </span>
+  );
+};
+
+const ValidityBadge: React.FC<{ value: Validity }> = ({ value }) => (
+  <span
+    className={
+      "inline-flex px-2 py-0.5 rounded-full text-xs " +
+      (value === "valid"
+        ? "bg-green-50 text-green-700"
+        : "bg-red-50 text-red-700")
+    }
+  >
+    {value === "valid" ? "유효" : "무효"}
+  </span>
+);
+
+/* =============== 상세 드로어 =============== */
+const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({
+  row,
+  onClose,
+}) => {
+  const [aptItems, setAptItems] = useState<
+    { apt_name: string; product_name: string }[]
+  >([]);
+  const [aptLoading, setAptLoading] = useState(true);
+
+  useEffect(() => {
+    let ignore = false;
+    const loadApts = async () => {
+      setAptLoading(true);
+      try {
+        const { data, error } = await (supabase as any)
+          .from(TBL.apartments)
+          .select(`${APT_COL.aptName}, ${APT_COL.productName}`)
+          .eq(APT_COL.inquiryId, row.id)
+          .order(APT_COL.aptName, { ascending: true });
+        if (error) throw error;
+        if (!ignore) {
+          setAptItems(
+            (data || []).map((d: any) => ({
+              apt_name: d[APT_COL.aptName],
+              product_name: d[APT_COL.productName],
+            }))
+          );
+        }
+      } catch (e) {
+        if (!ignore) setAptItems([]);
+      } finally {
+        if (!ignore) setAptLoading(false);
+      }
+    };
+    loadApts();
+    return () => {
+      ignore = true;
+    };
+  }, [row.id]);
+
   return (
     <div className="fixed inset-0 z-40">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
       <div className="absolute right-0 top-0 h-full w-full max-w-[560px] bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+        <div className="flex items-center justify-between border-b px-5 py-4">
           <div>
             <div className="text-sm text-gray-500">브랜드</div>
-            <div className="text-lg font-semibold flex items-center gap-2">
+            <div className="text-lg font-semibold">
               {row.brand_name || "브랜드명 없음"}
-              <SourceBadge value={row.source_type} /> {/* ⬅️ 유입경로 표시 */}
             </div>
           </div>
           <button
             onClick={onClose}
-            className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm hover:bg-gray-50"
+            className="rounded-lg border px-3 py-1.5 text-sm hover:bg-gray-50"
           >
             닫기
           </button>
@@ -312,14 +344,50 @@ const DetailDrawer: React.FC<{
         <div className="p-5 space-y-5 overflow-y-auto h-[calc(100%-56px)]">
           <InfoItem label="문의일시" value={formatDateTime(row.created_at)} />
           <InfoItem label="캠페인 유형" value={row.campaign_type || "—"} />
-          <InfoItem label="담당자명(광고주)" value={row.contact_name || "—"} />
           <InfoItem label="연락처" value={row.phone || "—"} />
-          <InfoItem label="이메일주소" value={row.email || "—"} />
+          <InfoItem label="이메일" value={row.email || "—"} />
           <InfoItem
             label="송출개시희망일"
             value={row.start_at_wish ? formatDateTime(row.start_at_wish) : "—"}
           />
           <InfoItem label="요청사항" value={row.request_note || "—"} />
+
+          {/* 단지/상품 리스트 */}
+          <section>
+            <div className="text-sm font-medium mb-2">제안 단지 / 상품</div>
+            <div className="rounded-lg border overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-gray-600">
+                  <tr>
+                    <th className="px-3 py-2 text-left">단지명</th>
+                    <th className="px-3 py-2 text-left">상품명</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {aptLoading && (
+                    <tr>
+                      <td colSpan={2} className="px-3 py-4 text-gray-500">
+                        불러오는 중…
+                      </td>
+                    </tr>
+                  )}
+                  {!aptLoading && aptItems.length === 0 && (
+                    <tr>
+                      <td colSpan={2} className="px-3 py-4 text-gray-400">
+                        등록된 단지/상품 정보가 없습니다.
+                      </td>
+                    </tr>
+                  )}
+                  {aptItems.map((it, idx) => (
+                    <tr key={idx} className="border-t">
+                      <td className="px-3 py-2">{it.apt_name || "—"}</td>
+                      <td className="px-3 py-2">{it.product_name || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
         </div>
       </div>
     </div>
@@ -336,45 +404,10 @@ const InfoItem: React.FC<{ label: string; value: React.ReactNode }> = ({
   </div>
 );
 
-/* ====== 작은 컴포넌트 ====== */
-const Th: React.FC<React.PropsWithChildren<{ className?: string }>> = ({
-  className,
-  children,
-}) => (
-  <th className={"px-4 py-3 text-left font-medium " + (className ?? "")}>
-    {children}
-  </th>
-);
-
-const Td: React.FC<React.PropsWithChildren<{ className?: string }>> = ({
-  className,
-  children,
-}) => (
-  <td className={"px-4 py-3 align-middle " + (className ?? "")}>{children}</td>
-);
-
-const SourceBadge: React.FC<{ value?: SourceType | null }> = ({ value }) => {
-  if (!value)
-    return (
-      <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-600">
-        —
-      </span>
-    );
-  return (
-    <span
-      className={
-        "inline-flex items-center px-2 py-0.5 text-xs rounded-full " +
-        (value === "SEAT"
-          ? "bg-blue-50 text-blue-700"
-          : "bg-violet-50 text-violet-700")
-      }
-    >
-      {value}
-    </span>
-  );
-};
-
-/* ====== 유틸 ====== */
+/* =============== 유틸 =============== */
+function toValidity(valid?: boolean | null): Validity {
+  return valid ? "valid" : "invalid";
+}
 function formatDateTime(iso: string) {
   try {
     const d = new Date(iso);
