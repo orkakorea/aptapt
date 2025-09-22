@@ -1,54 +1,81 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import React, { useMemo } from "react";
 
-/**
- * InquiriesPage (타입 제약 우회 버전)
- * - 현재 supabase 타입 정의에 'inquiries'가 없어 TS 에러가 발생하므로
- *   최소한의 any 캐스팅으로 빌드는 통과시키고 기능은 정상 동작하게 구성.
- * - select("*") 후 안전 매핑: 존재하지 않는 칼럼은 자동으로 "—" 처리.
- * - 나중에 supabase 타입 재생성 후, 필드명을 확정하면 제네릭 타입으로 되돌리면 됨.
- */
-
-type InquiryStatus = "new" | "pending" | "in_progress" | "done" | "canceled";
-type Validity = "valid" | "invalid";
-
-type InquiryRow = {
+/** =========================================
+ *  외부에서 사용하는 라인아이템 타입 (Named Export)
+ *  - MapChrome.tsx 등에서 import { QuoteLineItem } ... 형태로 사용
+ *  - 일부 필드는 선택(optional)로 두어 유연성 확보
+ * ========================================= */
+export type QuoteLineItem = {
   id: string;
-  created_at: string;
-  status?: InquiryStatus | null;
-  valid?: boolean | null;
-  campaign_name?: string | null;
-  contact_name?: string | null;
-  phone?: string | null;
-  promo_code?: string | null;
-  apt_name?: string | null;
-  memo?: string | null;
-  extra?: any | null;
+  name: string;                 // 단지명
+  months: number;
+  startDate?: string;
+  endDate?: string;
+
+  mediaName?: string;           // 상품명
+  households?: number;
+  residents?: number;
+  monthlyImpressions?: number;
+  monitors?: number;
+  baseMonthly?: number;         // 월광고료(기준)
+
+  /** 선택 확장 필드: 최종 라인합계/월가 등 외부에서 계산해 전달할 수 있음 */
+  monthlyPrice?: number;        // 할인/정책 반영된 "월" 금액 (있으면 사용)
+  lineTotal?: number;           // 할인/정책 포함된 라인 합계 (있으면 사용)
+
+  productKeyHint?: string;      // 할인 정책 키 힌트
 };
 
-const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
+/** =========================================
+ *  모달 Props (Default Export Component)
+ * ========================================= */
+type QuoteModalProps = {
+  open: boolean;
+  items: QuoteLineItem[];
+  onClose: () => void;
+  onSubmitInquiry: (payload: {
+    items: QuoteLineItem[];
+    subtotal: number;
+    vat: number;
+    total: number;
+  }) => void;
+  watermarkText?: string; // 워터마크 문구 커스터마이즈
+};
 
-const STATUS_OPTIONS: { value: "all" | InquiryStatus; label: string }[] = [
-  { value: "all", label: "전체" },
-  { value: "new", label: "신규" },
-  { value: "pending", label: "대기" },
-  { value: "in_progress", label: "진행중" },
-  { value: "done", label: "완료" },
-  { value: "canceled", label: "취소" },
-];
+/** =========================================
+ *  계산 유틸
+ *  - 외부에서 lineTotal/monthlyPrice를 주면 우선 사용
+ *  - 없을 때는 baseMonthly * months 로 보수적 계산
+ *  - VAT는 10% 가정 (스샷 기준)
+ * ========================================= */
+const VAT_RATE = 0.1;
 
-const VALIDITY_OPTIONS: { value: "all" | Validity; label: string }[] = [
-  { value: "all", label: "전체" },
-  { value: "valid", label: "유효" },
-  { value: "invalid", label: "무효" },
-];
+function getLineTotal(it: QuoteLineItem): number {
+  if (typeof it.lineTotal === "number") return it.lineTotal;
+  // 월가(할인 반영) * 개월수 우선
+  if (typeof it.monthlyPrice === "number") {
+    return Math.max(0, Math.round(it.monthlyPrice * (it.months || 1)));
+  }
+  // 없으면 기준 월광고료(baseMonthly) * 개월수
+  if (typeof it.baseMonthly === "number") {
+    return Math.max(0, Math.round(it.baseMonthly * (it.months || 1)));
+  }
+  return 0;
+}
 
-/** =========================
+function fmtWon(n: number): string {
+  try {
+    return n.toLocaleString("ko-KR") + "원";
+  } catch {
+    return `${n}원`;
+  }
+}
+
+/** =========================================
  *  워터마크 오버레이
- *  - 모달/패널 등 특정 컨테이너 안에만 깔림
- *  - 접근성: aria-hidden, pointer-events-none
- *  - 성능: 단순 그리드/텍스트 (이미지 없음), 불투명도 낮게
- * ========================= */
+ *  - 모달 내부에만 깔림
+ *  - 텍스트 기반(해상도 독립, PDF 내보내기 유리)
+ * ========================================= */
 const WatermarkOverlay: React.FC<{
   text?: string;
   angleDeg?: number;
@@ -95,378 +122,156 @@ const WatermarkOverlay: React.FC<{
   );
 };
 
-const InquiriesPage: React.FC = () => {
-  // ====== 필터/검색 상태 ======
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<(typeof STATUS_OPTIONS)[number]["value"]>(
-    "all"
-  );
-  const [validity, setValidity] =
-    useState<(typeof VALIDITY_OPTIONS)[number]["value"]>("all");
-  const [from, setFrom] = useState<string>(""); // YYYY-MM-DD
-  const [to, setTo] = useState<string>(""); // YYYY-MM-DD
+/** =========================================
+ *  견적서 모달 본체 (Default Export)
+ *  - MapChrome.tsx 에서 <QuoteModal open items ... /> 로 사용
+ *  - 워터마크는 모달 컨테이너에만 적용
+ * ========================================= */
+const QuoteModal: React.FC<QuoteModalProps> = ({
+  open,
+  items,
+  onClose,
+  onSubmitInquiry,
+  watermarkText = "ORKA KOREA ALL RIGHTS RESERVED",
+}) => {
+  const { subtotal, vat, total } = useMemo(() => {
+    const sub = items.reduce((acc, it) => acc + getLineTotal(it), 0);
+    const v = Math.round(sub * VAT_RATE);
+    const t = sub + v;
+    return { subtotal: sub, vat: v, total: t };
+  }, [items]);
 
-  // ====== 페이지네이션 ======
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] =
-    useState<(typeof PAGE_SIZE_OPTIONS)[number]>(20);
-
-  // ====== 데이터 상태 ======
-  const [rows, setRows] = useState<InquiryRow[]>([]);
-  const [total, setTotal] = useState<number>(0);
-  const [loading, setLoading] = useState(false);
-  const [selected, setSelected] = useState<InquiryRow | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const range = useMemo(() => {
-    const fromIdx = (page - 1) * pageSize;
-    const toIdx = fromIdx + pageSize - 1;
-    return { fromIdx, toIdx };
-  }, [page, pageSize]);
-
-  // ====== 데이터 로딩 ======
-  useEffect(() => {
-    let ignore = false;
-
-    const load = async () => {
-      setLoading(true);
-      setError(null);
-
-      try {
-        // any로 한정된 지역 변수에서만 캐스팅
-        const sb: any = supabase;
-
-        // 1) 기본 쿼리
-        let base = sb.from("inquiries").select("*", { count: "exact" });
-
-        // 검색(여러 필드에 or) — 칼럼이 없어도 서버에서 무시되도록, 우선 id/phone 정도만 안전하게
-        if (query.trim()) {
-          const q = query.trim();
-          base = base.or([`id.ilike.%${q}%`, `phone.ilike.%${q}%`].join(","));
-        }
-
-        // 날짜 범위 (created_at)
-        if (from) base = base.gte("created_at", `${from}T00:00:00`);
-        if (to) base = base.lte("created_at", `${to}T23:59:59.999`);
-
-        // 정렬 + 페이지 범위
-        base = base.order("created_at", { ascending: false });
-
-        const { data, error, count } = await base.range(
-          range.fromIdx,
-          range.toIdx
-        );
-
-        if (error) throw error;
-        if (ignore) return;
-
-        // 2) 안전 매핑
-        const mapped: InquiryRow[] = (data || []).map((d: any) => ({
-          id: String(d.id ?? ""),
-          created_at: d.created_at ?? new Date().toISOString(),
-          status: (d.status as InquiryStatus) ?? null,
-          valid: typeof d.valid === "boolean" ? d.valid : null,
-          campaign_name: d.campaign_name ?? d.campaign ?? null,
-          contact_name: d.contact_name ?? d.name ?? null,
-          phone: d.phone ?? d.contact ?? null,
-          promo_code: d.promo_code ?? d.promo ?? null,
-          apt_name: d.apt_name ?? d.apartment_name ?? d.place_name ?? null,
-          memo: d.memo ?? null,
-          extra: d.extra ?? null,
-        }));
-
-        // 3) 클라 필터
-        const clientFiltered = mapped.filter((r) => {
-          if (status !== "all" && r.status !== status) return false;
-          if (validity !== "all") {
-            const v = r.valid ? "valid" : "invalid";
-            if (v !== validity) return false;
-          }
-          if (query.trim()) {
-            const q = query.trim().toLowerCase();
-            const hay =
-              [
-                r.id,
-                r.campaign_name,
-                r.contact_name,
-                r.phone,
-                r.promo_code,
-                r.apt_name,
-              ]
-                .filter(Boolean)
-                .join(" ")
-                .toLowerCase() || "";
-            if (!hay.includes(q)) return false;
-          }
-          return true;
-        });
-
-        setRows(clientFiltered);
-        setTotal(count ?? clientFiltered.length);
-      } catch (e: any) {
-        if (!ignore) setError(e?.message ?? "데이터 로딩 실패");
-      } finally {
-        if (!ignore) setLoading(false);
-      }
-    };
-
-    load();
-    return () => {
-      ignore = true;
-    };
-  }, [query, status, validity, from, to, range.fromIdx, range.toIdx]);
-
-  // 페이지 수 계산
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-
-  // 페이지 변경 시 스크롤 상단으로
-  useEffect(() => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }, [page]);
+  if (!open) return null;
 
   return (
-    <div className="space-y-6">
-      {/* 페이지 헤더 */}
-      <header>
-        <h2 className="text-xl font-semibold">문의상세 관리</h2>
-        <p className="text-sm text-gray-500">
-          광고 문의 내역 조회 및 관리 (검색·필터·상세)
-        </p>
-      </header>
+    <div className="fixed inset-0 z-50">
+      {/* Dim */}
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
 
-      {/* 필터/검색 */}
-      <section className="rounded-2xl bg-white border border-gray-100 shadow-sm">
-        <div className="p-4 md:p-5 grid gap-3 md:grid-cols-[1fr_160px_160px]">
-          <div className="flex items-center gap-2">
-            <div className="text-gray-400">🔎</div>
-            <input
-              value={query}
-              onChange={(e) => {
-                setPage(1);
-                setQuery(e.target.value);
-              }}
-              placeholder="캠페인명, 담당자명, 연락처, 프로모션코드, 단지명…"
-              className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#6C2DFF]/40"
-            />
-          </div>
+      {/* Panel (워터마크 적용 컨테이너) */}
+      <div className="absolute left-1/2 top-8 w-[calc(100%-32px)] max-w-[1120px] -translate-x-1/2 rounded-2xl bg-white shadow-2xl border border-gray-100 overflow-hidden">
+        {/* 워터마크 */}
+        <WatermarkOverlay text={watermarkText} />
 
-          <div className="flex gap-2">
-            <Select
-              value={status}
-              onChange={(v) => {
-                setPage(1);
-                setStatus(v as any);
-              }}
-              options={STATUS_OPTIONS}
-            />
-            <Select
-              value={validity}
-              onChange={(v) => {
-                setPage(1);
-                setValidity(v as any);
-              }}
-              options={VALIDITY_OPTIONS}
-            />
+        {/* Header */}
+        <div className="relative z-10 flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-white/70 backdrop-blur-[1px]">
+          <div>
+            <div className="text-lg font-semibold">아파트 모니터광고 견적내용</div>
+            <div className="text-xs text-gray-500">단위: 원 / VAT 별도</div>
           </div>
-
-          <div className="flex items-center gap-2">
-            <input
-              type="date"
-              value={from}
-              onChange={(e) => {
-                setPage(1);
-                setFrom(e.target.value);
-              }}
-              className="w-[50%] rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#6C2DFF]/40"
-            />
-            <span className="text-gray-400 text-sm">~</span>
-            <input
-              type="date"
-              value={to}
-              onChange={(e) => {
-                setPage(1);
-                setTo(e.target.value);
-              }}
-              className="w-[50%] rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#6C2DFF]/40"
-            />
-          </div>
+          <button
+            onClick={onClose}
+            className="h-9 rounded-lg border border-gray-200 px-3 text-sm hover:bg-gray-50"
+          >
+            닫기
+          </button>
         </div>
 
-        <div className="px-4 pb-4 md:px-5 md:pb-5 flex items-center justify-between gap-3 text-sm">
-          <div className="text-gray-500">
-            총 <b className="text-gray-800">{total}</b>건 / 페이지{" "}
-            <b className="text-gray-800">{page}</b> / {totalPages}
+        {/* Body */}
+        <div className="relative z-10 px-6 py-5">
+          {/* 상단 집계 */}
+          <div className="text-sm text-gray-600 mb-3">
+            총 <b className="text-gray-900">{items.length}</b>개 단지
           </div>
-          <div className="flex items-center gap-2">
-            <select
-              className="rounded-lg border border-gray-200 px-2 py-1"
-              value={pageSize}
-              onChange={(e) => {
-                setPage(1);
-                setPageSize(Number(e.target.value) as any);
-              }}
-            >
-              {PAGE_SIZE_OPTIONS.map((n) => (
-                <option key={n} value={n}>
-                  {n}개씩
-                </option>
-              ))}
-            </select>
 
-            <div className="flex gap-1">
-              <button
-                className="px-3 py-1.5 rounded-lg border border-gray-200 disabled:opacity-50"
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page <= 1}
-              >
-                이전
-              </button>
-              <button
-                className="px-3 py-1.5 rounded-lg border border-gray-200 disabled:opacity-50"
-                onClick={() => onNext(setPage, totalPages)}
-                disabled={page >= totalPages}
-              >
-                다음
-              </button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 에러/로딩 */}
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          로딩 오류: {error}
-        </div>
-      )}
-      {loading && (
-        <div className="rounded-lg border border-gray-200 bg-white p-4">
-          <div className="animate-pulse text-gray-500 text-sm">
-            데이터를 불러오는 중…
-          </div>
-        </div>
-      )}
-
-      {/* 테이블 */}
-      {!loading && (
-        <section className="rounded-2xl bg-white border border-gray-100 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
+          {/* 테이블 */}
+          <div className="overflow-x-auto rounded-xl border border-gray-100">
             <table className="min-w-[920px] w-full text-sm">
               <thead className="bg-gray-50 text-gray-600">
                 <tr>
-                  <Th>날짜</Th>
-                  <Th>캠페인명</Th>
-                  <Th>담당자</Th>
-                  <Th>연락처</Th>
-                  <Th>프로모션코드</Th>
-                  <Th className="text-center">진행상황</Th>
-                  <Th className="text-center">유효성</Th>
-                  <Th className="text-center">단지정보</Th>
-                  <Th className="text-center">상세</Th>
+                  <Th>단지명</Th>
+                  <Th className="text-center">광고기간</Th>
+                  <Th className="text-center">상품명</Th>
+                  <Th className="text-center">세대수</Th>
+                  <Th className="text-center">거주인원</Th>
+                  <Th className="text-center">월송출수</Th>
+                  <Th className="text-center">모니터</Th>
+                  <Th className="text-right">총광고료</Th>
                 </tr>
               </thead>
               <tbody>
-                {rows.length === 0 && (
+                {items.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="py-10 text-center text-gray-500">
-                      조건에 해당하는 데이터가 없습니다.
+                    <td colSpan={8} className="py-8 text-center text-gray-500">
+                      담긴 견적이 없습니다.
                     </td>
                   </tr>
                 )}
-                {rows.map((r) => (
-                  <tr
-                    key={r.id}
-                    className="border-t border-gray-100 hover:bg-gray-50"
-                  >
-                    <Td>{formatDate(r.created_at)}</Td>
-                    <Td className="max-w-[220px]">
-                      <span className="line-clamp-1">
-                        {r.campaign_name || "—"}
-                      </span>
+                {items.map((it) => {
+                  const line = getLineTotal(it);
+                  return (
+                    <tr key={it.id} className="border-t border-gray-100">
+                      <Td className="font-medium text-gray-900">{it.name}</Td>
+                      <Td className="text-center">
+                        {it.months ? `${it.months}개월` : "—"}
+                      </Td>
+                      <Td className="text-center">
+                        {it.mediaName || "—"}
+                      </Td>
+                      <Td className="text-center">
+                        {it.households ? `${it.households}세대` : "—"}
+                      </Td>
+                      <Td className="text-center">
+                        {it.residents ? `${it.residents}명` : "—"}
+                      </Td>
+                      <Td className="text-center">
+                        {it.monthlyImpressions
+                          ? `${it.monthlyImpressions.toLocaleString()}회`
+                          : "—"}
+                      </Td>
+                      <Td className="text-center">
+                        {it.monitors ? `${it.monitors}대` : "—"}
+                      </Td>
+                      <Td className="text-right font-semibold text-[#6C2DFF]">
+                        {fmtWon(line)}
+                      </Td>
+                    </tr>
+                  );
+                })}
+                {items.length > 0 && (
+                  <tr className="bg-gray-50 border-t border-gray-100">
+                    <Td colSpan={7} className="text-right font-semibold">
+                      TOTAL
                     </Td>
-                    <Td>{r.contact_name || "—"}</Td>
-                    <Td>{r.phone || "—"}</Td>
-                    <Td>
-                      {r.promo_code ? (
-                        <code className="rounded bg-gray-100 px-2 py-0.5 text-xs">
-                          {r.promo_code}
-                        </code>
-                      ) : (
-                        "—"
-                      )}
-                    </Td>
-                    <Td className="text-center">
-                      <StatusBadge value={(r.status as any) || "pending"} />
-                    </Td>
-                    <Td className="text-center">
-                      <ValidityBadge value={toValidity(r.valid)} />
-                    </Td>
-                    <Td className="text-center">
-                      <button
-                        className="inline-flex items-center gap-1 rounded border border-gray-200 px-2 py-1 text-xs hover:bg-gray-50"
-                        title={r.apt_name || "단지정보"}
-                      >
-                        👁️ <span className="hidden sm:inline">상세보기</span>
-                      </button>
-                    </Td>
-                    <Td className="text-center">
-                      <button
-                        onClick={() => setSelected(r)}
-                        className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-3 py-1.5 text-xs hover:bg-gray-50"
-                      >
-                        🔍 상세
-                      </button>
-                    </Td>
+                    <Td className="text-right font-semibold">{fmtWon(subtotal)}</Td>
                   </tr>
-                ))}
+                )}
               </tbody>
             </table>
           </div>
-        </section>
-      )}
 
-      {/* 상세 드로어 (여기에만 워터마크 적용) */}
-      {selected && (
-        <DetailDrawer
-          row={selected}
-          onClose={() => setSelected(null)}
-          onStatusChange={async (next) => {
-            const sb: any = supabase;
-            const { error } = await sb
-              .from("inquiries")
-              .update({ status: next })
-              .eq("id", selected.id);
-            if (!error) {
-              setSelected({ ...selected, status: next });
-              setPage((p) => p); // 재조회 트리거
-            }
-            return !error;
-          }}
-          onValidityToggle={async () => {
-            const sb: any = supabase;
-            const nextValid = !(selected.valid ?? false);
-            const { error } = await sb
-              .from("inquiries")
-              .update({ valid: nextValid })
-              .eq("id", selected.id);
-            if (!error) {
-              setSelected({ ...selected, valid: nextValid });
-              setPage((p) => p);
-            }
-            return !error;
-          }}
-        />
-      )}
+          {/* 합계 박스 */}
+          <div className="mt-5 rounded-2xl border border-gray-100 bg-white/80 p-4">
+            <div className="flex items-baseline justify-between">
+              <div className="text-sm text-gray-600">부가세</div>
+              <div className="text-sm text-gray-900">{fmtWon(vat)}</div>
+            </div>
+            <div className="mt-2 flex items-center justify-between">
+              <div className="text-base font-semibold">최종광고료</div>
+              <div className="text-2xl font-extrabold text-[#6C2DFF]">
+                {fmtWon(total)} <span className="text-sm font-medium text-gray-500">(VAT 포함)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer CTA */}
+        <div className="relative z-10 px-6 py-4 bg-white/70 backdrop-blur-[1px] border-t border-gray-100">
+          <button
+            onClick={() => onSubmitInquiry({ items, subtotal, vat, total })}
+            className="w-full h-12 rounded-xl bg-[#6C2DFF] text-white text-sm font-semibold hover:opacity-95"
+          >
+            위 견적으로 구좌 (T.O.) 문의하기
+          </button>
+        </div>
+      </div>
     </div>
   );
 };
 
-export default InquiriesPage;
-
-/* =========================
- *  작은 프레젠테이션 컴포넌트들
+/** =========================
+ *  작은 프레젠테이션용 컴포넌트
  * ========================= */
-
 const Th: React.FC<React.PropsWithChildren<{ className?: string }>> = ({
   className,
   children,
@@ -480,281 +285,12 @@ const Th: React.FC<React.PropsWithChildren<{ className?: string }>> = ({
   </th>
 );
 
-const Td: React.FC<React.PropsWithChildren<{ className?: string }>> = ({
-  className,
-  children,
-}) => (
-  <td className={"px-4 py-3 align-middle " + (className ?? "")}>{children}</td>
+const Td: React.FC<
+  React.PropsWithChildren<{ className?: string; colSpan?: number }>
+> = ({ className, children, colSpan }) => (
+  <td className={"px-4 py-3 align-middle " + (className ?? "")} colSpan={colSpan}>
+    {children}
+  </td>
 );
 
-const Select: React.FC<{
-  value: string;
-  onChange: (v: string) => void;
-  options: { value: string; label: string }[];
-}> = ({ value, onChange, options }) => {
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#6C2DFF]/40"
-    >
-      {options.map((opt) => (
-        <option key={opt.value} value={opt.value}>
-          {opt.label}
-        </option>
-      ))}
-    </select>
-  );
-};
-
-const StatusBadge: React.FC<{ value: InquiryStatus }> = ({ value }) => {
-  const map: Record<
-    InquiryStatus,
-    { label: string; cn: string; dot: string }
-  > = {
-    new: {
-      label: "신규",
-      cn: "bg-[#F4F0FB] text-[#6C2DFF]",
-      dot: "bg-[#6C2DFF]",
-    },
-    pending: {
-      label: "대기",
-      cn: "bg-yellow-50 text-yellow-700",
-      dot: "bg-yellow-500",
-    },
-    in_progress: {
-      label: "진행중",
-      cn: "bg-blue-50 text-blue-700",
-      dot: "bg-blue-500",
-    },
-    done: {
-      label: "완료",
-      cn: "bg-green-50 text-green-700",
-      dot: "bg-green-500",
-    },
-    canceled: {
-      label: "취소",
-      cn: "bg-gray-100 text-gray-600",
-      dot: "bg-gray-400",
-    },
-  };
-  const { label, cn, dot } = map[value] ?? map.pending;
-  return (
-    <span
-      className={
-        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs " +
-        cn
-      }
-    >
-      <span className={"h-1.5 w-1.5 rounded-full " + dot} />
-      {label}
-    </span>
-  );
-};
-
-const ValidityBadge: React.FC<{ value: Validity }> = ({ value }) => {
-  const isValid = value === "valid";
-  return (
-    <span
-      className={
-        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs " +
-        (isValid ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700")
-      }
-    >
-      <span
-        className={
-          "h-1.5 w-1.5 rounded-full " +
-          (isValid ? "bg-green-500" : "bg-red-500")
-        }
-      />
-      {isValid ? "유효" : "무효"}
-    </span>
-  );
-};
-
-/** =========================
- *  상세 드로어 (워터마크 포함)
- * ========================= */
-const DetailDrawer: React.FC<{
-  row: InquiryRow;
-  onClose: () => void;
-  onStatusChange: (s: InquiryStatus) => Promise<boolean>;
-  onValidityToggle: () => Promise<boolean>;
-}> = ({ row, onClose, onStatusChange, onValidityToggle }) => {
-  const [busy, setBusy] = useState<"status" | "valid" | null>(null);
-
-  return (
-    <div className="fixed inset-0 z-40">
-      {/* overlay */}
-      <div
-        className="absolute inset-0 bg-black/30"
-        onClick={() => (busy ? null : onClose())}
-      />
-      {/* panel (워터마크는 이 컨테이너 안에서만) */}
-      <div className="absolute right-0 top-0 h-full w-full max-w-[520px] bg-white shadow-2xl relative">
-        {/* 워터마크: 필요 시 문구 교체 가능 */}
-        <WatermarkOverlay text="ORKA KOREA ALL RIGHTS RESERVED" />
-
-        {/* 실제 콘텐츠는 워터마크 위에 렌더링 */}
-        <div className="relative z-10">
-          <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4 bg-white/70 backdrop-blur-[1px]">
-            <div>
-              <div className="text-sm text-gray-500">문의 상세</div>
-              <div className="text-lg font-semibold">
-                {row.campaign_name || "캠페인명 없음"}
-              </div>
-            </div>
-            <button
-              onClick={onClose}
-              className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm hover:bg-gray-50"
-            >
-              닫기
-            </button>
-          </div>
-
-          <div className="p-5 space-y-5 overflow-y-auto h-[calc(100%-56px)]">
-            {/* 기본 정보 */}
-            <section className="grid grid-cols-2 gap-3">
-              <InfoItem label="문의 ID" value={row.id} mono />
-              <InfoItem
-                label="문의일시"
-                value={formatDateTime(row.created_at)}
-              />
-              <InfoItem label="담당자" value={row.contact_name || "—"} />
-              <InfoItem label="연락처" value={row.phone || "—"} />
-              <InfoItem label="프로모션코드" value={row.promo_code || "—"} />
-              <InfoItem label="단지명" value={row.apt_name || "—"} />
-            </section>
-
-            {/* 상태/유효성 제어 */}
-            <section className="rounded-xl border border-gray-100 p-4 bg-white/80">
-              <div className="text-sm font-medium mb-3">처리 상태</div>
-              <div className="flex flex-wrap items-center gap-2">
-                {STATUS_OPTIONS.filter((s) => s.value !== "all").map((opt) => (
-                  <button
-                    key={opt.value}
-                    disabled={busy === "status"}
-                    onClick={async () => {
-                      setBusy("status");
-                      await onStatusChange(opt.value as InquiryStatus);
-                      setBusy(null);
-                    }}
-                    className={
-                      "rounded-full px-3 py-1.5 text-xs border " +
-                      (row.status === opt.value
-                        ? "border-[#6C2DFF] text-[#6C2DFF] bg-[#F4F0FB]"
-                        : "border-gray-200 text-gray-700 hover:bg-gray-50")
-                    }
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="mt-4 flex items-center justify-between">
-                <div className="text-sm">유효성</div>
-                <button
-                  disabled={busy === "valid"}
-                  onClick={async () => {
-                    setBusy("valid");
-                    await onValidityToggle();
-                    setBusy(null);
-                  }}
-                  className={
-                    "rounded-lg px-3 py-1.5 text-xs border " +
-                    ((row.valid ?? false)
-                      ? "border-green-300 text-green-700 bg-green-50"
-                      : "border-red-300 text-red-700 bg-red-50")
-                  }
-                >
-                  {(row.valid ?? false)
-                    ? "유효 → 무효로 전환"
-                    : "무효 → 유효로 전환"}
-                </button>
-              </div>
-            </section>
-
-            {/* 메모/부가 */}
-            {(row.memo || row.extra) && (
-              <section className="space-y-3">
-                {row.memo && (
-                  <div>
-                    <div className="text-sm font-medium mb-1">메모</div>
-                    <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-sm">
-                      {row.memo}
-                    </div>
-                  </div>
-                )}
-                {row.extra && (
-                  <div>
-                    <div className="text-sm font-medium mb-1">추가 데이터</div>
-                    <pre className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-xs overflow-auto">
-                      {JSON.stringify(row.extra, null, 2)}
-                    </pre>
-                  </div>
-                )}
-              </section>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const InfoItem: React.FC<{
-  label: string;
-  value: React.ReactNode;
-  mono?: boolean;
-}> = ({ label, value, mono }) => {
-  return (
-    <div>
-      <div className="text-xs text-gray-500">{label}</div>
-      <div
-        className={
-          "mt-0.5 text-sm " + (mono ? "font-mono text-gray-700" : "text-gray-800")
-        }
-      >
-        {value}
-      </div>
-    </div>
-  );
-};
-
-/* =========================
- *  유틸
- * ========================= */
-
-function toValidity(valid?: boolean | null): Validity {
-  return valid ? "valid" : "invalid";
-}
-
-function formatDate(iso: string) {
-  try {
-    const d = new Date(iso);
-    const y = d.getFullYear();
-    const m = (d.getMonth() + 1).toString().padStart(2, "0");
-    const day = d.getDate().toString().padStart(2, "0");
-    return `${y}-${m}-${day}`;
-  } catch {
-    return iso;
-  }
-}
-
-function formatDateTime(iso: string) {
-  try {
-    const d = new Date(iso);
-    const y = d.getFullYear();
-    const m = (d.getMonth() + 1).toString().padStart(2, "0");
-    const day = d.getDate().toString().padStart(2, "0");
-    const hh = d.getHours().toString().padStart(2, "0");
-    const mm = d.getMinutes().toString().padStart(2, "0");
-    return `${y}-${m}-${day} ${hh}:${mm}`;
-  } catch {
-    return iso;
-  }
-}
-
-function onNext(setPage: React.Dispatch<React.SetStateAction<number>>, totalPages: number) {
-  setPage((p) => Math.min(totalPages, p + 1));
-}
+export default QuoteModal;
