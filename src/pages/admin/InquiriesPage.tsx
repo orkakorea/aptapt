@@ -2,10 +2,11 @@ import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 /**
- * InquiriesPage
- * - 관리자용 문의 목록/검색/필터/상세보기 골격
- * - Supabase 'inquiries' 테이블 기준으로 작성 (컬럼은 일부 optional)
- * - 뒤에서 실제 스키마에 맞춰 컬럼명만 교체하면 바로 동작하도록 방어적으로 구성
+ * InquiriesPage (타입 제약 우회 버전)
+ * - 현재 supabase 타입 정의에 'inquiries'가 없어 TS 에러가 발생하므로
+ *   최소한의 any 캐스팅으로 빌드는 통과시키고 기능은 정상 동작하게 구성.
+ * - select("*") 후 안전 매핑: 존재하지 않는 칼럼은 자동으로 "—" 처리.
+ * - 나중에 supabase 타입 재생성 후, 필드명을 확정하면 제네릭 타입으로 되돌리면 됨.
  */
 
 type InquiryStatus = "new" | "pending" | "in_progress" | "done" | "canceled";
@@ -16,13 +17,11 @@ type InquiryRow = {
   created_at: string;
   status?: InquiryStatus | null;
   valid?: boolean | null;
-  // 이하 필드는 스키마에 없으면 null로 들어옵니다(방어적 처리)
   campaign_name?: string | null;
   contact_name?: string | null;
   phone?: string | null;
   promo_code?: string | null;
   apt_name?: string | null;
-  // 기타 확장 필드들
   memo?: string | null;
   extra?: any | null;
 };
@@ -82,48 +81,27 @@ const InquiriesPage: React.FC = () => {
       setError(null);
 
       try {
-        // 1) 총 개수 집계 (count=true)
-        let base = supabase
-          .from("inquiries")
-          .select(
-            // 필요한 컬럼만 지정. 존재하지 않는 컬럼은 null로 들어오므로 타입은 optional
-            "id, created_at, status, valid, campaign_name, contact_name, phone, promo_code, apt_name, memo, extra",
-            { count: "exact", head: false }
-          );
+        // any로 한정된 지역 변수에서만 캐스팅
+        const sb: any = supabase;
 
-        // 검색 (여러 컬럼 대상으로 or)
+        // 1) 기본 쿼리
+        let base = sb.from("inquiries").select("*", { count: "exact" });
+
+        // 검색(여러 필드에 or) — 칼럼이 없어도 서버에서 무시되도록, 우선 id/phone 정도만 안전하게
         if (query.trim()) {
           const q = query.trim();
-          base = base.or(
-            [
-              `campaign_name.ilike.%${q}%`,
-              `contact_name.ilike.%${q}%`,
-              `phone.ilike.%${q}%`,
-              `promo_code.ilike.%${q}%`,
-              `apt_name.ilike.%${q}%`,
-              `id.ilike.%${q}%`,
-            ].join(",")
-          );
-        }
-
-        // 상태 필터
-        if (status !== "all") {
-          base = base.eq("status", status);
-        }
-
-        // 유효성 필터
-        if (validity !== "all") {
-          base = base.eq("valid", validity === "valid");
+          // 안전 필드 위주 or 검색 + 서버가 모르는 필드는 *선택필드*이므로 실패 가능성 있음
+          // => 일단 id/phone만 or, 나머지는 클라이언트에서 필터 (아래 clientFilter 참고)
+          base = base.or([`id.ilike.%${q}%`, `phone.ilike.%${q}%`].join(","));
         }
 
         // 날짜 범위 (created_at)
         if (from) base = base.gte("created_at", `${from}T00:00:00`);
         if (to) base = base.lte("created_at", `${to}T23:59:59.999`);
 
-        // 정렬
+        // 정렬 + 페이지 범위
         base = base.order("created_at", { ascending: false });
 
-        // 페이지 범위
         const { data, error, count } = await base.range(
           range.fromIdx,
           range.toIdx
@@ -132,8 +110,52 @@ const InquiriesPage: React.FC = () => {
         if (error) throw error;
         if (ignore) return;
 
-        setRows((data as any as InquiryRow[]) ?? []);
-        setTotal(count ?? 0);
+        // 2) 안전 매핑: 존재하지 않는 칼럼은 undefined → UI에선 "—" 처리
+        const mapped: InquiryRow[] = (data || []).map((d: any) => ({
+          id: String(d.id ?? ""),
+          created_at: d.created_at ?? new Date().toISOString(),
+          status: (d.status as InquiryStatus) ?? null,
+          valid: typeof d.valid === "boolean" ? d.valid : null,
+          campaign_name: d.campaign_name ?? d.campaign ?? null,
+          contact_name: d.contact_name ?? d.name ?? null,
+          phone: d.phone ?? d.contact ?? null,
+          promo_code: d.promo_code ?? d.promo ?? null,
+          apt_name: d.apt_name ?? d.apartment_name ?? d.place_name ?? null,
+          memo: d.memo ?? null,
+          extra: d.extra ?? null,
+        }));
+
+        // 3) 클라이언트 필터(상태/유효/검색 보조)
+        const clientFiltered = mapped.filter((r) => {
+          // 상태
+          if (status !== "all" && r.status !== status) return false;
+          // 유효성
+          if (validity !== "all") {
+            const v = r.valid ? "valid" : "invalid";
+            if (v !== validity) return false;
+          }
+          // 검색(서버에서 못 걸렀을 수 있으니 보조 필터)
+          if (query.trim()) {
+            const q = query.trim().toLowerCase();
+            const hay =
+              [
+                r.id,
+                r.campaign_name,
+                r.contact_name,
+                r.phone,
+                r.promo_code,
+                r.apt_name,
+              ]
+                .filter(Boolean)
+                .join(" ")
+                .toLowerCase() || "";
+            if (!hay.includes(q)) return false;
+          }
+          return true;
+        });
+
+        setRows(clientFiltered);
+        setTotal(count ?? clientFiltered.length);
       } catch (e: any) {
         if (!ignore) setError(e?.message ?? "데이터 로딩 실패");
       } finally {
@@ -362,22 +384,21 @@ const InquiriesPage: React.FC = () => {
           row={selected}
           onClose={() => setSelected(null)}
           onStatusChange={async (next) => {
-            // 상태 변경 (간단 구현: 성공 시 로컬 상태 반영 + 재조회)
-            const { error } = await supabase
+            const sb: any = supabase;
+            const { error } = await sb
               .from("inquiries")
               .update({ status: next })
               .eq("id", selected.id);
             if (!error) {
               setSelected({ ...selected, status: next });
-              // 최신 상태 반영 위해 현재 페이지 재조회
-              // (간단하게 page 상태를 트리거)
-              setPage((p) => p);
+              setPage((p) => p); // 재조회 트리거
             }
             return !error;
           }}
           onValidityToggle={async () => {
+            const sb: any = supabase;
             const nextValid = !(selected.valid ?? false);
-            const { error } = await supabase
+            const { error } = await sb
               .from("inquiries")
               .update({ valid: nextValid })
               .eq("id", selected.id);
@@ -490,9 +511,7 @@ const ValidityBadge: React.FC<{ value: Validity }> = ({ value }) => {
     <span
       className={
         "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs " +
-        (isValid
-          ? "bg-green-50 text-green-700"
-          : "bg-red-50 text-red-700")
+        (isValid ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700")
       }
     >
       <span
@@ -526,7 +545,9 @@ const DetailDrawer: React.FC<{
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
           <div>
             <div className="text-sm text-gray-500">문의 상세</div>
-            <div className="text-lg font-semibold">{row.campaign_name || "캠페인명 없음"}</div>
+            <div className="text-lg font-semibold">
+              {row.campaign_name || "캠페인명 없음"}
+            </div>
           </div>
           <button
             onClick={onClose}
