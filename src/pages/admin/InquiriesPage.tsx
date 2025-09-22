@@ -124,9 +124,9 @@ const InquiriesPage: React.FC = () => {
   useEffect(() => {
     let ignore = false;
 
-    // PostgREST .or() 문자열에서 쉼표/퍼센트를 안전하게 만드는 헬퍼
+    // PostgREST .or() 문자열에서 쉼표/퍼센트/작은따옴표 안전하게 (replaceAll 미사용 버전)
     const esc = (s: string) =>
-      s.replaceAll(",", "\\,").replaceAll("%", "\\%").replaceAll("'", "''");
+      s.replace(/,/g, "\\,").replace(/%/g, "\\%").replace(/'/g, "''");
 
     const load = async () => {
       setLoading(true);
@@ -152,7 +152,6 @@ const InquiriesPage: React.FC = () => {
         const q = query.trim();
         if (q) {
           const like = `%${esc(q)}%`;
-          // brand_name, campaign_type, contact_name, phone, email, request_note
           base = base.or(
             [
               `${COL.brand}.ilike.${like}`,
