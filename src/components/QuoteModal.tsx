@@ -180,7 +180,7 @@ export default function QuoteModal({
     return {
       position: "absolute",
       inset: 0,
-      opacity: 0.42,
+      opacity: 0.15,
       transform: "rotate(-30deg) scale(1.4)",
       transformOrigin: "center",
       backgroundImage: buildWatermarkDataURL(text),
