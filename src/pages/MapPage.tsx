@@ -29,28 +29,65 @@ function markerImages(maps: any) {
 /* =========================================================================
    ② Supabase / Kakao 로더
    ------------------------------------------------------------------------- */
+// MapPage.tsx 내 loadKakao() 전체 교체
 function loadKakao(): Promise<any> {
   const w = window as any;
-  if (w.kakao?.maps) return Promise.resolve(w.kakao);
+
+  // 0) 이미 정상 로드되어 있으면 즉시 반환
+  if (w.kakao?.maps && typeof w.kakao.maps.LatLng === "function") {
+    return Promise.resolve(w.kakao);
+  }
+
+  // 1) 기존에 잘못 붙은 스크립트가 있으면 제거하고 재시도
+  //   (예: 다른 페이지/설정에서 async/defer로 붙은 경우)
+  const existing = Array.from(document.scripts).find((s) =>
+    s.src.includes("dapi.kakao.com/v2/maps/sdk.js")
+  ) as HTMLScriptElement | undefined;
+  if (existing && existing.id !== "kakao-maps-sdk") {
+    existing.parentElement?.removeChild(existing);
+  }
+
+  // 2) 이미 우리가 붙인 태그가 있다면, ready 될 때까지 polling
+  const ensureReady = (): Promise<any> =>
+    new Promise((resolve) => {
+      const tick = () => {
+        if (w.kakao?.maps && typeof w.kakao.maps.LatLng === "function") {
+          return resolve(w.kakao);
+        }
+        setTimeout(tick, 40);
+      };
+      tick();
+    });
+
   const envKey = (import.meta as any).env?.VITE_KAKAO_JS_KEY as string | undefined;
   const key = envKey && envKey.trim() ? envKey : FALLBACK_KAKAO_KEY;
+
+  // 3) 스크립트가 이미 붙어 있으면 ready만 기다림
+  const tag = document.getElementById("kakao-maps-sdk") as HTMLScriptElement | null;
+  if (tag) {
+    return ensureReady();
+  }
+
+  // 4) 새로 붙이고 autoload=false → maps.load 로 초기화
   return new Promise((resolve, reject) => {
-    const id = "kakao-maps-sdk";
-    if (document.getElementById(id)) {
-      const tryLoad = () => (w.kakao?.maps ? resolve(w.kakao) : setTimeout(tryLoad, 50));
-      return tryLoad();
-    }
     const s = document.createElement("script");
-    s.id = id;
+    s.id = "kakao-maps-sdk";
     s.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${key}&autoload=false&libraries=services,clusterer`;
     s.onload = () => {
-      if (!w.kakao) return reject(new Error("kakao object not found"));
-      w.kakao.maps.load(() => resolve(w.kakao));
+      if (!w.kakao?.maps) return reject(new Error("kakao maps namespace missing"));
+      // autoload=false 이므로 여기서 확실히 초기화
+      w.kakao.maps.load(() => {
+        if (typeof w.kakao.maps.LatLng !== "function") {
+          return reject(new Error("LatLng constructor not ready"));
+        }
+        resolve(w.kakao);
+      });
     };
     s.onerror = () => reject(new Error("Failed to load Kakao Maps SDK"));
     document.head.appendChild(s);
   });
 }
+
 
 /* =========================================================================
    ③ 헬퍼
