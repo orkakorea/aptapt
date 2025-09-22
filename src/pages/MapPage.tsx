@@ -29,27 +29,65 @@ function markerImages(maps: any) {
 /* =========================================================================
    ② Supabase / Kakao 로더
    ------------------------------------------------------------------------- */
-// [removed] getSupabase() — use the shared { supabase } from "@/integrations/supabase/client"
-
+// MapPage.tsx 내 loadKakao() 전체 교체
 function loadKakao(): Promise<any> {
   const w = window as any;
-  if (w.kakao?.maps) return Promise.resolve(w.kakao);
+
+  // 0) 이미 정상 로드되어 있으면 즉시 반환
+  if (w.kakao?.maps && typeof w.kakao.maps.LatLng === "function") {
+    return Promise.resolve(w.kakao);
+  }
+
+  // 1) 기존에 잘못 붙은 스크립트가 있으면 제거하고 재시도
+  //   (예: 다른 페이지/설정에서 async/defer로 붙은 경우)
+  const existing = Array.from(document.scripts).find((s) =>
+    s.src.includes("dapi.kakao.com/v2/maps/sdk.js")
+  ) as HTMLScriptElement | undefined;
+  if (existing && existing.id !== "kakao-maps-sdk") {
+    existing.parentElement?.removeChild(existing);
+  }
+
+  // 2) 이미 우리가 붙인 태그가 있다면, ready 될 때까지 polling
+  const ensureReady = (): Promise<any> =>
+    new Promise((resolve) => {
+      const tick = () => {
+        if (w.kakao?.maps && typeof w.kakao.maps.LatLng === "function") {
+          return resolve(w.kakao);
+        }
+        setTimeout(tick, 40);
+      };
+      tick();
+    });
+
   const envKey = (import.meta as any).env?.VITE_KAKAO_JS_KEY as string | undefined;
   const key = envKey && envKey.trim() ? envKey : FALLBACK_KAKAO_KEY;
+
+  // 3) 스크립트가 이미 붙어 있으면 ready만 기다림
+  const tag = document.getElementById("kakao-maps-sdk") as HTMLScriptElement | null;
+  if (tag) {
+    return ensureReady();
+  }
+
+  // 4) 새로 붙이고 autoload=false → maps.load 로 초기화
   return new Promise((resolve, reject) => {
-    const id = "kakao-maps-sdk";
-    if (document.getElementById(id)) {
-      const tryLoad = () => (w.kakao?.maps ? resolve(w.kakao) : setTimeout(tryLoad, 50));
-      return tryLoad();
-    }
     const s = document.createElement("script");
-    s.id = id;
+    s.id = "kakao-maps-sdk";
     s.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${key}&autoload=false&libraries=services,clusterer`;
-    s.onload = () => { if (!w.kakao) return reject(new Error("kakao object not found")); w.kakao.maps.load(() => resolve(w.kakao)); };
+    s.onload = () => {
+      if (!w.kakao?.maps) return reject(new Error("kakao maps namespace missing"));
+      // autoload=false 이므로 여기서 확실히 초기화
+      w.kakao.maps.load(() => {
+        if (typeof w.kakao.maps.LatLng !== "function") {
+          return reject(new Error("LatLng constructor not ready"));
+        }
+        resolve(w.kakao);
+      });
+    };
     s.onerror = () => reject(new Error("Failed to load Kakao Maps SDK"));
     document.head.appendChild(s);
   });
 }
+
 
 /* =========================================================================
    ③ 헬퍼
@@ -60,7 +98,8 @@ function readQuery() {
 }
 function writeQuery(v: string) {
   const u = new URL(window.location.href);
-  if (v) u.searchParams.set("q", v); else u.searchParams.delete("q");
+  if (v) u.searchParams.set("q", v);
+  else u.searchParams.delete("q");
   window.history.replaceState(null, "", u.toString());
 }
 function toNumLoose(v: any): number | undefined {
@@ -123,7 +162,8 @@ const groupKeyFromRow = (row: PlaceRow) =>
   `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(7)}`;
 
 const buildRowKeyFromRow = (row: PlaceRow) => {
-  const lat = Number(row.lat), lng = Number(row.lng);
+  const lat = Number(row.lat),
+    lng = Number(row.lng);
   const idPart = row.id != null ? String(row.id) : "";
   const productName = String(
     getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName"]) || ""
@@ -146,13 +186,22 @@ class SpiderController {
   private activeKey: string | null = null;
   private animating = false;
 
-  constructor(map: any, clusterer: any) { this.map = map; this.clusterer = clusterer; }
-  setGroups(groups: Map<string, KMarker[]>) { this.groups = groups; }
+  constructor(map: any, clusterer: any) {
+    this.map = map;
+    this.clusterer = clusterer;
+  }
+  setGroups(groups: Map<string, KMarker[]>) {
+    this.groups = groups;
+  }
 
   unspiderfy = () => {
     if (!this.activeKey) return;
     const markers = this.groups.get(this.activeKey) || [];
-    markers.forEach((m) => { if (!m.__basePos) return; m.setPosition(m.__basePos); m.setMap(null); });
+    markers.forEach((m) => {
+      if (!m.__basePos) return;
+      m.setPosition(m.__basePos);
+      m.setMap(null);
+    });
     if (markers.length) this.clusterer.addMarkers(markers);
     this.activeKey = null;
   };
@@ -185,11 +234,21 @@ class SpiderController {
     };
 
     const targets: { marker: KMarker; toPt: any }[] = [];
-    for (let i = 0; i < outerCount; i++) targets.push({ marker: markers[i], toPt: mkTarget(i, outerCount, ringRadiusPx) });
-    for (let j = 0; j < innerCount; j++) targets.push({ marker: markers[outerCount + j], toPt: mkTarget(j, innerCount, Math.max(16, ringRadiusPx * 0.6)) });
+    for (let i = 0; i < outerCount; i++)
+      targets.push({
+        marker: markers[i],
+        toPt: mkTarget(i, outerCount, ringRadiusPx),
+      });
+    for (let j = 0; j < innerCount; j++)
+      targets.push({
+        marker: markers[outerCount + j],
+        toPt: mkTarget(j, innerCount, Math.max(16, ringRadiusPx * 0.6)),
+      });
 
-    const duration = 180; const t0 = performance.now();
-    this.animating = true; markers.forEach((m) => m.setMap(this.map));
+    const duration = 180;
+    const t0 = performance.now();
+    this.animating = true;
+    markers.forEach((m) => m.setMap(this.map));
 
     const step = (now: number) => {
       const t = Math.min(1, (now - t0) / duration);
@@ -204,7 +263,10 @@ class SpiderController {
         marker.setPosition(curPos);
       });
       if (t < 1) requestAnimationFrame(step);
-      else { this.animating = false; this.activeKey = key; }
+      else {
+        this.animating = false;
+        this.activeKey = key;
+      }
     };
     requestAnimationFrame(step);
   };
@@ -222,9 +284,9 @@ export default function MapPage() {
 
   // 마커/상태/그룹 캐시
   const markerCacheRef = useRef<Map<string, KMarker>>(new Map()); // key → marker
-  const keyIndexRef = useRef<Record<string, KMarker[]>>({});       // rowKey → markers[]
-  const groupsRef = useRef<Map<string, KMarker[]>>(new Map());     // groupKey → markers[]
-  const selectedRowKeySetRef = useRef<Set<string>>(new Set());     // 담김(노랑) 추적
+  const keyIndexRef = useRef<Record<string, KMarker[]>>({}); // rowKey → markers[]
+  const groupsRef = useRef<Map<string, KMarker[]>>(new Map()); // groupKey → markers[]
+  const selectedRowKeySetRef = useRef<Set<string>>(new Set()); // 담김(노랑) 추적
   const lastReqIdRef = useRef<number>(0);
   const idleTimer = useRef<number | null>(null);
 
@@ -262,7 +324,9 @@ export default function MapPage() {
     // zIndex: 가장 우선(인덱스 0)이 가장 큰 zIndex
     const TOP = 100000; // 넉넉한 베이스
     for (let i = 0; i < sorted.length; i++) {
-      try { sorted[i].setZIndex?.(TOP - i); } catch {}
+      try {
+        sorted[i].setZIndex?.(TOP - i);
+      } catch {}
     }
 
     // 원본 배열을 교체하여 spiderRef 그룹에도 반영되게
@@ -271,18 +335,24 @@ export default function MapPage() {
     return arr;
   }, []);
 
-  const applyGroupPrioritiesMap = useCallback((groups: Map<string, KMarker[]>) => {
-    groups.forEach((list) => orderAndApplyZIndex(list));
-  }, [orderAndApplyZIndex]);
+  const applyGroupPrioritiesMap = useCallback(
+    (groups: Map<string, KMarker[]>) => {
+      groups.forEach((list) => orderAndApplyZIndex(list));
+    },
+    [orderAndApplyZIndex]
+  );
 
-  const applyGroupPrioritiesForRowKey = useCallback((rowKey: string) => {
-    const list = keyIndexRef.current[rowKey];
-    if (!list || !list.length) return;
-    const row = list[0].__row as PlaceRow;
-    const gk = groupKeyFromRow(row);
-    const group = groupsRef.current.get(gk);
-    if (group && group.length) orderAndApplyZIndex(group);
-  }, [orderAndApplyZIndex]);
+  const applyGroupPrioritiesForRowKey = useCallback(
+    (rowKey: string) => {
+      const list = keyIndexRef.current[rowKey];
+      if (!list || !list.length) return;
+      const row = list[0].__row as PlaceRow;
+      const gk = groupKeyFromRow(row);
+      const group = groupsRef.current.get(gk);
+      if (group && group.length) orderAndApplyZIndex(group);
+    },
+    [orderAndApplyZIndex]
+  );
 
   /* ------------------ 지도 초기화 ------------------ */
   useEffect(() => {
@@ -300,25 +370,48 @@ export default function MapPage() {
         map = new kakao.maps.Map(mapRef.current, { center, level: 6 });
         mapObjRef.current = map;
 
+        // ✅ 전역에 맵 꽂기: MapChrome에서 사용 (핀 + 5km 원/라벨)
+        (window as any).kakaoMap = map;
+        (window as any).__kakaoMap = map;
+
         placesRef.current = new kakao.maps.services.Places();
         clustererRef.current = new kakao.maps.MarkerClusterer({
-          map, averageCenter: true, minLevel: 6, disableClickZoom: true, gridSize: 80,
+          map,
+          averageCenter: true,
+          minLevel: 6,
+          disableClickZoom: true,
+          gridSize: 80,
         });
 
         spiderRef.current = new SpiderController(map, clustererRef.current);
 
-        (kakao.maps.event as any).addListener(clustererRef.current, "clusterclick", (cluster: any) => {
-          const m = mapObjRef.current; if (!m) return;
-          m.setLevel(Math.max(m.getLevel() - 1, 1), { anchor: cluster.getCenter() });
-        });
+        (kakao.maps.event as any).addListener(
+          clustererRef.current,
+          "clusterclick",
+          (cluster: any) => {
+            const m = mapObjRef.current;
+            if (!m) return;
+            m.setLevel(Math.max(m.getLevel() - 1, 1), {
+              anchor: cluster.getCenter(),
+            });
+          }
+        );
 
         // 사용자 지도 조작 시에만 unspiderfy
-        kakao.maps.event.addListener(map, "zoom_changed", () => spiderRef.current?.unspiderfy());
-        kakao.maps.event.addListener(map, "dragstart", () => spiderRef.current?.unspiderfy());
-        kakao.maps.event.addListener(map, "click", () => spiderRef.current?.unspiderfy());
+        kakao.maps.event.addListener(map, "zoom_changed", () =>
+          spiderRef.current?.unspiderfy()
+        );
+        kakao.maps.event.addListener(map, "dragstart", () =>
+          spiderRef.current?.unspiderfy()
+        );
+        kakao.maps.event.addListener(map, "click", () =>
+          spiderRef.current?.unspiderfy()
+        );
 
         // idle에서는 마커 데이터만 업데이트 (★ unspiderfy 하지 않음)
-        kakao.maps.event.addListener(map, "idle", () => debounceIdle(loadMarkersInBounds, 250));
+        kakao.maps.event.addListener(map, "idle", () =>
+          debounceIdle(loadMarkersInBounds, 250)
+        );
 
         setTimeout(() => map && map.relayout(), 0);
         loadMarkersInBounds();
@@ -335,7 +428,13 @@ export default function MapPage() {
         setKakaoError(err?.message || String(err));
       });
 
-    return () => window.removeEventListener("resize", resizeHandler);
+    // ✅ cleanup을 블록으로: 리스너/전역 모두 정리
+    return () => {
+      window.removeEventListener("resize", resizeHandler);
+      const w = window as any;
+      if (w.kakaoMap === mapObjRef.current) w.kakaoMap = null;
+      if (w.__kakaoMap === mapObjRef.current) w.__kakaoMap = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -346,30 +445,34 @@ export default function MapPage() {
   }, [selected]);
 
   /* ------------------ MapChrome → 행(rowKey) 단위 색 전환 ------------------ */
-  const setMarkerStateByRowKey = useCallback((rowKey: string, state: "default" | "selected") => {
-    if (!rowKey) return;
-    const maps = (window as KakaoNS).kakao?.maps;
-    if (!maps) return;
-    const imgs = markerImages(maps);
+  const setMarkerStateByRowKey = useCallback(
+    (rowKey: string, state: "default" | "selected") => {
+      if (!rowKey) return;
+      const maps = (window as KakaoNS).kakao?.maps;
+      if (!maps) return;
+      const imgs = markerImages(maps);
 
-    if (state === "selected") selectedRowKeySetRef.current.add(rowKey);
-    else selectedRowKeySetRef.current.delete(rowKey);
+      if (state === "selected")
+        selectedRowKeySetRef.current.add(rowKey);
+      else selectedRowKeySetRef.current.delete(rowKey);
 
-    const list = keyIndexRef.current[rowKey];
-    if (list?.length) {
-      list.forEach((mk) => {
-        // 클릭 강조 마커는 우선순위 높음(이미지)
-        if (lastClickedRef.current && lastClickedRef.current === mk) {
-          mk.setImage(imgs.clicked);
-        } else {
-          mk.setImage(state === "selected" ? imgs.yellow : imgs.purple);
-        }
-      });
+      const list = keyIndexRef.current[rowKey];
+      if (list?.length) {
+        list.forEach((mk) => {
+          // 클릭 강조 마커는 우선순위 높음(이미지)
+          if (lastClickedRef.current && lastClickedRef.current === mk) {
+            mk.setImage(imgs.clicked);
+          } else {
+            mk.setImage(state === "selected" ? imgs.yellow : imgs.purple);
+          }
+        });
 
-      // ★ 담김/해제 시 해당 그룹 우선순위 재적용 → 옐로 우선/월가 높은 순
-      applyGroupPrioritiesForRowKey(rowKey);
-    }
-  }, [applyGroupPrioritiesForRowKey]);
+        // ★ 담김/해제 시 해당 그룹 우선순위 재적용 → 옐로 우선/월가 높은 순
+        applyGroupPrioritiesForRowKey(rowKey);
+      }
+    },
+    [applyGroupPrioritiesForRowKey]
+  );
 
   /* ------------------ 바운드 내 마커 로드 ------------------ */
   async function loadMarkersInBounds() {
@@ -393,12 +496,17 @@ export default function MapPage() {
       .select("*")
       .not("lat", "is", null)
       .not("lng", "is", null)
-      .gte("lat", sw.getLat()).lte("lat", ne.getLat())
-      .gte("lng", sw.getLng()).lte("lng", ne.getLng())
+      .gte("lat", sw.getLat())
+      .lte("lat", ne.getLat())
+      .gte("lng", sw.getLng())
+      .lte("lng", ne.getLng())
       .limit(5000);
 
     if (reqId !== lastReqIdRef.current) return;
-    if (error) { console.error("Supabase select(raw_places) error:", error.message); return; }
+    if (error) {
+      console.error("Supabase select(raw_places) error:", error.message);
+      return;
+    }
 
     const rows = (data ?? []) as PlaceRow[];
     const imgs = markerImages(maps);
@@ -407,10 +515,16 @@ export default function MapPage() {
     const nowKeys = new Set<string>();
     const groups = new Map<string, KMarker[]>();
     const keyOf = (row: PlaceRow) => {
-      const lat = Number(row.lat), lng = Number(row.lng);
+      const lat = Number(row.lat),
+        lng = Number(row.lng);
       const idPart = row.id != null ? String(row.id) : "";
-      const prod = String(getField(row, ["상품명","상품 명","제품명","광고상품명","productName"]) || "");
-      const loc = String(getField(row, ["설치위치","설치 위치","installLocation"]) || "");
+      const prod = String(
+        getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName"]) ||
+          ""
+      );
+      const loc = String(
+        getField(row, ["설치위치", "설치 위치", "installLocation"]) || ""
+      );
       return `${lat.toFixed(7)},${lng.toFixed(7)}|${idPart}|${prod}|${loc}`;
     };
 
@@ -428,10 +542,11 @@ export default function MapPage() {
       nowKeys.add(key);
 
       let mk = markerCacheRef.current.get(key);
-      const lat = Number(row.lat), lng = Number(row.lng);
+      const lat = Number(row.lat),
+        lng = Number(row.lng);
       const pos = new maps.LatLng(lat, lng);
 
-      const nameText = String(getField(row, ["단지명","name","아파트명"]) || "");
+      const nameText = String(getField(row, ["단지명", "name", "아파트명"]) || "");
 
       if (!mk) {
         // 새 마커
@@ -447,28 +562,101 @@ export default function MapPage() {
 
         // 클릭 핸들러
         maps.event.addListener(mk, "click", () => {
-          const name = getField(row, ["단지명","단지 명","name","아파트명"]) || "";
-          const address = getField(row, ["주소","도로명주소","지번주소","address"]) || "";
-          const productName = getField(row, ["상품명","상품 명","제품명","광고상품명","productName"]) || "";
-          const installLocation = getField(row, ["설치위치","설치 위치","installLocation"]) || "";
+          const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
+          const address =
+            getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
+          const productName =
+            getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName"]) || "";
+          const installLocation =
+            getField(row, ["설치위치", "설치 위치", "installLocation"]) || "";
 
-          const households = toNumLoose(getField(row, ["세대수","세대 수","세대","가구수","가구 수","세대수(가구)","households"]));
-          const residents = toNumLoose(getField(row, ["거주인원","거주 인원","인구수","총인구","입주민수","거주자수","residents"]));
-          const monitors = toNumLoose(getField(row, ["모니터수량","모니터 수량","모니터대수","엘리베이터TV수","monitors"]));
-          const monthlyImpressions = toNumLoose(getField(row, ["월송출횟수","월 송출횟수","월 송출 횟수","월송출","노출수(월)","monthlyImpressions"]));
-          const monthlyFee = toNumLoose(getField(row, ["월광고료","월 광고료","월 광고비","월비용","월요금","month_fee","monthlyFee"]));
-          const monthlyFeeY1 = toNumLoose(getField(row, ["1년 계약 시 월 광고료","1년계약시월광고료","연간월광고료","할인 월 광고료","연간_월광고료","monthlyFeeY1"]));
-          const costPerPlay = toNumLoose(getField(row, ["1회당 송출비용","송출 1회당 비용","costPerPlay"]));
-          const hours = getField(row, ["운영시간","운영 시간","hours"]) || "";
-          const imageUrl = getField(row, ["imageUrl","이미지","썸네일","thumbnail"]) || undefined;
+          const households = toNumLoose(
+            getField(row, [
+              "세대수",
+              "세대 수",
+              "세대",
+              "가구수",
+              "가구 수",
+              "세대수(가구)",
+              "households",
+            ])
+          );
+          const residents = toNumLoose(
+            getField(row, [
+              "거주인원",
+              "거주 인원",
+              "인구수",
+              "총인구",
+              "입주민수",
+              "거주자수",
+              "residents",
+            ])
+          );
+          const monitors = toNumLoose(
+            getField(row, [
+              "모니터수량",
+              "모니터 수량",
+              "모니터대수",
+              "엘리베이터TV수",
+              "monitors",
+            ])
+          );
+          const monthlyImpressions = toNumLoose(
+            getField(row, [
+              "월송출횟수",
+              "월 송출횟수",
+              "월 송출 횟수",
+              "월송출",
+              "노출수(월)",
+              "monthlyImpressions",
+            ])
+          );
+          const monthlyFee = toNumLoose(
+            getField(row, [
+              "월광고료",
+              "월 광고료",
+              "월 광고비",
+              "월비용",
+              "월요금",
+              "month_fee",
+              "monthlyFee",
+            ])
+          );
+          const monthlyFeeY1 = toNumLoose(
+            getField(row, [
+              "1년 계약 시 월 광고료",
+              "1년계약시월광고료",
+              "연간월광고료",
+              "할인 월 광고료",
+              "연간_월광고료",
+              "monthlyFeeY1",
+            ])
+          );
+          const costPerPlay = toNumLoose(
+            getField(row, ["1회당 송출비용", "송출 1회당 비용", "costPerPlay"])
+          );
+          const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
+          const imageUrl =
+            getField(row, ["imageUrl", "이미지", "썸네일", "thumbnail"]) || undefined;
 
           const sel: SelectedApt = {
             rowKey,
             rowId: row.id != null ? String(row.id) : undefined,
-            name, address, productName, installLocation,
-            households, residents, monitors, monthlyImpressions,
-            costPerPlay, hours, monthlyFee, monthlyFeeY1,
-            imageUrl, lat, lng,
+            name,
+            address,
+            productName,
+            installLocation,
+            households,
+            residents,
+            monitors,
+            monthlyImpressions,
+            costPerPlay,
+            hours,
+            monthlyFee,
+            monthlyFeeY1,
+            imageUrl,
+            lat,
+            lng,
           };
           setSelected(sel);
 
@@ -549,23 +737,33 @@ export default function MapPage() {
         .select("*")
         .not("lat", "is", null)
         .not("lng", "is", null)
-        .gte("lat", pad.minLat).lte("lat", pad.maxLat)
-        .gte("lng", pad.minLng).lte("lng", pad.maxLng)
+        .gte("lat", pad.minLat)
+        .lte("lat", pad.maxLat)
+        .gte("lng", pad.minLng)
+        .lte("lng", pad.maxLng)
         .limit(5000);
 
-      if (err2) { console.warn("[MapPage] expanded select error:", err2.message); return; }
+      if (err2) {
+        console.warn("[MapPage] expanded select error:", err2.message);
+        return;
+      }
       if (reqId !== lastReqIdRef.current) return;
 
       const rows2 = (data2 ?? []) as PlaceRow[];
       rows2.forEach((row) => {
         if (row.lat == null || row.lng == null) return;
 
-        const key = `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(7)}|${row.id != null ? String(row.id) : ""}|${String(getField(row, ["상품명","상품 명","제품명","광고상품명","productName"]) || "")}|${String(getField(row, ["설치위치","설치 위치","installLocation"]) || "")}`;
+        const key = `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(
+          7
+        )}|${row.id != null ? String(row.id) : ""}|${String(
+          getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName"]) || ""
+        )}|${String(getField(row, ["설치위치", "설치 위치", "installLocation"]) || "")}`;
         if (markerCacheRef.current.has(key)) return;
 
-        const lat = Number(row.lat), lng = Number(row.lng);
+        const lat = Number(row.lat),
+          lng = Number(row.lng);
         const pos = new maps.LatLng(lat, lng);
-        const nameText = String(getField(row, ["단지명","name","아파트명"]) || "");
+        const nameText = String(getField(row, ["단지명", "name", "아파트명"]) || "");
         const rowKey = buildRowKeyFromRow(row);
         const isSelected = selectedRowKeySetRef.current.has(rowKey);
 
@@ -579,33 +777,106 @@ export default function MapPage() {
         mk.__row = row;
 
         maps.event.addListener(mk, "click", () => {
-          const name = getField(row, ["단지명","단지 명","name","아파트명"]) || "";
-          const address = getField(row, ["주소","도로명주소","지번주소","address"]) || "";
-          const productName = getField(row, ["상품명","상품 명","제품명","광고상품명","productName"]) || "";
-          const installLocation = getField(row, ["설치위치","설치 위치","installLocation"]) || "";
-          const households = toNumLoose(getField(row, ["세대수","세대 수","세대","가구수","가구 수","세대수(가구)","households"]));
-          const residents = toNumLoose(getField(row, ["거주인원","거주 인원","인구수","총인구","입주민수","거주자수","residents"]));
-          const monitors = toNumLoose(getField(row, ["모니터수량","모니터 수량","모니터대수","엘리베이터TV수","monitors"]));
-          const monthlyImpressions = toNumLoose(getField(row, ["월송출횟수","월 송출횟수","월 송출 횟수","월송출","노출수(월)","monthlyImpressions"]));
-          const monthlyFee = toNumLoose(getField(row, ["월광고료","월 광고료","월 광고비","월비용","월요금","month_fee","monthlyFee"]));
-          const monthlyFeeY1 = toNumLoose(getField(row, ["1년 계약 시 월 광고료","1년계약시월광고료","연간월광고료","할인 월 광고료","연간_월광고료","monthlyFeeY1"]));
-          const costPerPlay = toNumLoose(getField(row, ["1회당 송출비용","송출 1회당 비용","costPerPlay"]));
-          const hours = getField(row, ["운영시간","운영 시간","hours"]) || "";
-          const imageUrl = getField(row, ["imageUrl","이미지","썸네일","thumbnail"]) || undefined;
+          const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
+          const address =
+            getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
+          const productName =
+            getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName"]) || "";
+          const installLocation =
+            getField(row, ["설치위치", "설치 위치", "installLocation"]) || "";
+          const households = toNumLoose(
+            getField(row, [
+              "세대수",
+              "세대 수",
+              "세대",
+              "가구수",
+              "가구 수",
+              "세대수(가구)",
+              "households",
+            ])
+          );
+          const residents = toNumLoose(
+            getField(row, [
+              "거주인원",
+              "거주 인원",
+              "인구수",
+              "총인구",
+              "입주민수",
+              "거주자수",
+              "residents",
+            ])
+          );
+          const monitors = toNumLoose(
+            getField(row, [
+              "모니터수량",
+              "모니터 수량",
+              "모니터대수",
+              "엘리베이터TV수",
+              "monitors",
+            ])
+          );
+          const monthlyImpressions = toNumLoose(
+            getField(row, [
+              "월송출횟수",
+              "월 송출횟수",
+              "월 송출 횟수",
+              "월송출",
+              "노출수(월)",
+              "monthlyImpressions",
+            ])
+          );
+          const monthlyFee = toNumLoose(
+            getField(row, [
+              "월광고료",
+              "월 광고료",
+              "월 광고비",
+              "월비용",
+              "월요금",
+              "month_fee",
+              "monthlyFee",
+            ])
+          );
+          const monthlyFeeY1 = toNumLoose(
+            getField(row, [
+              "1년 계약 시 월 광고료",
+              "1년계약시월광고료",
+              "연간월광고료",
+              "할인 월 광고료",
+              "연간_월광고료",
+              "monthlyFeeY1",
+            ])
+          );
+          const costPerPlay = toNumLoose(
+            getField(row, ["1회당 송출비용", "송출 1회당 비용", "costPerPlay"])
+          );
+          const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
+          const imageUrl =
+            getField(row, ["imageUrl", "이미지", "썸네일", "thumbnail"]) || undefined;
 
           const sel: SelectedApt = {
             rowKey,
             rowId: row.id != null ? String(row.id) : undefined,
-            name, address, productName, installLocation,
-            households, residents, monitors, monthlyImpressions,
-            costPerPlay, hours, monthlyFee, monthlyFeeY1,
-            imageUrl, lat, lng,
+            name,
+            address,
+            productName,
+            installLocation,
+            households,
+            residents,
+            monitors,
+            monthlyImpressions,
+            costPerPlay,
+            hours,
+            monthlyFee,
+            monthlyFeeY1,
+            imageUrl,
+            lat,
+            lng,
           };
           setSelected(sel);
           spiderRef.current?.spiderfy(groupKeyFromRow(row));
 
           if (lastClickedRef.current && lastClickedRef.current !== mk) {
-            const prevRowKey = buildRowKeyFromRow((lastClickedRef.current.__row as PlaceRow));
+            const prevRowKey = buildRowKeyFromRow(lastClickedRef.current.__row as PlaceRow);
             const prevSelected = selectedRowKeySetRef.current.has(prevRowKey);
             lastClickedRef.current.setImage(prevSelected ? imgs.yellow : imgs.purple);
           }
@@ -617,7 +888,8 @@ export default function MapPage() {
 
         // 상태 반영
         let imgToUse = isSelected ? imgs.yellow : imgs.purple;
-        if (lastClickedRef.current && lastClickedRef.current.__key === key) imgToUse = imgs.clicked;
+        if (lastClickedRef.current && lastClickedRef.current.__key === key)
+          imgToUse = imgs.clicked;
         mk.setImage(imgToUse);
 
         // 인덱싱/클러스터
@@ -650,7 +922,8 @@ export default function MapPage() {
     places.keywordSearch(query, (results: any[], status: string) => {
       if (status !== kakao.maps.services.Status.OK || !results?.length) return;
       const first = results[0];
-      const lat = Number(first.y), lng = Number(first.x);
+      const lat = Number(first.y),
+        lng = Number(first.x);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
       const latlng = new kakao.maps.LatLng(lat, lng);
       mapObjRef.current.setLevel(4);
@@ -658,8 +931,13 @@ export default function MapPage() {
       loadMarkersInBounds();
     });
   }
-  function handleSearch(q: string) { writeQuery(q); runPlaceSearch(q); }
-  function closeSelected() { setSelected(null); }
+  function handleSearch(q: string) {
+    writeQuery(q);
+    runPlaceSearch(q);
+  }
+  function closeSelected() {
+    setSelected(null);
+  }
 
   const mapLeftClass = selected ? "md:left-[720px]" : "md:left-[360px]";
 
@@ -668,7 +946,11 @@ export default function MapPage() {
 
   return (
     <div className="w-screen h-[100dvh] bg-white">
-      <div ref={mapRef} className={`fixed top-16 left-0 right-0 bottom-0 z-[10] ${mapLeftClass}`} aria-label="map" />
+      <div
+        ref={mapRef}
+        className={`fixed top-16 left-0 right-0 bottom-0 z-[10] ${mapLeftClass}`}
+        aria-label="map"
+      />
       <MapChromeAny
         selected={selected}
         onCloseSelected={closeSelected}
