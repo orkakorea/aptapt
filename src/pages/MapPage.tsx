@@ -300,11 +300,6 @@ export default function MapPage() {
         map = new kakao.maps.Map(mapRef.current, { center, level: 6 });
         mapObjRef.current = map;
 
-         /* ✅✅ 여기 3줄 추가: MapChrome이 전역에서 맵을 잡아 씀 */
-      (window as any).kakaoMap = map;     // 표준 키
-      (window as any).__kakaoMap = map;   // 폴백 키
-      // (원하면: 페이지 나갈 때 정리하도록 아래 클린업도 함께)
-        
         placesRef.current = new kakao.maps.services.Places();
         clustererRef.current = new kakao.maps.MarkerClusterer({
           map, averageCenter: true, minLevel: 6, disableClickZoom: true, gridSize: 80,
@@ -340,21 +335,24 @@ export default function MapPage() {
         setKakaoError(err?.message || String(err));
       });
 
-    return () => window.removeEventListener("resize", resizeHandler);
+    return () => {
+  // 기존 리스너 해제
+  window.removeEventListener("resize", resizeHandler);
 
-     /* (선택) 페이지 떠날 때 전역 정리 — 여러 페이지에서 안전하게 쓰려면 권장 */
-    const w = window as any;
-    if (w.kakaoMap === mapObjRef.current) w.kakaoMap = null;
-    if (w.__kakaoMap === mapObjRef.current) w.__kakaoMap = null;
-  };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // ✅ 전역 맵 정리 (선택이지만 권장)
+  const w = window as any;
+  if (w.kakaoMap === mapObjRef.current) w.kakaoMap = null;
+  if (w.__kakaoMap === mapObjRef.current) w.__kakaoMap = null;
+};
+// eslint-disable-next-line react-hooks/exhaustive-deps
+}, []); //
+
 
   // 2탭 열고 닫을 때 레이아웃 보정(스파이더 유지)
   useEffect(() => {
     const m = mapObjRef.current;
     if ((window as any).kakao?.maps && m) setTimeout(() => m.relayout(), 0);
-  }, [selected]);
+  }, [selected]); 
 
   /* ------------------ MapChrome → 행(rowKey) 단위 색 전환 ------------------ */
   const setMarkerStateByRowKey = useCallback((rowKey: string, state: "default" | "selected") => {
