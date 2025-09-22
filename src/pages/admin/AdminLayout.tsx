@@ -16,7 +16,7 @@ const DEFAULT_ADMIN_ENTRY = "/admin/dashboard";
 type NavItem = { label: string; to: string; emoji?: string; disabled?: boolean };
 
 const NAV_ITEMS: NavItem[] = [
-{ label: "MAIN", to: "/admin/dashboard", emoji: "🏠" },
+  { label: "MAIN", to: "/admin/dashboard", emoji: "🏠", disabled: true }, // TODO: 페이지 완성 후 disabled 제거
   { label: "문의상세", to: "/admin/inquiries", emoji: "🗂️" },
   { label: "기간별 통계", to: "/admin/stats", emoji: "📈", disabled: true }, // TODO
   { label: "계약서 확인", to: "/admin/contracts", emoji: "📄", disabled: true }, // TODO
