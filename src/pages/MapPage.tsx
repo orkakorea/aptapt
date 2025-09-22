@@ -250,7 +250,7 @@ export default function MapPage() {
   const placesRef = useRef<any>(null);
   const spiderRef = useRef<SpiderController | null>(null);
 
-  // 검색 핀 & 반경(5km) 오버레이
+  // 검색 핀 & 반경(1km) 오버레이
   const searchPinRef = useRef<any>(null);
   const radiusCircleRef = useRef<any>(null);
   const radiusLabelRef = useRef<any>(null);
@@ -319,7 +319,6 @@ export default function MapPage() {
     let resizeHandler: any;
     let map: any;
 
-    // 시작할 때 혹시 남아있을지도 모르는 중복 SDK 제거
     cleanupKakaoScripts();
 
     loadKakao()
@@ -333,7 +332,6 @@ export default function MapPage() {
         map = new kakao.maps.Map(mapRef.current, { center, level: 6 });
         mapObjRef.current = map;
 
-        // MapChrome 등에서 필요 시 접근할 수 있게 전역으로도 꽂아둠(선택)
         (window as any).kakaoMap = map;
         (window as any).__kakaoMap = map;
 
@@ -375,7 +373,6 @@ export default function MapPage() {
       if (w.kakaoMap === mapObjRef.current) w.kakaoMap = null;
       if (w.__kakaoMap === mapObjRef.current) w.__kakaoMap = null;
 
-      // 검색 오버레이 정리
       try {
         radiusCircleRef.current?.setMap(null);
         radiusLabelRef.current?.setMap(null);
@@ -665,31 +662,37 @@ export default function MapPage() {
     if (!kakao?.maps || !mapObjRef.current) return;
     const map = mapObjRef.current;
 
-    // 1) 반경 5km 원 (마커 뒤에)
+    // 1) 반경 1km 원 (마커 뒤에)
     if (!radiusCircleRef.current) {
       radiusCircleRef.current = new kakao.maps.Circle({
         map,
         center: latlng,
         radius: 1000,                 // 1km
         strokeWeight: 2,
-        strokeColor: "#FFD400",
+        strokeColor: "#FFD400",       // 노란색 테두리
         strokeOpacity: 0.6,
         strokeStyle: "solid",
-        fillColor: "#FFD400",
-        fillOpacity: 0.10,            // 32% 투명
+        fillColor: "#FFD400",         // 노란색 채움
+        fillOpacity: 0.11,            // 11% 불투명도
         zIndex: -1000,                // 마커 뒤로
       });
     } else {
-      radiusCircleRef.current.setOptions({ center: latlng, radius: 1000 });
+      radiusCircleRef.current.setOptions({
+        center: latlng,
+        radius: 1000,                 // 1km
+        strokeColor: "#FFD400",
+        fillColor: "#FFD400",
+        fillOpacity: 0.11,
+      });
       radiusCircleRef.current.setZIndex?.(-1000);
       radiusCircleRef.current.setMap(map);
     }
 
-    // 2) “반경 1km” 라벨 (가독성 위해 위에)
+    // 2) “반경 1km” 라벨 (가독성 좋게 노란 배경 + 진한 글자)
     const labelHTML = `
       <div style="
         padding:6px 10px;border-radius:999px;
-        background:#6C2DFF;color:#fff;font-size:12px;
+        background:#FFD400;color:#222;font-size:12px;
         font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,0.15);
         white-space:nowrap;user-select:none;">
         반경 1km
@@ -717,7 +720,7 @@ export default function MapPage() {
         map,
         position: latlng,
         image: imgs.purple,
-        zIndex: 500000, // 마커들 위로 (원 위/라벨 아래 상관없음)
+        zIndex: 500000, // 라벨보단 아래, 일반 마커 위
         clickable: false,
       });
     } else {
@@ -743,7 +746,7 @@ export default function MapPage() {
       mapObjRef.current.setLevel(4);
       mapObjRef.current.setCenter(latlng);
 
-      // ✅ 검색 지점에 핀 찍고, 5km 원(32%) + "반경 5km" 라벨 추가/갱신
+      // ✅ 검색 지점에 핀 + 반경 1km(노랑, 11%) + "반경 1km" 라벨
       drawSearchOverlays(latlng);
 
       // 주변 마커 재로딩
