@@ -677,7 +677,12 @@ export default function MapPage() {
   function clearRadiusUI() {
     try { radiusCircleRef.current?.setMap(null); } catch {}
     try { radiusLabelRef.current?.setMap(null); } catch {}
-    // 검색핀은 유지 (요구사항)
+  try { searchPinRef.current?.setMap?.(null); } catch {}   // ← 검은 검색핀까지 제거
+
+  // (선택) 다음 검색 때 새로 만들도록 레퍼런스 초기화
+  radiusCircleRef.current = null;
+  radiusLabelRef.current = null;
+  searchPinRef.current = null;
   }
 
   function ensureRadiusLabelContent(onClose: () => void) {
