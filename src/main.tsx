@@ -39,7 +39,7 @@ import "./index.css";
  *  - 기존 rel~="icon" 링크가 있으면 type/href만 정리
  * ======================================================= */
 (function ensureFavicon() {
-  const href = "/favicon.ico.png"; // 네가 업로드한 파일명 그대로 사용
+  const href = "/favicon2.png"; // 네가 업로드한 파일명 그대로 사용
   const head = document.head;
   const icons = Array.from(
     head.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]')
