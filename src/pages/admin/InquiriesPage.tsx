@@ -3,12 +3,13 @@ import { supabase } from "@/integrations/supabase/client";
 
 /**
  * InquiriesPage
- * - 목록: 상태/유효성/담당자 인라인 수정 (유효성은 —/유효/무효의 tri-state)
- * - 서버사이드 필터/검색/페이지네이션 (count 정확)
+ * - 목록: 상태/유효성/담당자 인라인 수정 (유효성은 —/유효/무효의 tri-state, 기본 —)
+ * - 서버사이드 검색/필터/페이지네이션
  * - 상세 드로어: inquiry_apartments → 없으면 cart_snapshot(items) fallback
  * - 드로어 우상단: CSV(엑셀) 내보내기 (메타 + 항목표 전부)
+ * - NEW 뱃지: status='new'이며 아직 클릭 안 한 행에만 1회성 표시(브랜드명 좌측, 클릭 시 사라짐)
  *
- * ✅ 컬럼 매핑(사용자 지정 고정)
+ * ✅ 컬럼 매핑(확정)
  *   유입경로: inquiry_kind
  *   브랜드명: company
  *   캠페인유형: campaign_type
@@ -21,6 +22,9 @@ import { supabase } from "@/integrations/supabase/client";
  *   상품명: product_name
  */
 
+/* =========================
+ *  Types & Constants
+ * ========================= */
 type InquiryKind = "SEAT" | "PACKAGE";
 type InquiryStatus = "new" | "in_progress" | "done" | "canceled";
 type ValidTri = "-" | "valid" | "invalid";
@@ -29,17 +33,17 @@ type InquiryRow = {
   id: string;
   created_at: string;
   // 리스트 표시/편집 필드
-  company?: string | null;          // 브랜드명
-  campaign_type?: string | null;    // 캠페인유형
-  status?: InquiryStatus | null;    // 진행상태
-  valid?: boolean | null;           // 유효성(null=미지정)
-  assignee?: string | null;         // 영업담당자
-  inquiry_kind?: InquiryKind | null;// 유입경로(= 문의유형)
+  company?: string | null;
+  campaign_type?: string | null;
+  status?: InquiryStatus | null;
+  valid?: boolean | null; // null=—(미지정)
+  assignee?: string | null;
+  inquiry_kind?: InquiryKind | null;
   // 상세 표시 필드
-  customer_name?: string | null;    // 담당자명(광고주)
+  customer_name?: string | null;
   phone?: string | null;
   email?: string | null;
-  memo?: string | null;             // 요청사항
+  memo?: string | null; // 요청사항
   cart_snapshot?: any;
 };
 
@@ -93,6 +97,30 @@ const APT_COL = {
 } as const;
 
 /* =========================
+ *  NEW 배지 1회성 관리 (localStorage)
+ * ========================= */
+const SEEN_KEY = "inquiries_seen_v1";
+
+function getSeenSet(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const arr = JSON.parse(localStorage.getItem(SEEN_KEY) || "[]");
+    return new Set(arr);
+  } catch {
+    return new Set();
+  }
+}
+
+function addSeen(id: string) {
+  if (typeof window === "undefined") return;
+  const set = getSeenSet();
+  if (!set.has(id)) {
+    set.add(id);
+    localStorage.setItem(SEEN_KEY, JSON.stringify(Array.from(set)));
+  }
+}
+
+/* =========================
  *  Page
  * ========================= */
 const InquiriesPage: React.FC = () => {
@@ -110,6 +138,12 @@ const InquiriesPage: React.FC = () => {
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // NEW 배지(1회성) 체크용
+  const [seenIds, setSeenIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    setSeenIds(getSeenSet());
+  }, []);
 
   const { fromIdx, toIdx } = useMemo(() => {
     const fromIdx = (page - 1) * pageSize;
@@ -183,7 +217,7 @@ const InquiriesPage: React.FC = () => {
    * ------------------------- */
   return (
     <div className="p-6 space-y-6">
-      {/* 상단 묶음: '관리 전용 페이지' 문구 제거하고 바로 타이틀 */}
+      {/* 상단 문구 제거, 바로 타이틀 */}
       <h2 className="text-2xl font-bold">문의상세 관리</h2>
 
       {/* 필터 바 */}
@@ -285,14 +319,28 @@ const InquiriesPage: React.FC = () => {
                   <Td className="text-center">
                     <SourceBadge value={r.inquiry_kind} />
                   </Td>
+
+                  {/* 브랜드명 + NEW 뱃지(1회성) */}
                   <Td>
-                    <button
-                      className="text-left text-gray-900 hover:text-[#6C2DFF] font-medium"
-                      onClick={() => setSelected(r)}
-                    >
-                      {r.company || "—"}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {(r.status === "new" && !seenIds.has(r.id)) && (
+                        <span className="text-[10px] uppercase font-semibold text-violet-600">
+                          new
+                        </span>
+                      )}
+                      <button
+                        className="text-left text-gray-900 hover:text-[#6C2DFF] font-medium"
+                        onClick={() => {
+                          addSeen(r.id);
+                          setSeenIds(new Set([...Array.from(seenIds), r.id]));
+                          setSelected(r);
+                        }}
+                      >
+                        {r.company || "—"}
+                      </button>
+                    </div>
                   </Td>
+
                   <Td>{r.campaign_type || "—"}</Td>
 
                   {/* 진행상황: 알록달록 pill select */}
@@ -537,7 +585,7 @@ const DetailDrawer: React.FC<{
 
     const full = metaLines + "\n\n" + itemsHeader + "\n" + itemsLines;
 
-    const blob = new Blob(["\uFEFF" + full], { type: "text/csv;charset=utf-8" }); // UTF-8 BOM
+    const blob = new Blob(["\uFEFF" + full], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
