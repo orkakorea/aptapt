@@ -2,72 +2,79 @@ import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 /**
- * InquiriesPage (서버사이드 필터 + 상세 드로어 단지/상품 세트)
- * - 목록: 상태/유효성/담당자 인라인 수정
+ * InquiriesPage
+ * - 목록: 상태/담당자 인라인 수정 (유효성 칼럼은 '—' 고정 표시)
  * - 서버사이드 필터/검색/페이지네이션 (count 정확)
- * - 상세 드로어: inquiry_apartments → 없으면 cart_snapshot.fallback 사용
+ * - 상세 드로어: inquiry_apartments → 없으면 cart_snapshot(items) fallback
+ * - 드로어 우상단: CSV(엑셀) 내보내기
  *
- * ※ 주의: 현재 프로젝트의 Supabase 타입에 inquiries/inquiry_apartments가 없어서
- *   제네릭 과심화 오류(TS2589)가 뜨므로, supabase를 sb:any로 캐스팅해 사용합니다.
+ * ✅ 컬럼 매핑(사용자 지정 고정)
+ *   유입경로: inquiry_kind
+ *   브랜드명: company
+ *   캠페인유형: campaign_type
+ *   담당자명: customer_name
+ *   연락처: phone
+ *   이메일: email
+ *   요청사항: memo
+ *   진행상태: status
+ *   단지명: apt_name
+ *   상품명: product_name
  */
 
 /* =========================
  *  Types & Constants
  * ========================= */
-type SourceType = "SEAT" | "PACKAGE";
-type InquiryStatus = "new" | "pending" | "assigned" | "contract";
-type Validity = "valid" | "invalid";
+type InquiryKind = "SEAT" | "PACKAGE";
+type InquiryStatus = "new" | "in_progress" | "done" | "canceled";
 
 type InquiryRow = {
   id: string;
   created_at: string;
-  brand_name?: string | null;
-  campaign_type?: string | null;
-  status?: InquiryStatus | null;
-  valid?: boolean | null;
-  manager_name?: string | null;
-  source_type?: SourceType | null;
-  contact_name?: string | null;
+  // 리스트 표시/편집 필드
+  company?: string | null;          // 브랜드명
+  campaign_type?: string | null;    // 캠페인유형
+  status?: InquiryStatus | null;    // 진행상태
+  valid?: boolean | null;           // 유효성(표시는 '—'로 고정)
+  assignee?: string | null;         // 영업담당자(내부)
+  inquiry_kind?: InquiryKind | null;// 유입경로(= 문의유형)
+  // 상세 표시 필드
+  customer_name?: string | null;    // 담당자명(광고주)
   phone?: string | null;
   email?: string | null;
-  start_at_wish?: string | null;
-  request_note?: string | null;
-  cart_snapshot?: any; // 상세 드로어 fallback 용
+  memo?: string | null;             // 요청사항
+  cart_snapshot?: any;              // 상세 드로어 fallback 용
 };
 
 const STATUS_OPTIONS: { value: InquiryStatus; label: string }[] = [
-  { value: "new", label: "신규" },
-  { value: "pending", label: "대기" },
-  { value: "assigned", label: "배정" },
-  { value: "contract", label: "계약" },
+  { value: "new",         label: "신규" },
+  { value: "in_progress", label: "진행중" },
+  { value: "done",        label: "완료" },
+  { value: "canceled",    label: "취소" },
 ];
 
-const VALIDITY_OPTIONS: { value: Validity; label: string }[] = [
-  { value: "valid", label: "유효" },
-  { value: "invalid", label: "무효" },
-];
-
-const SOURCE_OPTIONS: { value: "all" | SourceType; label: string }[] = [
-  { value: "all", label: "전체" },
-  { value: "SEAT", label: "SEAT" },
-  { value: "PACKAGE", label: "PACKAGE" },
+const SOURCE_OPTIONS: { value: "all" | InquiryKind; label: string }[] = [
+  { value: "all",    label: "전체" },
+  { value: "SEAT",   label: "SEAT" },
+  { value: "PACKAGE",label: "PACKAGE" },
 ];
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 
+/** 실제 DB 컬럼 키(매핑 상수) */
 const COL = {
+  id: "id",
   createdAt: "created_at",
-  brand: "brand_name",
+  inquiryKind: "inquiry_kind",
+  company: "company",
   campaignType: "campaign_type",
   status: "status",
   valid: "valid",
-  manager: "manager_name",
-  sourceType: "source_type",
-  contactName: "contact_name",
+  assignee: "assignee",
+  customerName: "customer_name",
   phone: "phone",
   email: "email",
-  startWish: "start_at_wish",
-  requestNote: "request_note",
+  memo: "memo",
+  cartSnapshot: "cart_snapshot",
 } as const;
 
 const TBL = {
@@ -95,8 +102,7 @@ const InquiriesPage: React.FC = () => {
 
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<"all" | InquiryStatus>("all");
-  const [validity, setValidity] = useState<"all" | Validity>("all");
-  const [sourceType, setSourceType] = useState<"all" | SourceType>("all");
+  const [sourceType, setSourceType] = useState<"all" | InquiryKind>("all");
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -125,13 +131,12 @@ const InquiriesPage: React.FC = () => {
 
         // 서버사이드 필터
         if (status !== "all") q = q.eq(COL.status, status);
-        if (validity !== "all") q = q.eq(COL.valid, validity === "valid");
-        if (sourceType !== "all") q = q.eq(COL.sourceType, sourceType);
+        if (sourceType !== "all") q = q.eq(COL.inquiryKind, sourceType);
         if (query.trim()) {
           const k = query.trim();
-          // brand_name, campaign_type, manager_name 에 대한 부분 검색
+          // company, campaign_type, customer_name 에 대한 부분 검색
           q = q.or(
-            `${COL.brand}.ilike.%${k}%,${COL.campaignType}.ilike.%${k}%,${COL.manager}.ilike.%${k}%`
+            `${COL.company}.ilike.%${k}%,${COL.campaignType}.ilike.%${k}%,${COL.customerName}.ilike.%${k}%`
           );
         }
 
@@ -139,20 +144,19 @@ const InquiriesPage: React.FC = () => {
         if (error) throw error;
 
         const mapped: InquiryRow[] = (data || []).map((d: any) => ({
-          id: String(d.id),
+          id: String(d[COL.id]),
           created_at: d[COL.createdAt],
-          brand_name: d[COL.brand],
+          company: d[COL.company],
           campaign_type: d[COL.campaignType],
           status: d[COL.status],
           valid: d[COL.valid],
-          manager_name: d[COL.manager],
-          source_type: d[COL.sourceType],
-          contact_name: d[COL.contactName],
+          assignee: d[COL.assignee],
+          inquiry_kind: d[COL.inquiryKind],
+          customer_name: d[COL.customerName],
           phone: d[COL.phone],
           email: d[COL.email],
-          start_at_wish: d[COL.startWish],
-          request_note: d[COL.requestNote],
-          cart_snapshot: d.cart_snapshot,
+          memo: d[COL.memo],
+          cart_snapshot: d[COL.cartSnapshot],
         }));
 
         if (!ignore) {
@@ -170,7 +174,7 @@ const InquiriesPage: React.FC = () => {
     return () => {
       ignore = true;
     };
-  }, [page, pageSize, query, status, validity, sourceType, fromIdx, toIdx]);
+  }, [page, pageSize, query, status, sourceType, fromIdx, toIdx]);
 
   /* -------------------------
    * 렌더
@@ -199,7 +203,7 @@ const InquiriesPage: React.FC = () => {
       {/* 필터 바 */}
       <div className="rounded-xl border bg-white p-4 flex flex-wrap items-center gap-2">
         <input
-          placeholder="브랜드/캠페인/담당자 검색"
+          placeholder="브랜드/캠페인/담당자(광고주) 검색"
           value={query}
           onChange={(e) => {
             setPage(1);
@@ -217,21 +221,6 @@ const InquiriesPage: React.FC = () => {
         >
           <option value="all">전체 상태</option>
           {STATUS_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-        <select
-          value={validity}
-          onChange={(e) => {
-            setPage(1);
-            setValidity(e.target.value as any);
-          }}
-          className="h-9 px-2 rounded-md border text-sm"
-        >
-          <option value="all">전체 유효성</option>
-          {VALIDITY_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>
               {o.label}
             </option>
@@ -301,14 +290,14 @@ const InquiriesPage: React.FC = () => {
                 >
                   <Td>{formatDateTime(r.created_at)}</Td>
                   <Td className="text-center">
-                    <SourceBadge value={r.source_type} />
+                    <SourceBadge value={r.inquiry_kind} />
                   </Td>
                   <Td>
                     <button
                       className="text-left text-gray-900 hover:text-[#6C2DFF] font-medium"
                       onClick={() => setSelected(r)}
                     >
-                      {r.brand_name || "—"}
+                      {r.company || "—"}
                     </button>
                   </Td>
                   <Td>{r.campaign_type || "—"}</Td>
@@ -321,7 +310,7 @@ const InquiriesPage: React.FC = () => {
                         const { error } = await sb
                           .from(TBL.main)
                           .update({ [COL.status]: next })
-                          .eq("id", r.id);
+                          .eq(COL.id, r.id);
                         if (!error) {
                           setRows((prev) =>
                             prev.map((row) =>
@@ -339,50 +328,26 @@ const InquiriesPage: React.FC = () => {
                       ))}
                     </select>
                   </Td>
-                  <Td>
-                    <select
-                      value={r.valid ? "valid" : "invalid"}
-                      onChange={async (e) => {
-                        const sb: any = supabase; // ✅ any 캐스팅
-                        const next = e.target.value === "valid";
-                        const { error } = await sb
-                          .from(TBL.main)
-                          .update({ [COL.valid]: next })
-                          .eq("id", r.id);
-                        if (!error) {
-                          setRows((prev) =>
-                            prev.map((row) =>
-                              row.id === r.id ? { ...row, valid: next } : row
-                            )
-                          );
-                        }
-                      }}
-                      className="border rounded px-2 py-1 text-sm"
-                    >
-                      {VALIDITY_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
-                      ))}
-                    </select>
-                  </Td>
+
+                  {/* 유효성: '—' 고정 표시 (편집 없음) */}
+                  <Td>—</Td>
+
+                  {/* 담당자(영업담당자) 인라인 수정 */}
                   <Td>
                     <input
                       type="text"
-                      defaultValue={r.manager_name || ""}
+                      defaultValue={r.assignee || ""}
                       onBlur={async (e) => {
                         const sb: any = supabase; // ✅ any 캐스팅
                         const val = e.target.value;
                         const { error } = await sb
                           .from(TBL.main)
-                          .update({ [COL.manager]: val })
-                          .eq("id", r.id);
+                          .update({ [COL.assignee]: val })
+                          .eq(COL.id, r.id);
                         if (!error) {
                           setRows((prev) =>
                             prev.map((row) =>
-                              row.id === r.id
-                                ? { ...row, manager_name: val }
-                                : row
+                              row.id === r.id ? { ...row, assignee: val } : row
                             )
                           );
                         }
@@ -449,13 +414,13 @@ const DetailDrawer: React.FC<{
   >([]);
   const [aptLoading, setAptLoading] = useState(false);
 
-  // inquiry_apartments 조회
+  // inquiry_apartments 조회 (있으면 우선 사용: months 정보는 없으니 스냅샷에서 매칭 보강)
   useEffect(() => {
     let ignore = false;
     (async () => {
       setAptLoading(true);
       try {
-        const sb: any = supabase; // ✅ any 캐스팅 (타입 오류 방지)
+        const sb: any = supabase;
         const { data, error } = await sb
           .from(TBL.apartments)
           .select(`${APT_COL.aptName}, ${APT_COL.productName}`)
@@ -473,64 +438,110 @@ const DetailDrawer: React.FC<{
     };
   }, [row.id]);
 
-  // cart_snapshot fallback
-  const fallbackFromSnapshot = useMemo(() => {
+  // cart_snapshot → [단지명/개월/상품명] 세트
+  const snapshotSets = useMemo(() => {
     const items = (row as any)?.cart_snapshot?.items;
     if (!Array.isArray(items)) return [];
     return items.map((it: any) => ({
       apt_name: it.apt_name ?? it.name ?? "",
-      product_name: it.mediaName ?? it.product_name ?? "",
+      months: Number(it.months ?? 0) || null,
+      product_name: it.product_name ?? it.mediaName ?? (it.product_code ?? ""),
     }));
   }, [row]);
 
-  const listToRender =
-    aptRows && aptRows.length > 0 ? aptRows : fallbackFromSnapshot;
+  // apartments 결과가 있으면 우선 사용하되, months는 snapshot과 이름 매칭해 보강
+  const listToRender: { apt_name: string; months: number | null; product_name: string }[] =
+    useMemo(() => {
+      if (aptRows.length === 0 && snapshotSets.length > 0) return snapshotSets;
+
+      if (aptRows.length > 0) {
+        return aptRows.map((ap) => {
+          const found = snapshotSets.find(
+            (s) =>
+              (s.apt_name || "").trim() === (ap.apt_name || "").trim() &&
+              (s.product_name || "").trim() === (ap.product_name || "").trim()
+          );
+          return {
+            apt_name: ap.apt_name || "",
+            product_name: ap.product_name || "",
+            months: found ? found.months : null,
+          };
+        });
+      }
+      return [];
+    }, [aptRows, snapshotSets]);
+
+  // CSV(엑셀) 내보내기
+  function exportCSV() {
+    const header = ["단지명", "광고기간(개월)", "상품명"];
+    const lines = [
+      header.join(","),
+      ...listToRender.map((r) =>
+        [safeCSV(r.apt_name), safeCSV(r.months ?? ""), safeCSV(r.product_name)].join(",")
+      ),
+    ].join("\n");
+
+    const blob = new Blob(["\uFEFF" + lines], { type: "text/csv;charset=utf-8" }); // UTF-8 BOM
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `inquiry_${row.id}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <div className="fixed inset-0 z-40">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className="absolute right-0 top-0 h-full w-full max-w-[560px] bg-white shadow-2xl">
+      <div className="absolute right-0 top-0 h-full w-full max-w-[600px] bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
-          <div>
-            <div className="text-sm text-gray-500">브랜드</div>
-            <div className="text-lg font-semibold flex items-center gap-2">
-              {row.brand_name || "브랜드명 없음"}
-              <SourceBadge value={row.source_type} />
+          <div className="min-w-0">
+            <div className="text-xs text-gray-500">브랜드</div>
+            <div className="text-lg font-semibold flex items-center gap-2 truncate">
+              {row.company || "브랜드명 없음"}
+              <SourceBadge value={row.inquiry_kind} />
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm hover:bg-gray-50"
-          >
-            닫기
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={exportCSV}
+              className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm hover:bg-gray-50"
+            >
+              엑셀로 내보내기
+            </button>
+            <button
+              onClick={onClose}
+              className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm hover:bg-gray-50"
+            >
+              닫기
+            </button>
+          </div>
         </div>
 
         <div className="p-5 space-y-5 overflow-y-auto h-[calc(100%-56px)]">
           <InfoItem label="문의일시" value={formatDateTime(row.created_at)} />
           <InfoItem label="캠페인 유형" value={row.campaign_type || "—"} />
-          <InfoItem label="담당자명(광고주)" value={row.contact_name || "—"} />
+          <InfoItem label="담당자명(광고주)" value={row.customer_name || "—"} />
           <InfoItem label="연락처" value={row.phone || "—"} />
           <InfoItem label="이메일주소" value={row.email || "—"} />
-          <InfoItem
-            label="송출개시희망일"
-            value={row.start_at_wish ? formatDateTime(row.start_at_wish) : "—"}
-          />
-          <InfoItem label="요청사항" value={row.request_note || "—"} />
+          <InfoItem label="요청사항" value={row.memo || "—"} />
 
           <div className="border-t border-gray-100 pt-4">
-            <div className="text-sm font-medium mb-2">선택 단지/상품</div>
+            <div className="text-sm font-medium mb-2">선택 단지/광고기간/상품</div>
 
             {aptLoading ? (
               <div className="text-sm text-gray-500">불러오는 중…</div>
             ) : listToRender.length === 0 ? (
               <div className="text-sm text-gray-500">데이터 없음</div>
             ) : (
-              <div className="max-h-52 overflow-auto rounded-md border">
+              <div className="max-h-60 overflow-auto rounded-md border">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-3 py-2 text-left">단지명</th>
+                      <th className="px-3 py-2 text-left">광고기간(개월)</th>
                       <th className="px-3 py-2 text-left">상품명</th>
                     </tr>
                   </thead>
@@ -538,9 +549,8 @@ const DetailDrawer: React.FC<{
                     {listToRender.map((it, i) => (
                       <tr key={i} className="border-t">
                         <td className="px-3 py-2">{it.apt_name || "—"}</td>
-                        <td className="px-3 py-2">
-                          {it.product_name || "—"}
-                        </td>
+                        <td className="px-3 py-2">{it.months ?? "—"}</td>
+                        <td className="px-3 py-2">{it.product_name || "—"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -583,7 +593,7 @@ const Td: React.FC<React.PropsWithChildren<{ className?: string }>> = ({
   <td className={"px-4 py-3 align-middle " + (className ?? "")}>{children}</td>
 );
 
-const SourceBadge: React.FC<{ value?: SourceType | null }> = ({ value }) => {
+const SourceBadge: React.FC<{ value?: InquiryKind | null }> = ({ value }) => {
   if (!value)
     return (
       <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-600">
@@ -616,4 +626,14 @@ function formatDateTime(iso: string) {
   } catch {
     return iso;
   }
+}
+
+/** CSV 안전 변환 */
+function safeCSV(val: any) {
+  const s = String(val ?? "");
+  // 쉼표/따옴표/개행 포함 시 따옴표로 래핑 후 내부 따옴표 이스케이프
+  if (/[,"\n]/.test(s)) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
 }
