@@ -16,6 +16,11 @@ const PIN_CLICKED_URL = "/makers/pin-purple@3x.png";  // 클릭 강조
 const PIN_SIZE = 51; // 원본 102px(@2x)의 절반
 const PIN_OFFSET = { x: PIN_SIZE / 2, y: PIN_SIZE }; // 바닥 중앙
 
+// 검색용 핀(요구사항: public/pin.png)
+const SEARCH_PIN_URL = "/pin.png";
+const SEARCH_PIN_SIZE = 51; // 필요 시 조정
+const SEARCH_PIN_OFFSET = { x: SEARCH_PIN_SIZE / 2, y: SEARCH_PIN_SIZE };
+
 function markerImages(maps: any) {
   const { MarkerImage, Size, Point } = maps;
   const opt = { offset: new Point(PIN_OFFSET.x, PIN_OFFSET.y) };
@@ -24,6 +29,15 @@ function markerImages(maps: any) {
   const yellow = new MarkerImage(PIN_YELLOW_URL, sz, opt);
   const clicked = new MarkerImage(PIN_CLICKED_URL, sz, opt);
   return { purple, yellow, clicked };
+}
+
+function buildSearchMarkerImage(maps: any) {
+  const { MarkerImage, Size, Point } = maps;
+  return new MarkerImage(
+    SEARCH_PIN_URL,
+    new Size(SEARCH_PIN_SIZE, SEARCH_PIN_SIZE),
+    { offset: new Point(SEARCH_PIN_OFFSET.x, SEARCH_PIN_OFFSET.y) }
+  );
 }
 
 /* =========================================================================
@@ -251,11 +265,11 @@ export default function MapPage() {
   const spiderRef = useRef<SpiderController | null>(null);
 
   // 검색 핀 & 반경(1km) 오버레이
-const searchPinRef = useRef<any>(null);
-const radiusCircleRef = useRef<any>(null);
-const radiusLabelRef = useRef<any>(null);
-const xMarkRef = useRef<any>(null);   // ← 추가
-
+  const searchPinRef = useRef<any>(null);
+  const radiusCircleRef = useRef<any>(null);
+  const radiusLabelRef = useRef<any>(null);
+  const xMarkRef = useRef<any>(null);   // (미사용) 별도 오버레이가 필요하면 활용 가능
+  const radiusLabelElRef = useRef<HTMLDivElement | null>(null); // 라벨 DOM 캐시
 
   // 마커/상태/그룹 캐시
   const markerCacheRef = useRef<Map<string, KMarker>>(new Map());
@@ -376,11 +390,11 @@ const xMarkRef = useRef<any>(null);   // ← 추가
       if (w.__kakaoMap === mapObjRef.current) w.__kakaoMap = null;
 
       try {
-  radiusCircleRef.current?.setMap(null);
-  radiusLabelRef.current?.setMap(null);
-  searchPinRef.current?.setMap?.(null);
-  xMarkRef.current?.setMap?.(null);    // ← 추가
-} catch {}
+        radiusCircleRef.current?.setMap(null);
+        radiusLabelRef.current?.setMap(null);
+        searchPinRef.current?.setMap?.(null);
+        xMarkRef.current?.setMap?.(null);
+      } catch {}
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -659,6 +673,70 @@ const xMarkRef = useRef<any>(null);   // ← 추가
     }
   }
 
+  /* ------------------ 반경 UI 컨트롤 ------------------ */
+  function clearRadiusUI() {
+    try { radiusCircleRef.current?.setMap(null); } catch {}
+    try { radiusLabelRef.current?.setMap(null); } catch {}
+    // 검색핀은 유지 (요구사항)
+  }
+
+  function ensureRadiusLabelContent(onClose: () => void) {
+    // 이미 생성되어 있으면 재사용
+    if (radiusLabelElRef.current) return radiusLabelElRef.current;
+
+    const root = document.createElement("div");
+    root.style.position = "relative";
+    root.style.pointerEvents = "none"; // 라벨 본문은 맵 조작 방해 안 함
+
+    // 칩(“1km”)
+    const chip = document.createElement("div");
+    chip.textContent = "1km";
+    chip.style.padding = "6px 10px";
+    chip.style.borderRadius = "999px";
+    chip.style.background = "#FFD400";
+    chip.style.color = "#222";
+    chip.style.fontSize = "12px";
+    chip.style.fontWeight = "700";
+    chip.style.boxShadow = "0 2px 6px rgba(0,0,0,0.15)";
+    chip.style.whiteSpace = "nowrap";
+    chip.style.userSelect = "none";
+    chip.style.transform = "translateY(0)"; // 필요 시 살짝 올릴 수 있음
+
+    // 우상단 동그라미 X 버튼
+    const btn = document.createElement("button");
+    btn.setAttribute("type", "button");
+    btn.setAttribute("aria-label", "1km 범위 닫기");
+    btn.style.position = "absolute";
+    btn.style.top = "-8px";
+    btn.style.right = "-8px";
+    btn.style.width = "22px";
+    btn.style.height = "22px";
+    btn.style.borderRadius = "999px";
+    btn.style.background = "#FFFFFF";
+    btn.style.border = "2px solid #FFD400";
+    btn.style.boxShadow = "0 2px 6px rgba(0,0,0,0.15)";
+    btn.style.display = "flex";
+    btn.style.alignItems = "center";
+    btn.style.justifyContent = "center";
+    btn.style.fontSize = "14px";
+    btn.style.lineHeight = "1";
+    btn.style.color = "#222";
+    btn.style.cursor = "pointer";
+    btn.style.pointerEvents = "auto"; // 버튼만 클릭되게
+    btn.textContent = "×";
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      onClose();
+    });
+
+    root.appendChild(chip);
+    root.appendChild(btn);
+
+    radiusLabelElRef.current = root;
+    return root;
+  }
+
   /* ------------------ 검색 핀 + 반경 1km 오버레이 ------------------ */
   function drawSearchOverlays(latlng: any) {
     const kakao = (window as KakaoNS).kakao;
@@ -682,7 +760,7 @@ const xMarkRef = useRef<any>(null);   // ← 추가
     } else {
       radiusCircleRef.current.setOptions({
         center: latlng,
-        radius: 1000,                 // 1km
+        radius: 1000,
         strokeColor: "#FFD400",
         fillColor: "#FFD400",
         fillOpacity: 0.11,
@@ -691,44 +769,37 @@ const xMarkRef = useRef<any>(null);   // ← 추가
       radiusCircleRef.current.setMap(map);
     }
 
-    // 2) “반경 1km” 라벨 (가독성 좋게 노란 배경 + 진한 글자)
-    const labelHTML = `
-      <div style="
-        padding:6px 10px;border-radius:999px;
-        background:#FFD400;color:#222;font-size:12px;
-        font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,0.15);
-        white-space:nowrap;user-select:none;">
-        반경 1km
-      </div>
-    `;
+    // 2) “1km” 라벨 + 우상단 X 버튼 (CustomOverlay)
+    const labelContent = ensureRadiusLabelContent(clearRadiusUI);
     if (!radiusLabelRef.current) {
       radiusLabelRef.current = new kakao.maps.CustomOverlay({
         map,
         position: latlng,
-        content: labelHTML,
+        content: labelContent,
         yAnchor: 1.6,            // 핀 머리 위쪽에 뜨도록
         zIndex: 1000000,         // 라벨은 위로
       });
     } else {
+      // content가 DOM 객체여야 click 유지됨
+      radiusLabelRef.current.setContent(labelContent);
       radiusLabelRef.current.setPosition(latlng);
-      radiusLabelRef.current.setContent(labelHTML);
-      radiusLabelRef.current.setMap(map);
       radiusLabelRef.current.setZIndex?.(1000000);
+      radiusLabelRef.current.setMap(map);
     }
 
-    // 3) 검색 핀 (보라색 핀 재활용)
-    const imgs = markerImages(kakao.maps);
+    // 3) 검색 핀 (요구: /pin.png)
+    const searchImg = buildSearchMarkerImage(kakao.maps);
     if (!searchPinRef.current) {
       searchPinRef.current = new kakao.maps.Marker({
         map,
         position: latlng,
-        image: imgs.purple,
+        image: searchImg,
         zIndex: 500000, // 라벨보단 아래, 일반 마커 위
         clickable: false,
       });
     } else {
       searchPinRef.current.setPosition(latlng);
-      searchPinRef.current.setImage(imgs.purple);
+      searchPinRef.current.setImage(searchImg);
       searchPinRef.current.setZIndex?.(500000);
       searchPinRef.current.setMap(map);
     }
@@ -749,7 +820,7 @@ const xMarkRef = useRef<any>(null);   // ← 추가
       mapObjRef.current.setLevel(4);
       mapObjRef.current.setCenter(latlng);
 
-      // ✅ 검색 지점에 핀 + 반경 1km(노랑, 11%) + "반경 1km" 라벨
+      // ✅ 검색 지점에 핀(/pin.png) + 반경 1km(노랑, 11%) + "1km" 라벨(우상단 X 포함)
       drawSearchOverlays(latlng);
 
       // 주변 마커 재로딩
