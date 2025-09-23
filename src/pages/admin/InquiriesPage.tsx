@@ -3,10 +3,10 @@ import { supabase } from "@/integrations/supabase/client";
 
 /**
  * InquiriesPage
- * - 목록: 상태/담당자 인라인 수정 (유효성 칼럼은 '—' 고정 표시)
+ * - 목록: 상태/유효성/담당자 인라인 수정 (유효성은 —/유효/무효의 tri-state)
  * - 서버사이드 필터/검색/페이지네이션 (count 정확)
  * - 상세 드로어: inquiry_apartments → 없으면 cart_snapshot(items) fallback
- * - 드로어 우상단: CSV(엑셀) 내보내기
+ * - 드로어 우상단: CSV(엑셀) 내보내기 (메타 + 항목표 전부)
  *
  * ✅ 컬럼 매핑(사용자 지정 고정)
  *   유입경로: inquiry_kind
@@ -21,11 +21,9 @@ import { supabase } from "@/integrations/supabase/client";
  *   상품명: product_name
  */
 
-/* =========================
- *  Types & Constants
- * ========================= */
 type InquiryKind = "SEAT" | "PACKAGE";
 type InquiryStatus = "new" | "in_progress" | "done" | "canceled";
+type ValidTri = "-" | "valid" | "invalid";
 
 type InquiryRow = {
   id: string;
@@ -34,15 +32,15 @@ type InquiryRow = {
   company?: string | null;          // 브랜드명
   campaign_type?: string | null;    // 캠페인유형
   status?: InquiryStatus | null;    // 진행상태
-  valid?: boolean | null;           // 유효성(표시는 '—'로 고정)
-  assignee?: string | null;         // 영업담당자(내부)
+  valid?: boolean | null;           // 유효성(null=미지정)
+  assignee?: string | null;         // 영업담당자
   inquiry_kind?: InquiryKind | null;// 유입경로(= 문의유형)
   // 상세 표시 필드
   customer_name?: string | null;    // 담당자명(광고주)
   phone?: string | null;
   email?: string | null;
   memo?: string | null;             // 요청사항
-  cart_snapshot?: any;              // 상세 드로어 fallback 용
+  cart_snapshot?: any;
 };
 
 const STATUS_OPTIONS: { value: InquiryStatus; label: string }[] = [
@@ -53,9 +51,15 @@ const STATUS_OPTIONS: { value: InquiryStatus; label: string }[] = [
 ];
 
 const SOURCE_OPTIONS: { value: "all" | InquiryKind; label: string }[] = [
-  { value: "all",    label: "전체" },
-  { value: "SEAT",   label: "SEAT" },
-  { value: "PACKAGE",label: "PACKAGE" },
+  { value: "all",     label: "전체" },
+  { value: "SEAT",    label: "SEAT" },
+  { value: "PACKAGE", label: "PACKAGE" },
+];
+
+const VALIDITY_OPTIONS: { value: ValidTri; label: string }[] = [
+  { value: "-",       label: "—" },
+  { value: "valid",   label: "유효" },
+  { value: "invalid", label: "무효" },
 ];
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
@@ -122,19 +126,17 @@ const InquiriesPage: React.FC = () => {
       setLoading(true);
       setErr(null);
       try {
-        const sb: any = supabase; // ✅ 타입 캐스팅(프로젝트 타입 미정의 테이블 회피)
+        const sb: any = supabase;
 
         let q = sb
           .from(TBL.main)
           .select("*", { count: "exact" })
           .order(COL.createdAt, { ascending: false });
 
-        // 서버사이드 필터
         if (status !== "all") q = q.eq(COL.status, status);
         if (sourceType !== "all") q = q.eq(COL.inquiryKind, sourceType);
         if (query.trim()) {
           const k = query.trim();
-          // company, campaign_type, customer_name 에 대한 부분 검색
           q = q.or(
             `${COL.company}.ilike.%${k}%,${COL.campaignType}.ilike.%${k}%,${COL.customerName}.ilike.%${k}%`
           );
@@ -181,24 +183,8 @@ const InquiriesPage: React.FC = () => {
    * ------------------------- */
   return (
     <div className="p-6 space-y-6">
-      {/* 헤더 */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Admin</h1>
-          <p className="text-sm text-gray-500">관리 전용 페이지</p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setPage(1)}
-            className="h-9 px-3 rounded-md border text-sm"
-            disabled={loading}
-          >
-            {loading ? "불러오는 중…" : "새로고침"}
-          </button>
-        </div>
-      </div>
-
-      <h2 className="text-xl font-semibold">문의상세 관리</h2>
+      {/* 상단 묶음: '관리 전용 페이지' 문구 제거하고 바로 타이틀 */}
+      <h2 className="text-2xl font-bold">문의상세 관리</h2>
 
       {/* 필터 바 */}
       <div className="rounded-xl border bg-white p-4 flex flex-wrap items-center gap-2">
@@ -257,6 +243,13 @@ const InquiriesPage: React.FC = () => {
               </option>
             ))}
           </select>
+          <button
+            onClick={() => setPage(1)}
+            className="h-9 px-3 rounded-md border text-sm"
+            disabled={loading}
+          >
+            {loading ? "불러오는 중…" : "새로고침"}
+          </button>
         </div>
       </div>
 
@@ -301,11 +294,13 @@ const InquiriesPage: React.FC = () => {
                     </button>
                   </Td>
                   <Td>{r.campaign_type || "—"}</Td>
+
+                  {/* 진행상황: 알록달록 pill select */}
                   <Td>
                     <select
                       value={r.status ?? "new"}
                       onChange={async (e) => {
-                        const sb: any = supabase; // ✅ any 캐스팅
+                        const sb: any = supabase;
                         const next = e.target.value as InquiryStatus;
                         const { error } = await sb
                           .from(TBL.main)
@@ -319,7 +314,10 @@ const InquiriesPage: React.FC = () => {
                           );
                         }
                       }}
-                      className="border rounded px-2 py-1 text-sm"
+                      className={
+                        "border rounded-full px-2 py-1 text-sm " +
+                        pillClassForStatus(r.status ?? "new")
+                      }
                     >
                       {STATUS_OPTIONS.map((opt) => (
                         <option key={opt.value} value={opt.value}>
@@ -329,8 +327,43 @@ const InquiriesPage: React.FC = () => {
                     </select>
                   </Td>
 
-                  {/* 유효성: '—' 고정 표시 (편집 없음) */}
-                  <Td>—</Td>
+                  {/* 유효성: tri-state —/유효/무효 + 알록달록 */}
+                  <Td>
+                    <select
+                      value={validToTri(r.valid)}
+                      onChange={async (e) => {
+                        const sb: any = supabase;
+                        const v = e.target.value as ValidTri;
+                        const payload =
+                          v === "-" ? { [COL.valid]: null } :
+                          v === "valid" ? { [COL.valid]: true } :
+                          { [COL.valid]: false };
+                        const { error } = await sb
+                          .from(TBL.main)
+                          .update(payload)
+                          .eq(COL.id, r.id);
+                        if (!error) {
+                          setRows((prev) =>
+                            prev.map((row) =>
+                              row.id === r.id
+                                ? { ...row, valid: v === "-" ? null : v === "valid" }
+                                : row
+                            )
+                          );
+                        }
+                      }}
+                      className={
+                        "border rounded-full px-2 py-1 text-sm " +
+                        pillClassForValid(validToTri(r.valid))
+                      }
+                    >
+                      {VALIDITY_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Td>
 
                   {/* 담당자(영업담당자) 인라인 수정 */}
                   <Td>
@@ -338,16 +371,16 @@ const InquiriesPage: React.FC = () => {
                       type="text"
                       defaultValue={r.assignee || ""}
                       onBlur={async (e) => {
-                        const sb: any = supabase; // ✅ any 캐스팅
+                        const sb: any = supabase;
                         const val = e.target.value;
                         const { error } = await sb
                           .from(TBL.main)
-                          .update({ [COL.assignee]: val })
+                          .update({ [COL.assignee]: val || null })
                           .eq(COL.id, r.id);
                         if (!error) {
                           setRows((prev) =>
                             prev.map((row) =>
-                              row.id === r.id ? { ...row, assignee: val } : row
+                              row.id === r.id ? { ...row, assignee: val || null } : row
                             )
                           );
                         }
@@ -414,7 +447,7 @@ const DetailDrawer: React.FC<{
   >([]);
   const [aptLoading, setAptLoading] = useState(false);
 
-  // inquiry_apartments 조회 (있으면 우선 사용: months 정보는 없으니 스냅샷에서 매칭 보강)
+  // inquiry_apartments 조회
   useEffect(() => {
     let ignore = false;
     (async () => {
@@ -438,14 +471,22 @@ const DetailDrawer: React.FC<{
     };
   }, [row.id]);
 
-  // cart_snapshot → [단지명/개월/상품명] 세트
+  // cart_snapshot → [단지명/개월/상품명] 세트 (폭넓은 폴백)
   const snapshotSets = useMemo(() => {
     const items = (row as any)?.cart_snapshot?.items;
     if (!Array.isArray(items)) return [];
     return items.map((it: any) => ({
       apt_name: it.apt_name ?? it.name ?? "",
-      months: Number(it.months ?? 0) || null,
-      product_name: it.product_name ?? it.mediaName ?? (it.product_code ?? ""),
+      months: Number(it.months ?? it.Months ?? 0) || null,
+      product_name:
+        it.product_name ??
+        it.productName ??
+        it.mediaName ??
+        it.media_name ??
+        it.media ??
+        it.product ??
+        it.product_code ??
+        "",
     }));
   }, [row]);
 
@@ -471,17 +512,32 @@ const DetailDrawer: React.FC<{
       return [];
     }, [aptRows, snapshotSets]);
 
-  // CSV(엑셀) 내보내기
+  // CSV(엑셀) 내보내기: 메타 + 빈줄 + 항목 표
   function exportCSV() {
-    const header = ["단지명", "광고기간(개월)", "상품명"];
-    const lines = [
-      header.join(","),
-      ...listToRender.map((r) =>
-        [safeCSV(r.apt_name), safeCSV(r.months ?? ""), safeCSV(r.product_name)].join(",")
-      ),
+    const metaPairs: [string, any][] = [
+      ["브랜드", row.company ?? ""],
+      ["문의일시", formatDateTime(row.created_at)],
+      ["유입경로", row.inquiry_kind ?? ""],
+      ["캠페인 유형", row.campaign_type ?? ""],
+      ["담당자명(광고주)", row.customer_name ?? ""],
+      ["연락처", row.phone ?? ""],
+      ["이메일주소", row.email ?? ""],
+      ["요청사항", row.memo ?? ""],
+    ];
+
+    const metaLines = [
+      ["항목", "값"].join(","),
+      ...metaPairs.map(([k, v]) => [safeCSV(k), safeCSV(v)].join(",")),
     ].join("\n");
 
-    const blob = new Blob(["\uFEFF" + lines], { type: "text/csv;charset=utf-8" }); // UTF-8 BOM
+    const itemsHeader = ["단지명", "광고기간(개월)", "상품명"].join(",");
+    const itemsLines = listToRender.map((r) =>
+      [safeCSV(r.apt_name), safeCSV(r.months ?? ""), safeCSV(r.product_name)].join(",")
+    ).join("\n");
+
+    const full = metaLines + "\n\n" + itemsHeader + "\n" + itemsLines;
+
+    const blob = new Blob(["\uFEFF" + full], { type: "text/csv;charset=utf-8" }); // UTF-8 BOM
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -631,9 +687,33 @@ function formatDateTime(iso: string) {
 /** CSV 안전 변환 */
 function safeCSV(val: any) {
   const s = String(val ?? "");
-  // 쉼표/따옴표/개행 포함 시 따옴표로 래핑 후 내부 따옴표 이스케이프
   if (/[,"\n]/.test(s)) {
     return `"${s.replace(/"/g, '""')}"`;
   }
   return s;
+}
+
+/** 유효성: boolean|null → tri-state */
+function validToTri(v: boolean | null | undefined): ValidTri {
+  if (v === true) return "valid";
+  if (v === false) return "invalid";
+  return "-";
+}
+
+/** 상태/유효성 pill 스타일 */
+function pillClassForStatus(v: InquiryStatus): string {
+  switch (v) {
+    case "new":         return "bg-violet-50 text-violet-700";
+    case "in_progress": return "bg-blue-50 text-blue-700";
+    case "done":        return "bg-emerald-50 text-emerald-700";
+    case "canceled":    return "bg-gray-200 text-gray-700";
+    default:            return "bg-gray-100 text-gray-600";
+  }
+}
+function pillClassForValid(v: ValidTri): string {
+  switch (v) {
+    case "valid":   return "bg-emerald-50 text-emerald-700";
+    case "invalid": return "bg-rose-50 text-rose-700";
+    default:        return "bg-gray-100 text-gray-600";
+  }
 }
