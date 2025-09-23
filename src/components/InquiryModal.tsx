@@ -237,6 +237,7 @@ export default function InquiryModal({
 
       const payload: any = {
         inquiry_kind: mode,
+        status: "new", 
         // 기존 테이블 호환 필드 매핑 (company/memo는 내부적으로 brand/request 사용)
         customer_name: managerName || null,
         phone: phone || null,
