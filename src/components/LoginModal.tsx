@@ -183,7 +183,7 @@ const handleLogout = async () => {
   return (
     <>
       {/* 우상단 로그인/프로필 버튼 (원하는 위치에 배치되는 버튼) */}
-      <div className="flex items-center gap-2 justify-end ml-auto">
+      <div className="flex items-center gap-2 justify-end ml-auto w-full">
         {displayName ? (
           <>
             <span
