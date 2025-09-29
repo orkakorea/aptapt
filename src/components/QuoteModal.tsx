@@ -129,9 +129,9 @@ function buildWatermarkDataURL(text: string) {
     @font-face { font-family: Pretendard; src: local('Pretendard'); }
     text { font-family: Pretendard, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans KR", sans-serif; }
   </style>
-  <text x='0' y='18' font-size='12' fill='#6B7280' fill-opacity='0.5'>${text}</text>
-  <text x='0' y='42' font-size='12' fill='#6B7280' fill-opacity='0.5'>${text}</text>
-  <text x='0' y='66' font-size='12' fill='#6B7280' fill-opacity='0.5'>${text}</text>
+  <text x='0' y='18' font-size='12' fill='#6B7280' fill-opacity='0.3'>${text}</text>
+  <text x='0' y='42' font-size='12' fill='#6B7280' fill-opacity='0.3'>${text}</text>
+  <text x='0' y='66' font-size='12' fill='#6B7280' fill-opacity='0.3'>${text}</text>
 </svg>`;
   return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
 }
@@ -180,12 +180,12 @@ export default function QuoteModal({
     return {
       position: "absolute",
       inset: 0,
-      opacity: 0.42,
+      opacity: 0.16,
       transform: "rotate(-30deg) scale(1.4)",
       transformOrigin: "center",
       backgroundImage: buildWatermarkDataURL(text),
       backgroundRepeat: "repeat",
-      backgroundSize: "220px 90px",
+      backgroundSize: "260px 110px",
       pointerEvents: "none",
       zIndex: 5,
     };
