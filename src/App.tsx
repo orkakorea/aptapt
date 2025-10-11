@@ -21,10 +21,9 @@ export default function App() {
       <Suspense fallback={<div className="p-6">까꿍 !</div>}>
         <Routes>
           {/* ===== 사용자 영역: 모바일 레이아웃로 감싸기 ===== */}
-          <Route element={<MobileLayout />}>
-            <Route index element={<HomePage />} /> {/* "/" */}
-            <Route path="map" element={<MapPage />} /> {/* "/map" */}
-            {/* 추후: packages/saved/account/search 등도 여기에 추가 */}
+          <Route element={<MobileLayout showBottomNav={false} />}>
+            <Route index element={<HomePage />} />
+            <Route path="map" element={<MapPage />} />
           </Route>
 
           {/* ===== Admin ===== */}
