@@ -3,14 +3,14 @@ import { supabase } from "@/integrations/supabase/client";
 import MapChrome, { SelectedApt } from "../components/MapChrome";
 
 type KakaoNS = typeof window & { kakao: any };
-const FALLBACK_KAKAO_KEY = "a53075efe7a2256480b8650cec67ebae";
+const FALLBACK_KAKAO_KEY = "a53075efe7a2256480cec67ebae";
 
 /* =========================================================================
    ① 마커 이미지 유틸
    ------------------------------------------------------------------------- */
 const PIN_PURPLE_URL = "/makers/pin-purple@2x.png"; // 기본
 const PIN_YELLOW_URL = "/makers/pin-yellow@2x.png"; // 담김(선택)
-const PIN_CLICKED_URL = "/makers/pin-purple@3x.png"; // 클릭 강조
+const PIN_CLICKED_URL = "/makers/pin-purple@3x.png"; // 클릭 강조(선택 아님일 때만)
 
 const PIN_SIZE = 51; // 원본 102px(@2x)의 절반
 const PIN_OFFSET = { x: PIN_SIZE / 2, y: PIN_SIZE }; // 바닥 중앙
@@ -203,19 +203,13 @@ export default function MapPage() {
   const groupsRef = useRef<Map<string, KMarker[]>>(new Map());
   const selectedRowKeySetRef = useRef<Set<string>>(new Set());
   const lastReqIdRef = useRef<number>(0);
-  const idleTimer = useRef<number | null>(null);
 
-  // 마지막 클릭 마커(보라@3x 강조)
+  // 마지막 클릭 마커(보라@3x 강조용)
   const lastClickedRef = useRef<KMarker | null>(null);
 
   const [selected, setSelected] = useState<SelectedApt | null>(null);
   const [initialQ, setInitialQ] = useState("");
   const [kakaoError, setKakaoError] = useState<string | null>(null);
-
-  const debounceIdle = useCallback((fn: () => void, ms = 250) => {
-    if (idleTimer.current) window.clearTimeout(idleTimer.current);
-    idleTimer.current = window.setTimeout(fn, ms);
-  }, []);
 
   // === 그룹 우선순위: 옐로(담김) > 월광고료 내림차순 ===
   const orderAndApplyZIndex = useCallback((arr: KMarker[]) => {
@@ -301,16 +295,14 @@ export default function MapPage() {
           gridSize: 80,
         });
 
-        // 기존 스파이더 동작 제거 → 줌/이동 시 항상 고정 분리 재적용
+        // 줌/리사이즈/렌더링 직후에도 항상 고정 분리 유지
         kakao.maps.event.addListener(map, "zoom_changed", applyStaticSeparationAll);
-        kakao.maps.event.addListener(map, "idle", () => {
-          debounceIdle(() => {
-            loadMarkersInBounds().then(() => applyStaticSeparationAll());
-          }, 250);
+        kakao.maps.event.addListener(map, "idle", async () => {
+          await loadMarkersInBounds(); // ⏱ 즉시 실행
+          applyStaticSeparationAll();
         });
 
         setTimeout(() => map && map.relayout(), 0);
-        // 최초 로드
         (async () => {
           await loadMarkersInBounds();
           applyStaticSeparationAll();
@@ -345,7 +337,7 @@ export default function MapPage() {
       } catch {}
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applyStaticSeparationAll, debounceIdle]);
+  }, [applyStaticSeparationAll]);
 
   // 2탭 열고 닫을 때 레이아웃 보정
   useEffect(() => {
@@ -371,24 +363,19 @@ export default function MapPage() {
       const list = keyIndexRef.current[rowKey];
       if (list?.length) {
         list.forEach((mk) => {
-          // 담기 즉시: 방금 클릭된 마커라도 노란 핀로 강제 전환
-          if (forceYellowNow && lastClickedRef.current && lastClickedRef.current === mk) {
-            mk.setImage(state === "selected" ? imgs.yellow : imgs.purple);
-          } else if (lastClickedRef.current && lastClickedRef.current === mk) {
-            mk.setImage(imgs.clicked);
+          const shouldBeYellow = state === "selected" || selectedRowKeySetRef.current.has(rowKey);
+
+          // 담기 즉시 또는 이미 담긴 항목은 무조건 노란색 유지
+          if (forceYellowNow || shouldBeYellow) {
+            mk.setImage(imgs.yellow);
+            // 클릭 강조 대상이었다면 해제
+            if (lastClickedRef.current === mk) lastClickedRef.current = null;
           } else {
-            mk.setImage(state === "selected" ? imgs.yellow : imgs.purple);
+            mk.setImage(imgs.purple);
           }
         });
 
-        // 강제 전환 시, 클릭 강조 상태 해제
-        if (forceYellowNow && lastClickedRef.current) {
-          const clickedRowKey = buildRowKeyFromRow(lastClickedRef.current.__row as PlaceRow);
-          if (clickedRowKey === rowKey) lastClickedRef.current = null;
-        }
-
         applyGroupPrioritiesForRowKey(rowKey);
-        // 색상 변경 후에도 나란히 배치 유지
         applyStaticSeparationAll();
       }
     },
@@ -471,6 +458,7 @@ export default function MapPage() {
         mk.__basePos = pos;
         mk.__row = row;
 
+        // ✅ 클릭 즉시 반응 & 담김 상태 유지
         maps.event.addListener(mk, "click", () => {
           const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
           const address = getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
@@ -527,18 +515,31 @@ export default function MapPage() {
           };
           setSelected(sel);
 
-          // 클릭 강조
-          if (lastClickedRef.current && lastClickedRef.current !== mk) {
-            const prev = lastClickedRef.current;
-            const prevRow = prev.__row as PlaceRow;
-            const prevRowKey = buildRowKeyFromRow(prevRow);
-            const prevSelected = selectedRowKeySetRef.current.has(prevRowKey);
-            prev.setImage(prevSelected ? imgs.yellow : imgs.purple);
+          // 🔴 클릭 즉시(바로) 아이콘 갱신:
+          // 담겨있는 행이면 계속 노란색 유지, 아니면 보라@3x 강조
+          const isAlreadySelected = selectedRowKeySetRef.current.has(rowKey);
+          if (isAlreadySelected) {
+            mk.setImage(imgs.yellow);
+            // 클릭 강조 상태 없앰
+            if (lastClickedRef.current && lastClickedRef.current !== mk) {
+              // 이전 클릭 강조되었던 마커 복구
+              const prev = lastClickedRef.current;
+              const prevRowKey = buildRowKeyFromRow(prev.__row as PlaceRow);
+              prev.setImage(selectedRowKeySetRef.current.has(prevRowKey) ? imgs.yellow : imgs.purple);
+            }
+            lastClickedRef.current = null;
+          } else {
+            // 이전 클릭 강조 복구
+            if (lastClickedRef.current && lastClickedRef.current !== mk) {
+              const prev = lastClickedRef.current;
+              const prevRowKey = buildRowKeyFromRow(prev.__row as PlaceRow);
+              prev.setImage(selectedRowKeySetRef.current.has(prevRowKey) ? imgs.yellow : imgs.purple);
+            }
+            mk.setImage(imgs.clicked);
+            lastClickedRef.current = mk;
           }
-          mk.setImage(imgs.clicked);
-          lastClickedRef.current = mk;
 
-          // 클릭 후에도 정적 분리 유지
+          // 레이아웃 즉시 유지
           applyStaticSeparationAll();
         });
 
@@ -549,7 +550,9 @@ export default function MapPage() {
         if (mk.getTitle?.() !== nameText) mk.setTitle?.(nameText);
         const isSelected = selectedRowKeySetRef.current.has(rowKey);
         let imgToUse = isSelected ? imgs.yellow : imgs.purple;
-        if (lastClickedRef.current && lastClickedRef.current.__key === key) imgToUse = imgs.clicked;
+        if (!isSelected && lastClickedRef.current && lastClickedRef.current.__key === key) {
+          imgToUse = imgs.clicked;
+        }
         mk.setImage(imgToUse);
       }
 
@@ -563,7 +566,7 @@ export default function MapPage() {
       newMarkers.push(mk);
     });
 
-    if (toAdd.length) clusterer.addMarkers(toAdd);
+    if (toAdd.length) clustererRef.current.addMarkers(toAdd);
 
     const toRemove: KMarker[] = [];
     markerCacheRef.current.forEach((mk, key) => {
@@ -572,7 +575,7 @@ export default function MapPage() {
         markerCacheRef.current.delete(key);
       }
     });
-    if (toRemove.length) clusterer.removeMarkers(toRemove);
+    if (toRemove.length) clustererRef.current.removeMarkers(toRemove);
 
     if (lastClickedRef.current && toRemove.includes(lastClickedRef.current)) {
       lastClickedRef.current = null;
@@ -679,13 +682,22 @@ export default function MapPage() {
           };
           setSelected(sel);
 
-          if (lastClickedRef.current && lastClickedRef.current !== mk) {
-            const prevRowKey = buildRowKeyFromRow(lastClickedRef.current.__row as PlaceRow);
-            const prevSelected = selectedRowKeySetRef.current.has(prevRowKey);
-            lastClickedRef.current.setImage(prevSelected ? imgs.yellow : imgs.purple);
+          const isAlreadySelected = selectedRowKeySetRef.current.has(rowKey);
+          if (isAlreadySelected) {
+            mk.setImage(imgs.yellow);
+            if (lastClickedRef.current && lastClickedRef.current !== mk) {
+              const prevRowKey = buildRowKeyFromRow(lastClickedRef.current.__row as PlaceRow);
+              lastClickedRef.current.setImage(selectedRowKeySetRef.current.has(prevRowKey) ? imgs.yellow : imgs.purple);
+            }
+            lastClickedRef.current = null;
+          } else {
+            if (lastClickedRef.current && lastClickedRef.current !== mk) {
+              const prevRowKey = buildRowKeyFromRow(lastClickedRef.current.__row as PlaceRow);
+              lastClickedRef.current.setImage(selectedRowKeySetRef.current.has(prevRowKey) ? imgs.yellow : imgs.purple);
+            }
+            mk.setImage(imgs.clicked);
+            lastClickedRef.current = mk;
           }
-          mk.setImage(imgs.clicked);
-          lastClickedRef.current = mk;
 
           applyStaticSeparationAll();
         });
@@ -693,12 +705,12 @@ export default function MapPage() {
         markerCacheRef.current.set(key, mk);
 
         let imgToUse = isSelected ? imgs.yellow : imgs.purple;
-        if (lastClickedRef.current && lastClickedRef.current.__key === key) imgToUse = imgs.clicked;
+        if (!isSelected && lastClickedRef.current && lastClickedRef.current.__key === key) imgToUse = imgs.clicked;
         mk.setImage(imgToUse);
 
         if (!keyIndexRef.current[rowKey]) keyIndexRef.current[rowKey] = [];
         keyIndexRef.current[rowKey].push(mk);
-        clusterer.addMarker(mk);
+        clustererRef.current.addMarker(mk);
       });
 
       const groups2 = new Map<string, KMarker[]>();
