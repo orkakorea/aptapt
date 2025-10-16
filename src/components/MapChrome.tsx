@@ -1,4 +1,3 @@
-// src/components/MapChrome.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import QuoteModal, { QuoteLineItem } from "./QuoteModal"; // ✅ 모달 import
 import InquiryModal from "./InquiryModal"; // ✅ InquiryModal import
@@ -8,21 +7,21 @@ import LoginModal from "@/components/LoginModal";
 /** ====== 타입 ====== */
 // ✅ rowKey/rowId 추가: MapPage가 넘겨준 "행 구분 키"로 마커 색을 정확히 토글
 export type SelectedApt = {
-  rowKey?: string;             // ★ 행 고유 키 (id 우선, 없으면 좌표+상품명+설치위치)
-  rowId?: string;              // (옵션) DB id 문자열
-  name: string;                // 단지명
-  address?: string;            // 주소
-  productName?: string;        // 상품명
-  installLocation?: string;    // 설치 위치
-  monitors?: number;           // 모니터 수량
+  rowKey?: string; // ★ 행 고유 키 (id 우선, 없으면 좌표+상품명+설치위치)
+  rowId?: string; // (옵션) DB id 문자열
+  name: string; // 단지명
+  address?: string; // 주소
+  productName?: string; // 상품명
+  installLocation?: string; // 설치 위치
+  monitors?: number; // 모니터 수량
   monthlyImpressions?: number; // 월 송출횟수
-  costPerPlay?: number;        // 송출 1회당 비용
-  hours?: string;              // 운영 시간
-  households?: number;         // 세대수
-  residents?: number;          // 거주인원
-  monthlyFee?: number;         // 기본 월 광고료 (할인 전)
-  monthlyFeeY1?: number;       // 1년 계약 시 월 광고료(DB가 있으면 우선)
-  imageUrl?: string;           // DB 썸네일
+  costPerPlay?: number; // 송출 1회당 비용
+  hours?: string; // 운영 시간
+  households?: number; // 세대수
+  residents?: number; // 거주인원
+  monthlyFee?: number; // 기본 월 광고료 (할인 전)
+  monthlyFeeY1?: number; // 1년 계약 시 월 광고료(DB가 있으면 우선)
+  imageUrl?: string; // DB 썸네일
   lat: number;
   lng: number;
 };
@@ -34,15 +33,13 @@ type Props = {
   initialQuery?: string;
   // 🔽 구 버전(이름 기준)과의 호환을 위해 유지하되 사용 안 함
   setMarkerState?: (name: string, state: "default" | "selected") => void;
-  // 🔽 새 버전: 행(rowKey) 단위로 마커 상태 토글
-  setMarkerStateByRowKey?: (rowKey: string, state: "default" | "selected") => void;
+  // 🔽 새 버전: 행(rowKey) 단위로 마커 상태 토글 (즉시 노란색 강제 전환 옵션 추가)
+  setMarkerStateByRowKey?: (rowKey: string, state: "default" | "selected", forceYellowNow?: boolean) => void;
 };
 
 /** ====== 정적 에셋 경로 & 유틸 ====== */
-const PRIMARY_ASSET_BASE =
-  (import.meta as any).env?.VITE_ASSET_BASE || "/products/";
-const FALLBACK_ASSET_BASE =
-  (import.meta as any).env?.VITE_ASSET_BASE_FALLBACK || "";
+const PRIMARY_ASSET_BASE = (import.meta as any).env?.VITE_ASSET_BASE || "/products/";
+const FALLBACK_ASSET_BASE = (import.meta as any).env?.VITE_ASSET_BASE_FALLBACK || "";
 const PLACEHOLDER = "/placeholder.svg";
 
 const norm = (s?: string) => (s ? s.replace(/\s+/g, "").toLowerCase() : "");
@@ -81,48 +78,48 @@ const DEFAULT_POLICY: DiscountPolicy = {
     ],
     period: [
       { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.10 },
+      { min: 3, max: 5, rate: 0.1 },
       { min: 6, max: 11, rate: 0.15 },
-      { min: 12, max: 12, rate: 0.20 },
+      { min: 12, max: 12, rate: 0.2 },
     ],
   },
-  "TOWNBORD_S": {
+  TOWNBORD_S: {
     period: [
       { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.10 },
+      { min: 3, max: 5, rate: 0.1 },
       { min: 6, max: 11, rate: 0.15 },
-      { min: 12, max: 12, rate: 0.20 },
+      { min: 12, max: 12, rate: 0.2 },
     ],
   },
-  "TOWNBORD_L": {
+  TOWNBORD_L: {
     period: [
       { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.10 },
-      { min: 6, max: 11, rate: 0.20 },
-      { min: 12, max: 12, rate: 0.30 },
+      { min: 3, max: 5, rate: 0.1 },
+      { min: 6, max: 11, rate: 0.2 },
+      { min: 12, max: 12, rate: 0.3 },
     ],
   },
   "MEDIA MEET": {
     period: [
       { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.10 },
-      { min: 6, max: 11, rate: 0.20 },
-      { min: 12, max: 12, rate: 0.30 },
+      { min: 3, max: 5, rate: 0.1 },
+      { min: 6, max: 11, rate: 0.2 },
+      { min: 12, max: 12, rate: 0.3 },
     ],
   },
   "SPACE LIVING": {
     period: [
       { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.10 },
-      { min: 6, max: 11, rate: 0.20 },
-      { min: 12, max: 12, rate: 0.30 },
+      { min: 3, max: 5, rate: 0.1 },
+      { min: 6, max: 11, rate: 0.2 },
+      { min: 12, max: 12, rate: 0.3 },
     ],
   },
   "HI-POST": {
     period: [
       { min: 1, max: 5, rate: 0 },
       { min: 6, max: 11, rate: 0.05 },
-      { min: 12, max: 12, rate: 0.10 },
+      { min: 12, max: 12, rate: 0.1 },
     ],
   },
 };
@@ -133,32 +130,31 @@ function findRate(rules: RangeRule[] | undefined, months: number): number {
 }
 
 /** 할인 정책용 제품 키 분류 */
-function classifyProductForPolicy(
-  productName?: string,
-  installLocation?: string
-): keyof DiscountPolicy | undefined {
+function classifyProductForPolicy(productName?: string, installLocation?: string): keyof DiscountPolicy | undefined {
   const pn = norm(productName);
   const loc = norm(installLocation);
 
   if (!pn) return undefined;
 
   if (
-    pn.includes("townbord_l") || pn.includes("townboard_l") ||
-    /\btownbord[-_\s]?l\b/.test(pn) || /\btownboard[-_\s]?l\b/.test(pn)
-  ) return "TOWNBORD_L";
+    pn.includes("townbord_l") ||
+    pn.includes("townboard_l") ||
+    /\btownbord[-_\s]?l\b/.test(pn) ||
+    /\btownboard[-_\s]?l\b/.test(pn)
+  )
+    return "TOWNBORD_L";
   if (
-    pn.includes("townbord_s") || pn.includes("townboard_s") ||
-    /\btownbord[-_\s]?s\b/.test(pn) || /\btownboard[-_\s]?s\b/.test(pn)
-  ) return "TOWNBORD_S";
+    pn.includes("townbord_s") ||
+    pn.includes("townboard_s") ||
+    /\btownbord[-_\s]?s\b/.test(pn) ||
+    /\btownboard[-_\s]?s\b/.test(pn)
+  )
+    return "TOWNBORD_S";
 
-  if (pn.includes("elevatortv") || pn.includes("엘리베이터tv") || pn.includes("elevator"))
-    return "ELEVATOR TV";
-  if (pn.includes("mediameet") || pn.includes("media-meet") || pn.includes("미디어"))
-    return "MEDIA MEET";
-  if (pn.includes("spaceliving") || pn.includes("스페이스") || pn.includes("living"))
-    return "SPACE LIVING";
-  if (pn.includes("hipost") || pn.includes("hi-post") || pn.includes("하이포스트"))
-    return "HI-POST";
+  if (pn.includes("elevatortv") || pn.includes("엘리베이터tv") || pn.includes("elevator")) return "ELEVATOR TV";
+  if (pn.includes("mediameet") || pn.includes("media-meet") || pn.includes("미디어")) return "MEDIA MEET";
+  if (pn.includes("spaceliving") || pn.includes("스페이스") || pn.includes("living")) return "SPACE LIVING";
+  if (pn.includes("hipost") || pn.includes("hi-post") || pn.includes("하이포스트")) return "HI-POST";
 
   if (pn.includes("townbord") || pn.includes("townboard") || pn.includes("타운보드")) {
     if (loc.includes("ev내부")) return "TOWNBORD_L";
@@ -169,17 +165,16 @@ function classifyProductForPolicy(
   return undefined;
 }
 
-
 /** ====== Cart(작은박스) 타입 ====== */
 // ✅ rowKey 보관: 제거 시 정확히 그 행만 보라색 복귀
 type CartItem = {
-  id: string;                 // name + product 조합 (UI용)
-  rowKey?: string;            // ★ MapPage의 rowKey (정확한 마커 토글용)
+  id: string; // name + product 조합 (UI용)
+  rowKey?: string; // ★ MapPage의 rowKey (정확한 마커 토글용)
   name: string;
   productKey?: keyof DiscountPolicy;
   productName?: string;
-  baseMonthly?: number;       // 기본 월 광고료(할인 전)
-  months: number;             // 선택 개월
+  baseMonthly?: number; // 기본 월 광고료(할인 전)
+  months: number; // 선택 개월
 };
 
 /** ✅ Supabase 통계 캐시 타입 */
@@ -196,10 +191,9 @@ export default function MapChrome({
   onCloseSelected,
   onSearch,
   initialQuery,
-  setMarkerState,       // (하위호환)
+  setMarkerState, // (하위호환)
   setMarkerStateByRowKey, // ★ 새 버전
 }: Props) {
-
   /** 검색어 */
   const [query, setQuery] = useState(initialQuery || "");
   useEffect(() => setQuery(initialQuery || ""), [initialQuery]);
@@ -222,16 +216,12 @@ export default function MapChrome({
 
   /** 포맷터 */
   const fmtNum = (n?: number, unit = "") =>
-    typeof n === "number" && Number.isFinite(n)
-      ? n.toLocaleString() + (unit ? " " + unit : "")
-      : "—";
-  const fmtWon = (n?: number) =>
-    typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() : "—";
+    typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() + (unit ? " " + unit : "") : "—";
+  const fmtWon = (n?: number) => (typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() : "—");
 
   /** 2탭 썸네일 계산 & 폴백 */
   const matchedFile = resolveProductFile(selected?.productName, selected?.installLocation);
-  const initialThumb =
-    selected?.imageUrl || (matchedFile ? PRIMARY_ASSET_BASE + matchedFile : PLACEHOLDER);
+  const initialThumb = selected?.imageUrl || (matchedFile ? PRIMARY_ASSET_BASE + matchedFile : PLACEHOLDER);
 
   /** 2탭 1년 계약 월가 (DB 없을 시 정책으로 계산) */
   const computedY1 = useMemo(() => {
@@ -251,11 +241,8 @@ export default function MapChrome({
     return cart.reduce((sum, item) => {
       const rule = item.productKey ? DEFAULT_POLICY[item.productKey] : undefined;
       const periodRate = findRate(rule?.period, item.months);
-      const preRate =
-        item.productKey === "ELEVATOR TV" ? findRate(rule?.precomp, item.months) : 0;
-      const monthlyAfter = Math.round(
-        (item.baseMonthly ?? 0) * (1 - preRate) * (1 - periodRate)
-      );
+      const preRate = item.productKey === "ELEVATOR TV" ? findRate(rule?.precomp, item.months) : 0;
+      const monthlyAfter = Math.round((item.baseMonthly ?? 0) * (1 - preRate) * (1 - periodRate));
       const total = monthlyAfter * item.months;
       return sum + total;
     }, 0);
@@ -308,10 +295,7 @@ export default function MapChrome({
     const prodKey = normKey(selected.productName || "");
     const id = [nameKey, prodKey].join("||");
 
-    const productKey = classifyProductForPolicy(
-      selected.productName,
-      selected.installLocation
-    );
+    const productKey = classifyProductForPolicy(selected.productName, selected.installLocation);
 
     setCart((prev) => {
       const exists = prev.find((x) => x.id === id);
@@ -327,7 +311,7 @@ export default function MapChrome({
                 productName: selected.productName,
                 baseMonthly: selected.monthlyFee,
               }
-            : x
+            : x,
         );
       }
 
@@ -364,25 +348,11 @@ export default function MapChrome({
       fetchStatsByNames([selected.name]);
     }
 
-    // ✅ 지도 마커: (이전 호환 코드 유지) — 필요 시 제거 가능
-    try {
-      const mk = (window as any)?.markerMap?.[selected.name];
-      if (mk && (window as any).kakao?.maps) {
-        const purpleIcon = new (window as any).kakao.maps.MarkerImage(
-          "https://t1.daumcdn.net/localimg/localimages/07/mapapidoc/markerStar.png",
-          new (window as any).kakao.maps.Size(24, 35)
-        );
-        mk.setImage(purpleIcon);
-      }
-    } catch (e) {
-      console.warn("marker color change skipped:", e);
-    }
-
-    // ✅ 새 방식: 정확히 "그 행(rowKey)"만 노란색으로
+    // ✅ 새 방식: 정확히 "그 행(rowKey)"만 즉시 노란색으로 (보라@3x 상태여도 강제 변환)
     if (selected.rowKey) {
-      setMarkerStateByRowKey?.(selected.rowKey, "selected");
+      setMarkerStateByRowKey?.(selected.rowKey, "selected", true);
     } else if (selected.name) {
-      // (폴백) 구 방식 호출 — 가능하면 안타지만 데이터에 id가 없을 때 대비
+      // (폴백) 구 방식 — 가능하면 rowKey 사용
       setMarkerState?.(selected.name, "selected");
     }
   };
@@ -467,7 +437,7 @@ export default function MapChrome({
     const prodName = selected?.productName ?? first?.productName ?? null;
 
     // (선택) 광고기간 표시는 최댓값 쓰려면 이렇게:
-    const monthsMax = cart.length ? Math.max(...cart.map(c => c.months ?? 0)) : null;
+    const monthsMax = cart.length ? Math.max(...cart.map((c) => c.months ?? 0)) : null;
 
     return {
       apt_id: aptName,
@@ -477,8 +447,8 @@ export default function MapChrome({
       cart_snapshot: cart.length
         ? {
             items: cart,
-            months: monthsMax,      // 또는 first?.months (원래대로)
-            cartTotal: cartTotal,   // ✅ 헤더 총 비용 그대로 전달 (핵심!)
+            months: monthsMax, // 또는 first?.months (원래대로)
+            cartTotal: cartTotal, // ✅ 헤더 총 비용 그대로 전달 (핵심!)
           }
         : undefined,
     };
@@ -487,15 +457,15 @@ export default function MapChrome({
   return (
     <>
       {/* ===== 상단 바 ===== */}
-<div className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-[#E5E7EB] z-[60]">
-  <div className="h-full flex items-center justify-between px-6">
-    {/* 좌측 타이틀 */}
-    <div className="text-xl font-bold text-black">응답하라 입주민이여</div>
+      <div className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-[#E5E7EB] z-[60]">
+        <div className="h-full flex items-center justify-between px-6">
+          {/* 좌측 타이틀 */}
+          <div className="text-xl font-bold text.black">응답하라 입주민이여</div>
 
-    {/* 우측: 로그인 버튼(모달) */}
-    <LoginModal />
-  </div>
-</div>
+          {/* 우측: 로그인 버튼(모달) */}
+          <LoginModal />
+        </div>
+      </div>
 
       {/* ===== 1탭(왼쪽) : CartBox ===== */}
       <aside className="hidden md:flex fixed top-16 bottom-0 left-0 w-[360px] z-[60] bg-white border-r border-[#E5E7EB]">
@@ -546,7 +516,7 @@ export default function MapChrome({
             className={`h-10 rounded-md border text-sm font-medium ${
               cart.length > 0
                 ? "bg-[#6C2DFF] text-white border-[#6C2DFF]"
-                : "bg-white text-black border-[#E5E7EB] cursor-default pointer-events-none"
+                : "bg.white text.black border-[#E5E7EB] cursor-default pointer-events-none"
             }`}
           >
             구좌(T.O) 문의하기
@@ -554,9 +524,7 @@ export default function MapChrome({
 
           {/* 총 비용 요약 */}
           <div className="space-y-2">
-            <div className="text-sm font-semibold">
-              총 비용
-            </div>
+            <div className="text-sm font-semibold">총 비용</div>
             <div className="h-10 rounded-[10px] bg-[#F4F0FB] flex items-center px-3 text-sm text-[#6C2DFF] font-bold">
               {fmtWon(cartTotal)}원 <span className="ml-1 text-[11px] font-normal">(VAT별도)</span>
             </div>
@@ -565,7 +533,7 @@ export default function MapChrome({
           {/* CartBox 본문: 스크롤 컨테이너 + sticky 하단 버튼 */}
           <div className="rounded-2xl border border-[#E5E7EB] bg-white flex-1 min-h-0 overflow-hidden">
             {cart.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-sm text-[#6B7280]">
+              <div className="h-full flex items.center justify.center text-sm text-[#6B7280]">
                 광고를 원하는 아파트단지를 담아주세요!
               </div>
             ) : (
@@ -588,12 +556,7 @@ export default function MapChrome({
                 {/* 리스트 */}
                 <div className="px-5 pb-4 space-y-3">
                   {cart.map((item) => (
-                    <CartItemCard
-                      key={item.id}
-                      item={item}
-                      onChangeMonths={updateMonths}
-                      onRemove={removeItem}
-                    />
+                    <CartItemCard key={item.id} item={item} onChangeMonths={updateMonths} onRemove={removeItem} />
                   ))}
                 </div>
 
@@ -653,9 +616,7 @@ export default function MapChrome({
               {/* 타이틀 + 메타 + 닫기 */}
               <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  <div className="text-xl font-bold text-black whitespace-pre-wrap break-words">
-                    {selected.name}
-                  </div>
+                  <div className="text-xl font-bold text-black whitespace-pre-wrap break-words">{selected.name}</div>
                   <div className="mt-1 text-sm text-[#6B7280]">
                     {fmtNum(selected.households, "세대")} · {fmtNum(selected.residents, "명")}
                   </div>
@@ -675,7 +636,8 @@ export default function MapChrome({
               <div className="rounded-2xl bg-[#F6F7FB] h-14 px-5 flex items-center justify-between">
                 <div className="text-[#6B7280]">월 광고료</div>
                 <div className="text-lg font-semibold text-black">
-                  {fmtWon(selected.monthlyFee)} <span className="align-baseline text-[11px] text-[#111827] font-normal">(VAT별도)</span>
+                  {fmtWon(selected.monthlyFee)}{" "}
+                  <span className="align-baseline text-[11px] text-[#111827] font-normal">(VAT별도)</span>
                 </div>
               </div>
 
@@ -729,10 +691,10 @@ export default function MapChrome({
         items={buildQuoteItems()}
         onClose={() => setOpenQuote(false)}
         onSubmitInquiry={({ items, subtotal, vat, total }) => {
-  console.log("[T.O 문의]", { count: items.length, subtotal, vat, total });
-  setOpenQuote(false);               // 견적 모달 닫고
-  setTimeout(() => setOpenSeatInquiry(true), 0);          // 구좌문의 모달 열기
-}}
+          console.log("[T.O 문의]", { count: items.length, subtotal, vat, total });
+          setOpenQuote(false); // 견적 모달 닫고
+          setTimeout(() => setOpenSeatInquiry(true), 0); // 구좌문의 모달 열기
+        }}
       />
 
       {/* ✅ 구좌(T.O) 문의 모달 */}
@@ -744,11 +706,7 @@ export default function MapChrome({
       />
 
       {/* ✅ 패키지 문의 모달 */}
-      <InquiryModal
-        open={openPackageInquiry}
-        mode="PACKAGE"
-        onClose={() => setOpenPackageInquiry(false)}
-      />
+      <InquiryModal open={openPackageInquiry} mode="PACKAGE" onClose={() => setOpenPackageInquiry(false)} />
     </>
   );
 }
@@ -758,9 +716,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   return (
     <div className="flex items-start justify-between py-3 border-b border-[#F4F0F6] last:border-b-0">
       <dt className="text-[#6B7280]">{label}</dt>
-      <dd className="text-black text-right leading-relaxed max-w-[60%] whitespace-pre-wrap break-words">
-        {children}
-      </dd>
+      <dd className="text-black text-right leading-relaxed max-w-[60%] whitespace-pre-wrap break-words">{children}</dd>
     </div>
   );
 }
@@ -810,7 +766,9 @@ function CartItemCard({ item, onChangeMonths, onRemove }: CartItemCardProps) {
           onChange={(e) => onChangeMonths(item.id, Number(e.target.value))}
         >
           {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-            <option key={m} value={m}>{m}개월</option>
+            <option key={m} value={m}>
+              {m}개월
+            </option>
           ))}
         </select>
       </div>
@@ -818,9 +776,7 @@ function CartItemCard({ item, onChangeMonths, onRemove }: CartItemCardProps) {
       {/* 월광고료 */}
       <div className="mt-3 flex items-center justify-between">
         <div className="text-[#6B7280] text-[13px]">월광고료</div>
-        <div className="text-sm font-semibold text-black whitespace-nowrap">
-          {monthlyAfter.toLocaleString()}원{" "}
-        </div>
+        <div className="text-sm font-semibold text-black whitespace-nowrap">{monthlyAfter.toLocaleString()}원 </div>
       </div>
 
       {/* 총광고료(항상 한 줄) + 할인 배지 값 앞에 인라인 */}
@@ -829,12 +785,10 @@ function CartItemCard({ item, onChangeMonths, onRemove }: CartItemCardProps) {
         <div className="text-right whitespace-nowrap">
           {discountCombined > 0 ? (
             <span className="inline-flex items-center rounded-md bg-[#F4F0FB] text-[#6C2DFF] text-[11px] font-semibold px-2 py-[2px] mr-2 align-middle">
-              {(Math.round(discountCombined * 1000) / 10).toFixed(1).replace(/\.0$/,"")}%할인
+              {(Math.round(discountCombined * 1000) / 10).toFixed(1).replace(/\.0$/, "")}%할인
             </span>
           ) : null}
-          <span className="text-[#6C2DFF] text-base font-bold align-middle">
-            {total.toLocaleString()}원
-          </span>{" "}
+          <span className="text-[#6C2DFF] text-base font-bold align-middle">{total.toLocaleString()}원</span>{" "}
         </div>
       </div>
     </div>
