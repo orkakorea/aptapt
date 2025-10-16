@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import MapChrome, { SelectedApt } from "../components/MapChrome";
 
 type KakaoNS = typeof window & { kakao: any };
-const FALLBACK_KAKAO_KEY = "a53075efe7a2256480b8650cec67ebae";
+const FALLBACK_KAKAO_KEY = "a53075efe7a2256480cec67ebae";
 
 /* =========================================================================
    ① 마커 이미지 유틸
@@ -162,6 +162,7 @@ const buildRowKeyFromRow = (row: PlaceRow) => {
 /* =========================================================================
    ⑤ ‘정적 분리(항상 나란히)’ 레이아웃
    ------------------------------------------------------------------------- */
+/** 같은 좌표의 마커들을 가로로 일정 px 간격으로 나란히 배치 */
 function layoutMarkersSideBySide(map: any, group: KMarker[]) {
   if (!group || group.length <= 1) return;
   const proj = map.getProjection();
@@ -286,35 +287,18 @@ export default function MapPage() {
         (window as any).__kakaoMap = map;
 
         placesRef.current = new kakao.maps.services.Places();
-
-        // 🎨 클러스터 스타일: 연한 파스텔 보라색(통일)
-        const SIZES = [34, 44, 54];
-        const clusterStyles = SIZES.map((sz) => ({
-          width: `${sz}px`,
-          height: `${sz}px`,
-          lineHeight: `${sz}px`,
-          textAlign: "center",
-          borderRadius: "999px",
-          background: "rgba(108, 45, 255, 0.18)", // 배경(은은한 라일락)
-          border: "1px solid rgba(108, 45, 255, 0.35)", // 테두리
-          color: "#6C2DFF", // 숫자(보라)
-          fontWeight: "700",
-          fontSize: "13px",
-        }));
-
         clustererRef.current = new kakao.maps.MarkerClusterer({
           map,
           averageCenter: true,
           minLevel: 6,
           disableClickZoom: true,
           gridSize: 80,
-          styles: clusterStyles, // ✅ 파스텔 보라 클러스터
         });
 
         // 줌/리사이즈/렌더링 직후에도 항상 고정 분리 유지
         kakao.maps.event.addListener(map, "zoom_changed", applyStaticSeparationAll);
         kakao.maps.event.addListener(map, "idle", async () => {
-          await loadMarkersInBounds();
+          await loadMarkersInBounds(); // ⏱ 즉시 실행
           applyStaticSeparationAll();
         });
 
@@ -381,8 +365,10 @@ export default function MapPage() {
         list.forEach((mk) => {
           const shouldBeYellow = state === "selected" || selectedRowKeySetRef.current.has(rowKey);
 
+          // 담기 즉시 또는 이미 담긴 항목은 무조건 노란색 유지
           if (forceYellowNow || shouldBeYellow) {
             mk.setImage(imgs.yellow);
+            // 클릭 강조 대상이었다면 해제
             if (lastClickedRef.current === mk) lastClickedRef.current = null;
           } else {
             mk.setImage(imgs.purple);
@@ -529,16 +515,21 @@ export default function MapPage() {
           };
           setSelected(sel);
 
+          // 🔴 클릭 즉시(바로) 아이콘 갱신:
+          // 담겨있는 행이면 계속 노란색 유지, 아니면 보라@3x 강조
           const isAlreadySelected = selectedRowKeySetRef.current.has(rowKey);
           if (isAlreadySelected) {
             mk.setImage(imgs.yellow);
+            // 클릭 강조 상태 없앰
             if (lastClickedRef.current && lastClickedRef.current !== mk) {
+              // 이전 클릭 강조되었던 마커 복구
               const prev = lastClickedRef.current;
               const prevRowKey = buildRowKeyFromRow(prev.__row as PlaceRow);
               prev.setImage(selectedRowKeySetRef.current.has(prevRowKey) ? imgs.yellow : imgs.purple);
             }
             lastClickedRef.current = null;
           } else {
+            // 이전 클릭 강조 복구
             if (lastClickedRef.current && lastClickedRef.current !== mk) {
               const prev = lastClickedRef.current;
               const prevRowKey = buildRowKeyFromRow(prev.__row as PlaceRow);
@@ -548,6 +539,7 @@ export default function MapPage() {
             lastClickedRef.current = mk;
           }
 
+          // 레이아웃 즉시 유지
           applyStaticSeparationAll();
         });
 
