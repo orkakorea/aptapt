@@ -1,20 +1,20 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
-/** =========================================================================
+/* =========================================================================
  * Kakao 타입/키
  * ========================================================================= */
 type KakaoNS = typeof window & { kakao: any };
 const FALLBACK_KAKAO_KEY = "a53075efe7a2256480b8650cec67ebae";
 
-/** =========================================================================
+/* =========================================================================
  * 색상(모바일 톤)
  * ========================================================================= */
 const COLOR_PRIMARY = "#6F4BF2";
 const COLOR_PRIMARY_LIGHT = "#EEE8FF";
 const COLOR_GRAY_CARD = "#F4F6FA";
 
-/** =========================================================================
+/* =========================================================================
  * 마커 이미지
  * ========================================================================= */
 const PIN_PURPLE_URL = "/makers/pin-purple@2x.png";
@@ -34,7 +34,7 @@ const markerImages = (maps: any) => {
   };
 };
 
-/** =========================================================================
+/* =========================================================================
  * 유틸
  * ========================================================================= */
 const fmtNum = (n?: number | null) => (Number.isFinite(Number(n)) ? Number(n).toLocaleString("ko-KR") : "-");
@@ -54,7 +54,6 @@ const getField = (obj: any, keys: string[]): any => {
   return undefined;
 };
 
-/** 이미지 매핑 */
 function imageForProduct(productName?: string): string {
   const p = (productName || "").toLowerCase().replace(/\s+/g, "");
   if (p.includes("elevat")) return "/products/elevator-tv.png";
@@ -64,11 +63,9 @@ function imageForProduct(productName?: string): string {
   }
   if (p.includes("media")) return "/products/media-meet-a.png";
   if (p.includes("space")) return "/products/space-living.png";
-  if (p.includes("hi") && p.includes("post")) return "/products/hi-post.png";
+  if (p.includes("hipost") || (p.includes("hi") && p.includes("post"))) return "/products/hi-post.png";
   return "/placeholder.svg";
 }
-
-/** 프리로드 */
 function preloadImages(paths: string[]) {
   paths.forEach((p) => {
     const img = new Image();
@@ -76,7 +73,9 @@ function preloadImages(paths: string[]) {
   });
 }
 
-/** Kakao SDK */
+/* =========================================================================
+ * Kakao SDK
+ * ========================================================================= */
 const cleanupKakaoScripts = () => {
   const candidates = Array.from(document.scripts).filter((s) => s.src.includes("dapi.kakao.com/v2/maps/sdk.js"));
   candidates.forEach((s) => s.parentElement?.removeChild(s));
@@ -116,7 +115,7 @@ const loadKakao = (): Promise<any> => {
   return w.__kakaoLoadingPromise;
 };
 
-/** =========================================================================
+/* =========================================================================
  * 타입/키
  * ========================================================================= */
 type PlaceRow = {
@@ -160,8 +159,8 @@ const buildRowKeyFromRow = (row: PlaceRow) => {
 };
 const monthlyFeeOf = (row: PlaceRow): number => toNumLoose(getField(row, ["월광고료", "month_fee", "monthlyFee"])) ?? 0;
 
-/** =========================================================================
- * 할인 정책 (PC 버전과 동일 구조)
+/* =========================================================================
+ * 할인 정책 (PC 버전 동일)
  * ========================================================================= */
 type RangeRule = { min: number; max: number; rate: number };
 type ProductRules = { precomp?: RangeRule[]; period: RangeRule[] };
@@ -233,7 +232,6 @@ function normPolicyKey(productName?: string): keyof DiscountPolicy | "_NONE" {
   }
   return "_NONE";
 }
-
 function rateFromRanges(ranges: RangeRule[] | undefined, value: number) {
   if (!ranges) return 0;
   for (const r of ranges) {
@@ -241,8 +239,6 @@ function rateFromRanges(ranges: RangeRule[] | undefined, value: number) {
   }
   return 0;
 }
-
-/** 월요금/할인 계산: months·상품·precomp(같은 상품 개수) 고려. 12개월+Y1가 있으면 Y1 우선 */
 function calcMonthlyWithPolicy(
   productName: string | undefined,
   months: number,
@@ -251,39 +247,34 @@ function calcMonthlyWithPolicy(
   sameProductCountInCart: number,
 ) {
   if (!Number.isFinite(baseMonthly) || baseMonthly <= 0) return { monthly: 0, rate: 0 };
-
-  // 12개월 & 연간월요금 명시 시 최우선
+  // 12개월 & Y1가 있으면 무조건 그 값 사용(할인율은 역산)
   if (months === 12 && Number.isFinite(monthlyFeeY1) && (monthlyFeeY1 as number) > 0) {
     const rate = Math.max(0, Math.min(1, 1 - (monthlyFeeY1 as number) / baseMonthly));
     return { monthly: Math.round(monthlyFeeY1 as number), rate };
   }
-
   const key = normPolicyKey(productName);
   const rules = key !== "_NONE" ? DEFAULT_POLICY[key] : undefined;
-
   const periodRate = rateFromRanges(rules?.period, months);
   const preRate = rateFromRanges(rules?.precomp, sameProductCountInCart);
-
-  // 중복 할인 결합: 1 - (1-a)*(1-b)
-  const effectiveRate = 1 - (1 - periodRate) * (1 - preRate);
+  const effectiveRate = 1 - (1 - periodRate) * (1 - preRate); // 결합
   const monthly = Math.round(baseMonthly * (1 - effectiveRate));
   return { monthly, rate: effectiveRate };
 }
 
-/** =========================================================================
+/* =========================================================================
  * 카트
  * ========================================================================= */
 type CartItem = {
   rowKey: string;
   aptName: string;
   productName?: string;
-  months: number; // 1~12
-  baseMonthly?: number; // 월광고료(기본)
-  monthlyFeeY1?: number; // 12개월가(있으면 우선)
+  months: number;
+  baseMonthly?: number;
+  monthlyFeeY1?: number;
 };
 const monthOptions: number[] = Array.from({ length: 12 }, (_, i) => i + 1);
 
-/** =========================================================================
+/* =========================================================================
  * 메인 페이지
  * ========================================================================= */
 export default function MapMobilePage() {
@@ -306,6 +297,7 @@ export default function MapMobilePage() {
   const [activeTab, setActiveTab] = useState<"cart" | "detail">("cart");
   const [kakaoError, setKakaoError] = useState<string | null>(null);
   const [searchQ, setSearchQ] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // 카트
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -318,15 +310,22 @@ export default function MapMobilePage() {
   const dragStartYRef = useRef<number | null>(null);
   const isDraggingRef = useRef(false);
 
-  // 모달
+  // 바텀시트 최대 높이 동적 제한(카트 버튼 ~ 전화 버튼 사이)
+  const [sheetMaxH, setSheetMaxH] = useState<number | null>(null);
+  const cartBtnRef = useRef<HTMLButtonElement>(null);
+  const phoneBtnRef = useRef<HTMLAnchorElement>(null);
+
+  // 패키지 모달/종료 확인
   const [pkgOpen, setPkgOpen] = useState(false);
+  const [exitAsk, setExitAsk] = useState(false);
+  const popHandlerRef = useRef<(e: PopStateEvent) => void>();
 
   const showSnack = (msg: string) => {
     setSnack(msg);
     setTimeout(() => setSnack(null), 2200);
   };
 
-  /** 프리로드 */
+  /* 프리로드 */
   useEffect(() => {
     preloadImages([
       "/products/elevator-tv.png",
@@ -339,13 +338,13 @@ export default function MapMobilePage() {
     ]);
   }, []);
 
-  /** Lovable 배지 제거 */
+  /* Lovable 배지 제거 */
   useEffect(() => {
     const kill = () => {
       const all = Array.from(document.querySelectorAll<HTMLElement>("body *"));
       all.forEach((el) => {
         const t = (el.textContent || "").trim().toLowerCase();
-        const idc = `${el.id} ${el.className}`.toLowerCase();
+        const idc = `${(el as any).id ?? ""} ${(el as any).className ?? ""}`.toLowerCase();
         if ((t.includes("built with") && t.includes("lovable")) || idc.includes("lovable")) {
           el.remove();
         }
@@ -357,7 +356,31 @@ export default function MapMobilePage() {
     return () => mo.disconnect();
   }, []);
 
-  /** 지도 초기화 */
+  /* 뒤로가기 가드 */
+  useEffect(() => {
+    history.pushState({ guard: true }, "");
+    const onPop = (e: PopStateEvent) => {
+      // 일단 되돌려 놓고 확인 모달
+      history.pushState({ guard: true }, "");
+      setExitAsk(true);
+    };
+    popHandlerRef.current = onPop;
+    window.addEventListener("popstate", onPop);
+
+    const onBeforeUnload = (ev: BeforeUnloadEvent) => {
+      ev.preventDefault();
+      ev.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+
+    return () => {
+      const h = popHandlerRef.current;
+      if (h) window.removeEventListener("popstate", h);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+    };
+  }, []);
+
+  /* 지도 초기화 */
   useEffect(() => {
     let resizeHandler: any;
     let map: any;
@@ -396,6 +419,7 @@ export default function MapMobilePage() {
           if (!map) return;
           map.relayout();
           applyStaticSeparationAll();
+          recalcSheetMax();
         };
         window.addEventListener("resize", resizeHandler);
       })
@@ -410,29 +434,38 @@ export default function MapMobilePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 시트 열릴 때 레이아웃 보정
+  // 시트 열릴 때/탭 전환 시 레이아웃 보정 + 높이 재계산
   useEffect(() => {
     const m = mapObjRef.current;
     if ((window as any).kakao?.maps && m) setTimeout(() => m.relayout(), 0);
-  }, [sheetOpen, activeTab]);
+    setTimeout(recalcSheetMax, 0);
+  }, [sheetOpen, activeTab, cartCount]);
 
-  /** 같은 좌표 마커 나란히 */
+  const recalcSheetMax = () => {
+    const winH = window.innerHeight;
+    const cartBottom = cartBtnRef.current ? cartBtnRef.current.getBoundingClientRect().bottom : winH * 0.55;
+    const phoneTop = phoneBtnRef.current ? phoneBtnRef.current.getBoundingClientRect().top : winH * 0.8;
+    // 두 버튼 사이의 중앙값(여유 8px)
+    const safeTop = Math.min(winH - 56, Math.max(0, Math.floor((cartBottom + phoneTop) / 2) + 8));
+    const maxH = Math.max(320, winH - safeTop);
+    setSheetMaxH(maxH);
+  };
+
+  /* 같은 좌표 마커 나란히 */
   const layoutMarkersSideBySide = useCallback((map: any, group: KMarker[]) => {
     if (!group || group.length <= 1) return;
     const proj = map.getProjection();
     const center = group[0].__basePos;
-    theLoop: {
-      const cpt = proj.containerPointFromCoords(center);
-      const N = group.length;
-      const GAP = 26;
-      const totalW = GAP * (N - 1);
-      const startX = cpt.x - totalW / 2;
-      const y = cpt.y;
-      for (let i = 0; i < N; i++) {
-        const pt = new (window as any).kakao.maps.Point(startX + i * GAP, y);
-        const pos = proj.coordsFromContainerPoint(pt);
-        group[i].setPosition(pos);
-      }
+    const cpt = proj.containerPointFromCoords(center);
+    const N = group.length;
+    const GAP = 26;
+    const totalW = GAP * (N - 1);
+    const startX = cpt.x - totalW / 2;
+    const y = cpt.y;
+    for (let i = 0; i < N; i++) {
+      const pt = new (window as any).kakao.maps.Point(startX + i * GAP, y);
+      const pos = proj.coordsFromContainerPoint(pt);
+      group[i].setPosition(pos);
     }
   }, []);
   const applyStaticSeparationAll = useCallback(() => {
@@ -441,7 +474,7 @@ export default function MapMobilePage() {
     groupsRef.current.forEach((group) => layoutMarkersSideBySide(map, group));
   }, [layoutMarkersSideBySide]);
 
-  /** 그룹 zIndex */
+  /* 그룹 zIndex */
   const orderAndApplyZIndex = useCallback((arr: KMarker[]) => {
     if (!arr || arr.length <= 1) return arr;
     const sorted = arr.slice().sort((a, b) => {
@@ -474,7 +507,7 @@ export default function MapMobilePage() {
     [orderAndApplyZIndex],
   );
 
-  /** 마커 상태 전환 */
+  /* 마커 상태 전환 */
   const setMarkerStateByRowKey = useCallback(
     (rowKey: string, state: "default" | "selected", forceYellowNow = false) => {
       if (!rowKey) return;
@@ -502,7 +535,7 @@ export default function MapMobilePage() {
     [applyStaticSeparationAll],
   );
 
-  /** 바운드 내 마커 로드 */
+  /* 바운드 내 마커 로드 */
   async function loadMarkersInBounds() {
     const kakao = (window as KakaoNS).kakao;
     const maps = kakao?.maps;
@@ -652,9 +685,7 @@ export default function MapMobilePage() {
     const monitors = toNumLoose(getField(row, ["모니터수량", "monitors"]));
     const monthlyImpressions = toNumLoose(getField(row, ["월송출횟수", "monthlyImpressions"]));
     const monthlyFee = toNumLoose(getField(row, ["월광고료", "month_fee", "monthlyFee"]));
-    const monthlyFeeY1 = toNumLoose(
-      getField(row, ["1년 계약 시 월 광고료", "1년계약시월광고료", "연간월광고료", "monthlyFeeY1"]),
-    );
+    const monthlyFeeY1 = toNumLoose(getField(row, ["1년 계약 시 월 광고료", "연간월광고료", "monthlyFeeY1"]));
     const costPerPlay = toNumLoose(getField(row, ["1회당 송출비용", "costPerPlay"]));
     const hours = getField(row, ["운영시간", "hours"]) || "";
     const rawImage = getField(row, ["imageUrl", "이미지", "썸네일", "thumbnail"]) || undefined;
@@ -680,10 +711,14 @@ export default function MapMobilePage() {
     };
   }
 
-  /** 검색 */
+  /* 검색 */
   const runPlaceSearch = (q: string) => {
     const kakao = (window as KakaoNS).kakao;
     if (!placesRef.current || !kakao?.maps) return;
+    // 포커스 제거(키보드 닫기)
+    searchInputRef.current?.blur();
+    (document.activeElement as HTMLElement | null)?.blur?.();
+
     placesRef.current.keywordSearch(q, (results: any[], status: string) => {
       if (status !== kakao.maps.services.Status.OK || !results?.length) return;
       const first = results[0];
@@ -697,7 +732,7 @@ export default function MapMobilePage() {
     });
   };
 
-  /** 카트 조작 */
+  /* 카트 조작 */
   const isInCart = useCallback((rowKey?: string | null) => !!rowKey && cart.some((c) => c.rowKey === rowKey), [cart]);
 
   const addSelectedToCart = useCallback(() => {
@@ -741,7 +776,7 @@ export default function MapMobilePage() {
     });
   };
 
-  /** 파생: 같은 상품 개수 집계 → 할인 계산 */
+  /* 파생: 같은 상품 개수 집계 → 할인 계산 */
   const computedCart = useMemo(() => {
     const countMap = new Map<string, number>();
     cart.forEach((c) => {
@@ -765,10 +800,10 @@ export default function MapMobilePage() {
     });
   }, [cart]);
 
-  /** 상단 총비용(월 합계) */
-  const totalMonthly = useMemo(() => computedCart.reduce((sum, c) => sum + (c._monthly ?? 0), 0), [computedCart]);
+  // 총 비용 = 총광고료 합계
+  const totalCost = useMemo(() => computedCart.reduce((sum, c) => sum + (c._total ?? 0), 0), [computedCart]);
 
-  /** 카트 → 지도 이동 + 상세 탭 */
+  /* 카트 → 지도 이동 + 상세 탭 */
   const goToRowKey = useCallback(
     (rowKey: string) => {
       const arr = keyIndexRef.current[rowKey];
@@ -802,7 +837,7 @@ export default function MapMobilePage() {
     [applyStaticSeparationAll],
   );
 
-  /** 드래그 핸들 */
+  /* 드래그 핸들 */
   const onHandlePointerDown = (e: React.PointerEvent) => {
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
     dragStartYRef.current = e.clientY;
@@ -822,7 +857,7 @@ export default function MapMobilePage() {
     if (dy > 120) setSheetOpen(false);
   };
 
-  /** 렌더 */
+  /* 렌더 */
   return (
     <div className="w-screen h-[100dvh] bg-white">
       {/* 상단 헤더만 흰 배경 고정 */}
@@ -851,6 +886,7 @@ export default function MapMobilePage() {
             className="flex-1 pointer-events-auto"
           >
             <input
+              ref={searchInputRef}
               value={searchQ}
               onChange={(e) => setSearchQ(e.target.value)}
               placeholder="지역명, 아파트 이름, 단지명, 건물명"
@@ -874,6 +910,7 @@ export default function MapMobilePage() {
             </button>
             {/* 카트 */}
             <button
+              ref={cartBtnRef}
               onClick={() => {
                 setSheetOpen(true);
                 setActiveTab("cart");
@@ -893,6 +930,7 @@ export default function MapMobilePage() {
             </button>
             {/* 전화 */}
             <a
+              ref={phoneBtnRef}
               href="tel:1551-0810"
               className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow"
               style={{ backgroundColor: COLOR_PRIMARY }}
@@ -909,16 +947,17 @@ export default function MapMobilePage() {
       {/* 바깥 클릭 시 시트 닫기 */}
       {sheetOpen && <div className="fixed inset-0 z-[50] bg-black/0" onClick={() => setSheetOpen(false)} />}
 
-      {/* 하단 시트 */}
+      {/* 하단 시트 (최대 높이 제한 포함) */}
       <MobileBottomSheet
         open={sheetOpen}
         translateY={dragY}
+        maxHeightPx={sheetMaxH ?? undefined}
         onHandlePointerDown={onHandlePointerDown}
         onHandlePointerMove={onHandlePointerMove}
         onHandlePointerUp={onHandlePointerUp}
       >
         {/* 탭 헤더 */}
-        <div className="mt-2 px-4 flex items-center gap-2">
+        <div className="px-4 mt-1 flex items-center gap-2">
           <button
             className={`px-4 py-2 rounded-full text-sm font-semibold ${activeTab === "cart" ? "text-white" : "bg-gray-100"}`}
             style={activeTab === "cart" ? { backgroundColor: COLOR_PRIMARY } : {}}
@@ -937,35 +976,60 @@ export default function MapMobilePage() {
         {/* 경계용 흰 스트립 */}
         <div className="-mx-4 h-3 bg-white" />
 
-        {/* 내용 */}
-        <div className="max-h-[70vh] overflow-y-auto px-4 pt-3 pb-24 bg-white relative">
-          {activeTab === "cart" ? (
-            <CartTab
-              colorPrimary={COLOR_PRIMARY}
-              colorPrimaryLight={COLOR_PRIMARY_LIGHT}
-              cart={computedCart}
-              applyAll={applyAll}
-              setApplyAll={setApplyAll}
-              onUpdateMonths={updateMonths}
-              onRemove={(rk) => {
-                const name = computedCart.find((c) => c.rowKey === rk)?.aptName;
-                removeFromCart(rk, name);
-              }}
-              totalMonthly={totalMonthly}
-              onGoTo={(rk) => goToRowKey(rk)}
-            />
-          ) : (
-            <DetailTab
-              colorPrimary={COLOR_PRIMARY}
-              selected={selected}
-              isInCart={isInCart(selected?.rowKey)}
-              onToggleCart={toggleSelectedInCart}
-            />
+        {/* 본문을 상·중·하로 나눔(푸터 고정) */}
+        <div className="px-4 pb-0 flex flex-col overflow-hidden">
+          {/* 상단 요약/필터 (카트 탭일 때만 노출) */}
+          {activeTab === "cart" && (
+            <div className="shrink-0">
+              <div className="mb-3 rounded-xl px-4 py-3" style={{ backgroundColor: COLOR_PRIMARY_LIGHT }}>
+                <div className="text-sm text-gray-600">총 비용</div>
+                <div className="text-[20px] font-extrabold" style={{ color: COLOR_PRIMARY }}>
+                  {fmtWon(totalCost)}
+                </div>
+                <div className="text-[11px] text-gray-500">(VAT별도)</div>
+              </div>
+              <div className="flex items-center justify-between mb-1">
+                <div className="text-sm text-gray-700 font-medium">총 {cart.length}건</div>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="accent-[#6F4BF2]"
+                    checked={applyAll}
+                    onChange={(e) => setApplyAll(e.target.checked)}
+                  />
+                  광고기간 일괄적용
+                </label>
+              </div>
+            </div>
           )}
 
-          {/* (카트 탭 전용) 하단 고정 CTA */}
+          {/* 스크롤 영역 */}
+          <div className="flex-1 overflow-y-auto pt-2 pb-6">
+            {activeTab === "cart" ? (
+              <CartList
+                colorPrimary={COLOR_PRIMARY}
+                colorPrimaryLight={COLOR_PRIMARY_LIGHT}
+                cart={computedCart}
+                onUpdateMonths={updateMonths}
+                onRemove={(rk) => {
+                  const name = computedCart.find((c) => c.rowKey === rk)?.aptName;
+                  removeFromCart(rk, name);
+                }}
+                onGoTo={(rk) => goToRowKey(rk)}
+              />
+            ) : (
+              <DetailTab
+                colorPrimary={COLOR_PRIMARY}
+                selected={selected}
+                isInCart={isInCart(selected?.rowKey)}
+                onToggleCart={toggleSelectedInCart}
+              />
+            )}
+          </div>
+
+          {/* 하단 고정 푸터 */}
           {activeTab === "cart" && (
-            <div className="sticky bottom-0 -mx-4 px-4 pb-4 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80 border-t">
+            <div className="shrink-0 sticky bottom-0 -mx-4 px-4 pb-4 pt-2 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80 border-t">
               <button
                 className="w-full h-12 rounded-2xl border-2 font-extrabold"
                 style={{ color: COLOR_PRIMARY, borderColor: COLOR_PRIMARY }}
@@ -991,7 +1055,7 @@ export default function MapMobilePage() {
         </div>
       )}
 
-      {/* 간단 모달: 패키지 문의 */}
+      {/* 패키지 문의 모달 */}
       {pkgOpen && (
         <SimpleModal open={pkgOpen} onClose={() => setPkgOpen(false)} title="패키지 문의">
           <div className="space-y-2">
@@ -1006,29 +1070,53 @@ export default function MapMobilePage() {
           </div>
         </SimpleModal>
       )}
+
+      {/* 종료 확인 모달 */}
+      {exitAsk && (
+        <ConfirmModal
+          title="정말로 해당 페이지를 종료하시겠습니까?"
+          onCancel={() => setExitAsk(false)}
+          onConfirm={() => {
+            const h = popHandlerRef.current;
+            if (h) window.removeEventListener("popstate", h);
+            setExitAsk(false);
+            setTimeout(() => history.back(), 0);
+          }}
+        />
+      )}
     </div>
   );
 }
 
-/** =========================================================================
+/* =========================================================================
  * BottomSheet
  * ========================================================================= */
 function MobileBottomSheet(props: {
   open: boolean;
   translateY: number;
+  maxHeightPx?: number;
   onHandlePointerDown: (e: React.PointerEvent) => void;
   onHandlePointerMove: (e: React.PointerEvent) => void;
   onHandlePointerUp: (e: React.PointerEvent) => void;
   children: React.ReactNode;
 }) {
-  const { open, translateY, onHandlePointerDown, onHandlePointerMove, onHandlePointerUp, children } = props;
+  const { open, translateY, maxHeightPx, onHandlePointerDown, onHandlePointerMove, onHandlePointerUp, children } =
+    props;
 
   return (
     <div
-      className={`fixed left-0 right-0 z-[55] transition-transform duration-200 ease-out ${open ? "pointer-events-auto" : "pointer-events-none"}`}
-      style={{ bottom: 0, transform: open ? `translateY(${translateY}px)` : "translateY(110%)" }}
+      className={`fixed left-0 right-0 z-[55] transition-transform duration-200 ease-out ${
+        open ? "pointer-events-auto" : "pointer-events-none"
+      }`}
+      style={{
+        bottom: 0,
+        transform: open ? `translateY(${translateY}px)` : "translateY(110%)",
+      }}
     >
-      <div className="mx-auto w-full max-w-[560px] rounded-t-2xl bg-white shadow-[0_-10px_30px_rgba(0,0,0,0.12)]">
+      <div
+        className="mx-auto w-full max-w-[560px] rounded-t-2xl bg-white shadow-[0_-10px_30px_rgba(0,0,0,0.12)] overflow-hidden"
+        style={{ maxHeight: maxHeightPx ?? undefined }}
+      >
         <div
           className="pt-2 pb-1 cursor-grab touch-none select-none"
           onPointerDown={onHandlePointerDown}
@@ -1043,131 +1131,92 @@ function MobileBottomSheet(props: {
   );
 }
 
-/** =========================================================================
- * Cart 탭 (sticky 헤더, 기간 1~12, 즉시 재계산, 하단 고정 CTA는 상위에서)
+/* =========================================================================
+ * Cart 리스트
  * ========================================================================= */
-function CartTab(props: {
+function CartList(props: {
   colorPrimary: string;
   colorPrimaryLight: string;
   cart: (CartItem & { _monthly: number; _discountRate: number; _total: number })[];
-  applyAll: boolean;
-  setApplyAll: (v: boolean) => void;
   onUpdateMonths: (rowKey: string, months: number) => void;
   onRemove: (rowKey: string) => void;
-  totalMonthly: number;
   onGoTo: (rowKey: string) => void;
 }) {
-  const {
-    colorPrimary,
-    colorPrimaryLight,
-    cart,
-    applyAll,
-    setApplyAll,
-    onUpdateMonths,
-    onRemove,
-    totalMonthly,
-    onGoTo,
-  } = props;
+  const { colorPrimary, colorPrimaryLight, cart, onUpdateMonths, onRemove, onGoTo } = props;
 
   return (
-    <div>
-      {/* sticky 헤더(완전 불투명) */}
-      <div className="sticky top-0 z-10 -mx-4 px-4 pt-1 pb-3 bg-white border-b">
-        <div className="mb-3 rounded-xl px-4 py-3" style={{ backgroundColor: COLOR_PRIMARY_LIGHT }}>
-          <div className="text-sm text-gray-600">총 비용</div>
-          <div className="text-[20px] font-extrabold" style={{ color: colorPrimary }}>
-            {fmtWon(totalMonthly)}
-          </div>
-          <div className="text-[11px] text-gray-500">(VAT별도)</div>
-        </div>
-        <div className="flex items-center justify-between">
-          <div className="text-sm text-gray-700 font-medium">총 {cart.length}건</div>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="accent-[#6F4BF2]"
-              checked={applyAll}
-              onChange={(e) => setApplyAll(e.target.checked)}
-            />
-            광고기간 일괄적용
-          </label>
-        </div>
-      </div>
+    <div className="space-y-3">
+      {cart.map((item) => {
+        const percent = Math.round((item._discountRate ?? 0) * 100);
+        return (
+          <div key={item.rowKey} className="rounded-2xl border border-gray-200 p-4">
+            <div className="flex items-start gap-3">
+              <button onClick={() => onGoTo(item.rowKey)} className="flex-1 text-left" title="지도로 이동">
+                <div className="font-extrabold text-[16px]">{item.aptName}</div>
+                <div className="text-xs text-gray-500">{item.productName ?? "ELEVATOR TV"}</div>
+              </button>
+              <button
+                onClick={() => onRemove(item.rowKey)}
+                className="h-8 px-3 rounded-full bg-gray-100 text-gray-600 text-sm"
+                aria-label="삭제"
+              >
+                삭제
+              </button>
+            </div>
 
-      {/* 리스트 */}
-      <div className="space-y-3 mt-3">
-        {cart.map((item) => {
-          const percent = Math.round((item._discountRate ?? 0) * 100);
-          return (
-            <div key={item.rowKey} className="rounded-2xl border border-gray-200 p-4">
-              <div className="flex items-start gap-3">
-                <button onClick={() => onGoTo(item.rowKey)} className="flex-1 text-left" title="지도로 이동">
-                  <div className="font-extrabold text-[16px]">{item.aptName}</div>
-                  <div className="text-xs text-gray-500">{item.productName ?? "ELEVATOR TV"}</div>
-                </button>
-                <button
-                  onClick={() => onRemove(item.rowKey)}
-                  className="h-8 px-3 rounded-full bg-gray-100 text-gray-600 text-sm"
-                  aria-label="삭제"
-                >
-                  삭제
-                </button>
-              </div>
+            {/* 기간 선택 */}
+            <div className="mt-3">
+              <div className="text-sm text-gray-600 mb-1">광고기간</div>
+              <select
+                className="w-36 rounded-xl border px-3 py-2"
+                value={item.months}
+                onChange={(e) => onUpdateMonths(item.rowKey, Number(e.target.value))}
+              >
+                {monthOptions.map((m) => (
+                  <option key={m} value={m}>
+                    {m}개월
+                  </option>
+                ))}
+              </select>
+            </div>
 
-              {/* 기간 선택 */}
-              <div className="mt-3">
-                <div className="text-sm text-gray-600 mb-1">광고기간</div>
-                <select
-                  className="w-36 rounded-xl border px-3 py-2"
-                  value={item.months}
-                  onChange={(e) => onUpdateMonths(item.rowKey, Number(e.target.value))}
-                >
-                  {monthOptions.map((m) => (
-                    <option key={m} value={m}>
-                      {m}개월
-                    </option>
-                  ))}
-                </select>
-              </div>
+            {/* 월광고료(기본) */}
+            <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+              <div className="text-gray-600">월광고료(기본)</div>
+              <div className="text-right font-semibold">{fmtWon(item.baseMonthly)}</div>
+            </div>
 
-              {/* 월광고료(기본) */}
-              <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-                <div className="text-gray-600">월광고료(기본)</div>
-                <div className="text-right font-semibold">{fmtWon(item.baseMonthly)}</div>
-              </div>
-
-              {/* 총광고료(기간/할인 적용) */}
-              <div className="mt-1 grid grid-cols-2 gap-3 text-sm">
-                <div className="text-gray-600">총광고료</div>
-                <div className="text-right">
-                  <span className="inline-flex items-center gap-2">
-                    {percent > 0 && (
-                      <span
-                        className="rounded-full px-2 py-0.5 text-[11px] font-bold"
-                        style={{ backgroundColor: colorPrimaryLight, color: colorPrimary }}
-                      >
-                        {percent}%할인
-                      </span>
-                    )}
-                    <span className="font-extrabold" style={{ color: colorPrimary }}>
-                      {fmtWon(item._total)}
+            {/* 총광고료(기간/할인 적용) */}
+            <div className="mt-1 grid grid-cols-2 gap-3 text-sm">
+              <div className="text-gray-600">총광고료</div>
+              <div className="text-right">
+                <span className="inline-flex items-center gap-2">
+                  {percent > 0 && (
+                    <span
+                      className="rounded-full px-2 py-0.5 text-[11px] font-bold"
+                      style={{
+                        backgroundColor: colorPrimaryLight,
+                        color: colorPrimary,
+                      }}
+                    >
+                      {percent}%할인
                     </span>
+                  )}
+                  <span className="font-extrabold" style={{ color: colorPrimary }}>
+                    {fmtWon(item._total)}
                   </span>
-                </div>
+                </span>
               </div>
             </div>
-          );
-        })}
-      </div>
-
-      {/* 하단 공간은 상위 sticky CTA가 덮지 않도록 여유 */}
-      <div className="h-2" />
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-/** =========================================================================
- * Detail 탭 (단위/색상)
+/* =========================================================================
+ * Detail 탭
  * ========================================================================= */
 function DetailTab(props: {
   colorPrimary: string;
@@ -1265,8 +1314,8 @@ function DetailTab(props: {
   );
 }
 
-/** =========================================================================
- * 심플 모달
+/* =========================================================================
+ * 심플 모달 / 확인 모달
  * ========================================================================= */
 function SimpleModal(props: { open: boolean; onClose: () => void; title: string; children: React.ReactNode }) {
   const { open, onClose, title, children } = props;
@@ -1282,6 +1331,30 @@ function SimpleModal(props: { open: boolean; onClose: () => void; title: string;
           </button>
         </div>
         {children}
+      </div>
+    </div>
+  );
+}
+
+function ConfirmModal(props: { title: string; onConfirm: () => void; onCancel: () => void }) {
+  const { title, onConfirm, onCancel } = props;
+  return (
+    <div className="fixed inset-0 z-[90]">
+      <div className="absolute inset-0 bg-black/40" />
+      <div className="absolute inset-x-8 top-1/3 translate-y-[-50%] rounded-2xl bg-white p-4 shadow-xl">
+        <div className="font-extrabold text-[15px] mb-3">{title}</div>
+        <div className="flex items-center justify-end gap-2">
+          <button onClick={onCancel} className="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 font-semibold">
+            아니오
+          </button>
+          <button
+            onClick={onConfirm}
+            className="px-4 py-2 rounded-xl text-white font-semibold"
+            style={{ backgroundColor: COLOR_PRIMARY }}
+          >
+            예
+          </button>
+        </div>
       </div>
     </div>
   );
