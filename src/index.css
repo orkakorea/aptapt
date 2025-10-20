@@ -105,11 +105,11 @@ All colors MUST be HSL.
 
   body {
     @apply bg-background text-foreground font-pretendard;
-    font-feature-settings: 'kern' 1;
+    font-feature-settings: "kern" 1;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
-  
+
   html {
     scroll-behavior: smooth;
     font-family: Pretendard, system-ui, sans-serif;
@@ -117,3 +117,9 @@ All colors MUST be HSL.
 }
 
 @import "./styles/typography.css";
+#lovable-badge,
+.lovable-badge,
+.built-with-lovable,
+[data-lovable-badge] {
+  display: none !important;
+}
