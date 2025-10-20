@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 /* =========================================================================
@@ -247,7 +247,6 @@ function calcMonthlyWithPolicy(
   sameProductCountInCart: number,
 ) {
   if (!Number.isFinite(baseMonthly) || baseMonthly <= 0) return { monthly: 0, rate: 0 };
-  // 12개월 & Y1가 있으면 무조건 그 값 사용(할인율은 역산)
   if (months === 12 && Number.isFinite(monthlyFeeY1) && (monthlyFeeY1 as number) > 0) {
     const rate = Math.max(0, Math.min(1, 1 - (monthlyFeeY1 as number) / baseMonthly));
     return { monthly: Math.round(monthlyFeeY1 as number), rate };
@@ -256,7 +255,7 @@ function calcMonthlyWithPolicy(
   const rules = key !== "_NONE" ? DEFAULT_POLICY[key] : undefined;
   const periodRate = rateFromRanges(rules?.period, months);
   const preRate = rateFromRanges(rules?.precomp, sameProductCountInCart);
-  const effectiveRate = 1 - (1 - periodRate) * (1 - preRate); // 결합
+  const effectiveRate = 1 - (1 - periodRate) * (1 - preRate);
   const monthly = Math.round(baseMonthly * (1 - effectiveRate));
   return { monthly, rate: effectiveRate };
 }
@@ -305,17 +304,19 @@ export default function MapMobilePage() {
   const [applyAll, setApplyAll] = useState(true);
   const [snack, setSnack] = useState<string | null>(null);
 
-  // 시트 드래그
+  // 드래그 상태
   const [dragY, setDragY] = useState(0);
   const dragStartYRef = useRef<number | null>(null);
   const isDraggingRef = useRef(false);
+  const moveHandlerRef = useRef<(ev: PointerEvent) => void>();
+  const upHandlerRef = useRef<(ev: PointerEvent) => void>();
 
-  // 바텀시트 최대 높이 동적 제한(카트 버튼 ~ 전화 버튼 사이)
+  // 바텀시트 최대 높이(카트 버튼 ~ 전화 버튼 사이)
   const [sheetMaxH, setSheetMaxH] = useState<number | null>(null);
   const cartBtnRef = useRef<HTMLButtonElement>(null);
   const phoneBtnRef = useRef<HTMLAnchorElement>(null);
 
-  // 패키지 모달/종료 확인
+  // 모달/종료
   const [pkgOpen, setPkgOpen] = useState(false);
   const [exitAsk, setExitAsk] = useState(false);
   const popHandlerRef = useRef<(e: PopStateEvent) => void>();
@@ -359,8 +360,7 @@ export default function MapMobilePage() {
   /* 뒤로가기 가드 */
   useEffect(() => {
     history.pushState({ guard: true }, "");
-    const onPop = (e: PopStateEvent) => {
-      // 일단 되돌려 놓고 확인 모달
+    const onPop = () => {
       history.pushState({ guard: true }, "");
       setExitAsk(true);
     };
@@ -434,7 +434,7 @@ export default function MapMobilePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 시트 열릴 때/탭 전환 시 레이아웃 보정 + 높이 재계산
+  // 시트 열릴 때/탭 전환 시 높이 재계산
   useEffect(() => {
     const m = mapObjRef.current;
     if ((window as any).kakao?.maps && m) setTimeout(() => m.relayout(), 0);
@@ -445,7 +445,6 @@ export default function MapMobilePage() {
     const winH = window.innerHeight;
     const cartBottom = cartBtnRef.current ? cartBtnRef.current.getBoundingClientRect().bottom : winH * 0.55;
     const phoneTop = phoneBtnRef.current ? phoneBtnRef.current.getBoundingClientRect().top : winH * 0.8;
-    // 두 버튼 사이의 중앙값(여유 8px)
     const safeTop = Math.min(winH - 56, Math.max(0, Math.floor((cartBottom + phoneTop) / 2) + 8));
     const maxH = Math.max(320, winH - safeTop);
     setSheetMaxH(maxH);
@@ -746,7 +745,6 @@ export default function MapMobilePage() {
       baseMonthly: base,
       monthlyFeeY1: selected.monthlyFeeY1 ?? undefined,
     };
-    // 항상 맨 위로
     const rest = cart.filter((c) => c.rowKey !== selected.rowKey);
     const next = [nextItem, ...rest];
     setCart(next);
@@ -800,7 +798,6 @@ export default function MapMobilePage() {
     });
   }, [cart]);
 
-  // 총 비용 = 총광고료 합계
   const totalCost = useMemo(() => computedCart.reduce((sum, c) => sum + (c._total ?? 0), 0), [computedCart]);
 
   /* 카트 → 지도 이동 + 상세 탭 */
@@ -837,24 +834,42 @@ export default function MapMobilePage() {
     [applyStaticSeparationAll],
   );
 
-  /* 드래그 핸들 */
+  /* =======================
+   * 드래그 핸들러(윈도우 리스너)
+   * ======================= */
+  const attachDragListeners = () => {
+    const opts: AddEventListenerOptions = { passive: false };
+    const move = (ev: PointerEvent) => {
+      if (!isDraggingRef.current || dragStartYRef.current == null) return;
+      ev.preventDefault(); // iOS 스크롤 방지
+      const dy = Math.max(0, ev.clientY - dragStartYRef.current);
+      setDragY(dy);
+    };
+    const up = (ev: PointerEvent) => {
+      ev.preventDefault();
+      if (!isDraggingRef.current) return;
+      const dy = Math.max(0, ev.clientY - (dragStartYRef.current ?? ev.clientY));
+      isDraggingRef.current = false;
+      dragStartYRef.current = null;
+      setDragY(0);
+      if (dy > 120) setSheetOpen(false);
+      window.removeEventListener("pointermove", move, opts);
+      window.removeEventListener("pointerup", up, opts);
+      window.removeEventListener("pointercancel", up, opts);
+    };
+    moveHandlerRef.current = move;
+    upHandlerRef.current = up;
+    window.addEventListener("pointermove", move, opts);
+    window.addEventListener("pointerup", up, opts);
+    window.addEventListener("pointercancel", up, opts);
+  };
+
   const onHandlePointerDown = (e: React.PointerEvent) => {
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    isDraggingRef.current = true;
     dragStartYRef.current = e.clientY;
     setDragY(0);
-    isDraggingRef.current = true;
-  };
-  const onHandlePointerMove = (e: React.PointerEvent) => {
-    if (!isDraggingRef.current || dragStartYRef.current == null) return;
-    const dy = Math.max(0, e.clientY - dragStartYRef.current);
-    setDragY(dy);
-  };
-  const onHandlePointerUp = () => {
-    if (!isDraggingRef.current) return;
-    const dy = dragY;
-    isDraggingRef.current = false;
-    setDragY(0);
-    if (dy > 120) setSheetOpen(false);
+    attachDragListeners();
   };
 
   /* 렌더 */
@@ -895,9 +910,8 @@ export default function MapMobilePage() {
             />
           </form>
 
-          {/* 버튼 스택: 돋보기 → 카트 → 전화 (요청 순서) */}
+          {/* 버튼 스택: 돋보기 → 카트 → 전화 */}
           <div className="flex flex-col gap-2 pointer-events-auto">
-            {/* 돋보기(검색) */}
             <button
               onClick={() => runPlaceSearch(searchQ)}
               className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow"
@@ -908,7 +922,6 @@ export default function MapMobilePage() {
                 <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79L20 21.49 21.49 20l-5.99-6zM9.5 14C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
               </svg>
             </button>
-            {/* 카트 */}
             <button
               ref={cartBtnRef}
               onClick={() => {
@@ -928,7 +941,6 @@ export default function MapMobilePage() {
                 </span>
               )}
             </button>
-            {/* 전화 */}
             <a
               ref={phoneBtnRef}
               href="tel:1551-0810"
@@ -947,14 +959,12 @@ export default function MapMobilePage() {
       {/* 바깥 클릭 시 시트 닫기 */}
       {sheetOpen && <div className="fixed inset-0 z-[50] bg-black/0" onClick={() => setSheetOpen(false)} />}
 
-      {/* 하단 시트 (최대 높이 제한 포함) */}
+      {/* 하단 시트 */}
       <MobileBottomSheet
         open={sheetOpen}
         translateY={dragY}
         maxHeightPx={sheetMaxH ?? undefined}
         onHandlePointerDown={onHandlePointerDown}
-        onHandlePointerMove={onHandlePointerMove}
-        onHandlePointerUp={onHandlePointerUp}
       >
         {/* 탭 헤더 */}
         <div className="px-4 mt-1 flex items-center gap-2">
@@ -973,12 +983,13 @@ export default function MapMobilePage() {
             단지 상세
           </button>
         </div>
+
         {/* 경계용 흰 스트립 */}
         <div className="-mx-4 h-3 bg-white" />
 
-        {/* 본문을 상·중·하로 나눔(푸터 고정) */}
+        {/* 본문(상·중·하) */}
         <div className="px-4 pb-0 flex flex-col overflow-hidden min-h-0">
-          {/* 상단 요약/필터 (카트 탭일 때만 노출) */}
+          {/* 상단 요약/필터 (카트 탭에서만) */}
           {activeTab === "cart" && (
             <div className="shrink-0">
               <div className="mb-3 rounded-xl px-4 py-3" style={{ backgroundColor: COLOR_PRIMARY_LIGHT }}>
@@ -1092,19 +1103,16 @@ export default function MapMobilePage() {
 }
 
 /* =========================================================================
- * BottomSheet
+ * BottomSheet (윈도우 리스너 기반 드래그 대응)
  * ========================================================================= */
 function MobileBottomSheet(props: {
   open: boolean;
   translateY: number;
   maxHeightPx?: number;
   onHandlePointerDown: (e: React.PointerEvent) => void;
-  onHandlePointerMove: (e: React.PointerEvent) => void;
-  onHandlePointerUp: (e: React.PointerEvent) => void;
   children: React.ReactNode;
 }) {
-  const { open, translateY, maxHeightPx, onHandlePointerDown, onHandlePointerMove, onHandlePointerUp, children } =
-    props;
+  const { open, translateY, maxHeightPx, onHandlePointerDown, children } = props;
 
   return (
     <div
@@ -1114,6 +1122,7 @@ function MobileBottomSheet(props: {
       style={{
         bottom: 0,
         transform: open ? `translateY(${translateY}px)` : "translateY(110%)",
+        willChange: "transform",
       }}
     >
       <div
@@ -1121,10 +1130,9 @@ function MobileBottomSheet(props: {
         style={{ maxHeight: maxHeightPx ?? undefined }}
       >
         <div
-          className="pt-2 pb-1 cursor-grab touch-none select-none"
+          className="pt-3 pb-2 cursor-grab touch-none select-none"
           onPointerDown={onHandlePointerDown}
-          onPointerMove={onHandlePointerMove}
-          onPointerUp={onHandlePointerUp}
+          // onPointerMove/Up는 윈도우 리스너로 처리
         >
           <div className="mx-auto h-1.5 w-12 rounded-full bg-gray-300" />
         </div>
@@ -1197,10 +1205,7 @@ function CartList(props: {
                   {percent > 0 && (
                     <span
                       className="rounded-full px-2 py-0.5 text-[11px] font-bold"
-                      style={{
-                        backgroundColor: colorPrimaryLight,
-                        color: colorPrimary,
-                      }}
+                      style={{ backgroundColor: colorPrimaryLight, color: colorPrimary }}
                     >
                       {percent}%할인
                     </span>
@@ -1262,7 +1267,7 @@ function DetailTab(props: {
           style={{ borderColor: colorPrimary, backgroundColor: COLOR_PRIMARY_LIGHT }}
         >
           <div className="text-sm text-gray-700">1년 계약 시 월 광고료</div>
-          <div className="text-[20px] font-extrabold" style={{ color: colorPrimary }}>
+          <div className="text:[20px] font-extrabold" style={{ color: colorPrimary }}>
             {fmtWon(y1Monthly)} <span className="text-xs text-gray-500">(VAT별도)</span>
           </div>
         </div>
