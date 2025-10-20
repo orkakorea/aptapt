@@ -493,14 +493,18 @@ export default function MapChrome({
                 <div className="absolute inset-0 grid place-items-center p-6">
                   <div className="w-full max-w-[320px] min-h-[200px] grid place-items-center rounded-2xl bg-[#FAFAFA] text-center">
                     {/* 아이콘 */}
-                    <img
-                      src="/atp.png" // ← public/atp.png 파일을 이렇게 참조
-                      alt="아파트 아이콘"
-                      className="w-16 h-16 mb-3 object-contain"
-                    />
-
+                    <svg width="56" height="56" viewBox="0 0 24 24" className="mb-3" fill="#CDB6FF" aria-hidden>
+                      <path d="M4 20V6a2 2 0 0 1 2-2h5v16H4Z" />
+                      <path d="M21 20V9a2 2 0 0 0-2-2h-8v13h10Z" />
+                      <path
+                        d="M7 9h2M7 12h2M14 12h2M18 12h1M14 15h2M18 15h1"
+                        stroke="#6C2DFF"
+                        strokeWidth="1.2"
+                        strokeLinecap="round"
+                      />
+                    </svg>
                     {/* 문구 */}
-                    <div className="text-sm text-[#6B7280] font-semibold leading-relaxed">
+                    <div className="text-xl text-[#6B7280] font-semibold leading-relaxed">
                       <span className="block">광고를 원하는</span>
                       <span className="block">아파트 단지를 담아주세요!</span>
                     </div>
