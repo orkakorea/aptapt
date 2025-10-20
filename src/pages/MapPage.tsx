@@ -184,6 +184,9 @@ function layoutMarkersSideBySide(map: any, group: KMarker[]) {
 /* =========================================================================
    ⑥ 메인 컴포넌트
    ------------------------------------------------------------------------- */
+// 2탭 버튼 즉시 전환용: SelectedApt 확장
+type SelectedAptX = SelectedApt & { selectedInCart?: boolean };
+
 export default function MapPage() {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const mapObjRef = useRef<any>(null);
@@ -206,7 +209,7 @@ export default function MapPage() {
   // 마지막 클릭 마커(보라@3x 강조용)
   const lastClickedRef = useRef<KMarker | null>(null);
 
-  const [selected, setSelected] = useState<SelectedApt | null>(null);
+  const [selected, setSelected] = useState<SelectedAptX | null>(null);
   const [initialQ, setInitialQ] = useState("");
   const [kakaoError, setKakaoError] = useState<string | null>(null);
 
@@ -365,6 +368,51 @@ export default function MapPage() {
       }, 0);
   }, [selected, applyStaticSeparationAll]);
 
+  /* ------------------ Cart 선택 상태 도우미 ------------------ */
+  const isRowKeySelected = useCallback((rowKey?: string | null) => {
+    if (!rowKey) return false;
+    return selectedRowKeySetRef.current.has(rowKey);
+  }, []);
+
+  const addToCartByRowKey = useCallback(
+    (rowKey: string) => {
+      if (!rowKey) return;
+      selectedRowKeySetRef.current.add(rowKey);
+      setMarkerStateByRowKey(rowKey, "selected", true);
+      // 2탭 선택 객체 즉시 업데이트 → 버튼이 곧바로 "담기취소"(회색)로 보이도록
+      setSelected((prev) => (prev && prev.rowKey === rowKey ? { ...prev, selectedInCart: true } : prev));
+      applyGroupPrioritiesForRowKey(rowKey);
+      applyStaticSeparationAll();
+      window.dispatchEvent(new CustomEvent("orka:cart:changed", { detail: { rowKey, selected: true } }));
+    },
+    [applyGroupPrioritiesForRowKey, applyStaticSeparationAll, setMarkerStateByRowKey],
+  );
+
+  const removeFromCartByRowKey = useCallback(
+    (rowKey: string) => {
+      if (!rowKey) return;
+      selectedRowKeySetRef.current.delete(rowKey);
+      setMarkerStateByRowKey(rowKey, "default");
+      setSelected((prev) => (prev && prev.rowKey === rowKey ? { ...prev, selectedInCart: false } : prev));
+      applyGroupPrioritiesForRowKey(rowKey);
+      applyStaticSeparationAll();
+      window.dispatchEvent(new CustomEvent("orka:cart:changed", { detail: { rowKey, selected: false } }));
+    },
+    [applyGroupPrioritiesForRowKey, applyStaticSeparationAll, setMarkerStateByRowKey],
+  );
+
+  const toggleCartByRowKey = useCallback(
+    (rowKey: string) => {
+      if (!rowKey) return;
+      if (selectedRowKeySetRef.current.has(rowKey)) {
+        removeFromCartByRowKey(rowKey);
+      } else {
+        addToCartByRowKey(rowKey);
+      }
+    },
+    [addToCartByRowKey, removeFromCartByRowKey],
+  );
+
   /* ------------------ MapChrome → 행(rowKey) 단위 색 전환 ------------------ */
   const setMarkerStateByRowKey = useCallback(
     (rowKey: string, state: "default" | "selected", forceYellowNow = false) => {
@@ -388,6 +436,11 @@ export default function MapPage() {
             mk.setImage(imgs.purple);
           }
         });
+
+        // 현재 2탭이 같은 rowKey를 보고 있다면 버튼표시 즉시 반영
+        setSelected((prev) =>
+          prev && prev.rowKey === rowKey ? { ...prev, selectedInCart: state === "selected" } : prev,
+        );
 
         applyGroupPrioritiesForRowKey(rowKey);
         applyStaticSeparationAll();
@@ -508,7 +561,7 @@ export default function MapPage() {
           const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
           const imageUrl = getField(row, ["imageUrl", "이미지", "썸네일", "thumbnail"]) || undefined;
 
-          const sel: SelectedApt = {
+          const sel: SelectedAptX = {
             rowKey,
             rowId: row.id != null ? String(row.id) : undefined,
             name,
@@ -526,6 +579,8 @@ export default function MapPage() {
             imageUrl,
             lat,
             lng,
+            // 2탭 버튼 토글 즉시 반영용
+            selectedInCart: selectedRowKeySetRef.current.has(rowKey),
           };
           setSelected(sel);
 
@@ -669,7 +724,7 @@ export default function MapPage() {
           const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
           const imageUrl = getField(row, ["imageUrl", "이미지", "썸네일", "thumbnail"]) || undefined;
 
-          const sel: SelectedApt = {
+          const sel: SelectedAptX = {
             rowKey,
             rowId: row.id != null ? String(row.id) : undefined,
             name,
@@ -687,6 +742,7 @@ export default function MapPage() {
             imageUrl,
             lat,
             lng,
+            selectedInCart: selectedRowKeySetRef.current.has(rowKey),
           };
           setSelected(sel);
 
@@ -907,7 +963,17 @@ export default function MapPage() {
   const MapChromeAny = MapChrome as any;
 
   return (
-    <div className="w-screen h-[100dvh] bg-white">
+    <div
+      className="w-screen h-[100dvh] bg-white"
+      // 1탭 카트 고정 범위(‘총 n건 + 광고기간 일괄적용’까지) 힌트 전달용 data-attr
+      data-cart-sticky-until="bulkMonthsApply"
+      style={
+        {
+          // 상단 고정 높이 마진(헤더 64px 가정). MapChrome이 사용해도 되고 무시해도 됨.
+          ["--cart-sticky-top" as any]: "64px",
+        } as React.CSSProperties
+      }
+    >
       <div ref={mapRef} className={`fixed top-16 left-0 right-0 bottom-0 z-[10] ${mapLeftClass}`} aria-label="map" />
       <MapChromeAny
         selected={selected}
@@ -915,6 +981,13 @@ export default function MapPage() {
         onSearch={handleSearch}
         initialQuery={initialQ}
         setMarkerStateByRowKey={setMarkerStateByRowKey}
+        /* ====== 신규: 2탭 버튼 즉시 전환 & 1탭 고정영역 제어용 ====== */
+        isRowKeySelected={isRowKeySelected}
+        addToCartByRowKey={addToCartByRowKey}
+        removeFromCartByRowKey={removeFromCartByRowKey}
+        toggleCartByRowKey={toggleCartByRowKey}
+        cartStickyTopPx={64} // 상단 고정 시작점
+        cartStickyUntil="bulkMonthsApply" // '총 n건 + 광고기간 일괄적용' 행까지 고정
       />
       {kakaoError && (
         <div className="fixed bottom-4 right-4 z-[100] rounded-lg bg-red-600 text-white px-3 py-2 text-sm shadow">
