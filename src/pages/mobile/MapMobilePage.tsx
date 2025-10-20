@@ -977,7 +977,7 @@ export default function MapMobilePage() {
         <div className="-mx-4 h-3 bg-white" />
 
         {/* 본문을 상·중·하로 나눔(푸터 고정) */}
-        <div className="px-4 pb-0 flex flex-col overflow-hidden">
+        <div className="px-4 pb-0 flex flex-col overflow-hidden min-h-0">
           {/* 상단 요약/필터 (카트 탭일 때만 노출) */}
           {activeTab === "cart" && (
             <div className="shrink-0">
@@ -1004,7 +1004,10 @@ export default function MapMobilePage() {
           )}
 
           {/* 스크롤 영역 */}
-          <div className="flex-1 overflow-y-auto pt-2 pb-6">
+          <div
+            className="flex-1 min-h-0 overflow-y-auto pt-2 pb-6 overscroll-contain"
+            style={{ WebkitOverflowScrolling: "touch" }}
+          >
             {activeTab === "cart" ? (
               <CartList
                 colorPrimary={COLOR_PRIMARY}
