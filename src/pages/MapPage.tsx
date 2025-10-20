@@ -368,7 +368,42 @@ export default function MapPage() {
       }, 0);
   }, [selected, applyStaticSeparationAll]);
 
-  /* ------------------ Cart 선택 상태 도우미 ------------------ */
+  /* ------------------ 먼저 선언: MapChrome → 행(rowKey) 단위 색 전환 ------------------ */
+  const setMarkerStateByRowKey = useCallback(
+    (rowKey: string, state: "default" | "selected", forceYellowNow = false) => {
+      if (!rowKey) return;
+      const maps = (window as KakaoNS).kakao?.maps;
+      if (!maps) return;
+      const imgs = markerImages(maps);
+
+      if (state === "selected") selectedRowKeySetRef.current.add(rowKey);
+      else selectedRowKeySetRef.current.delete(rowKey);
+
+      const list = keyIndexRef.current[rowKey];
+      if (list?.length) {
+        list.forEach((mk) => {
+          const shouldBeYellow = state === "selected" || selectedRowKeySetRef.current.has(rowKey);
+          if (forceYellowNow || shouldBeYellow) {
+            mk.setImage(imgs.yellow);
+            if (lastClickedRef.current === mk) lastClickedRef.current = null;
+          } else {
+            mk.setImage(imgs.purple);
+          }
+        });
+
+        // 현재 2탭이 같은 rowKey를 보고 있다면 버튼표시 즉시 반영
+        setSelected((prev) =>
+          prev && prev.rowKey === rowKey ? { ...prev, selectedInCart: state === "selected" } : prev,
+        );
+
+        applyGroupPrioritiesForRowKey(rowKey);
+        applyStaticSeparationAll();
+      }
+    },
+    [applyGroupPrioritiesForRowKey, applyStaticSeparationAll],
+  );
+
+  /* ------------------ Cart 선택 상태/토글 (setMarkerStateByRowKey 이후 의존) ------------------ */
   const isRowKeySelected = useCallback((rowKey?: string | null) => {
     if (!rowKey) return false;
     return selectedRowKeySetRef.current.has(rowKey);
@@ -411,42 +446,6 @@ export default function MapPage() {
       }
     },
     [addToCartByRowKey, removeFromCartByRowKey],
-  );
-
-  /* ------------------ MapChrome → 행(rowKey) 단위 색 전환 ------------------ */
-  const setMarkerStateByRowKey = useCallback(
-    (rowKey: string, state: "default" | "selected", forceYellowNow = false) => {
-      if (!rowKey) return;
-      const maps = (window as KakaoNS).kakao?.maps;
-      if (!maps) return;
-      const imgs = markerImages(maps);
-
-      if (state === "selected") selectedRowKeySetRef.current.add(rowKey);
-      else selectedRowKeySetRef.current.delete(rowKey);
-
-      const list = keyIndexRef.current[rowKey];
-      if (list?.length) {
-        list.forEach((mk) => {
-          const shouldBeYellow = state === "selected" || selectedRowKeySetRef.current.has(rowKey);
-
-          if (forceYellowNow || shouldBeYellow) {
-            mk.setImage(imgs.yellow);
-            if (lastClickedRef.current === mk) lastClickedRef.current = null;
-          } else {
-            mk.setImage(imgs.purple);
-          }
-        });
-
-        // 현재 2탭이 같은 rowKey를 보고 있다면 버튼표시 즉시 반영
-        setSelected((prev) =>
-          prev && prev.rowKey === rowKey ? { ...prev, selectedInCart: state === "selected" } : prev,
-        );
-
-        applyGroupPrioritiesForRowKey(rowKey);
-        applyStaticSeparationAll();
-      }
-    },
-    [applyGroupPrioritiesForRowKey, applyStaticSeparationAll],
   );
 
   /* ------------------ 바운드 내 마커 로드 ------------------ */
@@ -980,8 +979,8 @@ export default function MapPage() {
         onCloseSelected={closeSelected}
         onSearch={handleSearch}
         initialQuery={initialQ}
+        /* ====== 아래 prop들이 렌더 시점에 이미 선언되어 있어야 함 ====== */
         setMarkerStateByRowKey={setMarkerStateByRowKey}
-        /* ====== 신규: 2탭 버튼 즉시 전환 & 1탭 고정영역 제어용 ====== */
         isRowKeySelected={isRowKeySelected}
         addToCartByRowKey={addToCartByRowKey}
         removeFromCartByRowKey={removeFromCartByRowKey}
