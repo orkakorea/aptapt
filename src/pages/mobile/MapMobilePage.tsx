@@ -1114,9 +1114,10 @@ function MobileBottomSheet(props: {
       }}
     >
       <div
-        className="mx-auto w-full max-w-[560px] rounded-t-2xl bg-white shadow-[0_-10px_30px_rgba(0,0,0,0.12)] overflow-hidden"
-        style={{ maxHeight: maxHeightPx ?? undefined }}
-      >
+  className="mx-auto w-full max-w-[560px] rounded-t-2xl bg-white shadow-[0_-10px_30px_rgba(0,0,0,0.12)] overflow-hidden flex flex-col min-h-0"
+  style={{ maxHeight: maxHeightPx ?? undefined }}
+>
+
         <div
           className="pt-2 pb-1 cursor-grab touch-none select-none"
           onPointerDown={onHandlePointerDown}
@@ -1124,9 +1125,9 @@ function MobileBottomSheet(props: {
           onPointerUp={onHandlePointerUp}
         >
           <div className="mx-auto h-1.5 w-12 rounded-full bg-gray-300" />
-        </div>
-        {children}
-      </div>
+        <div className="flex-1 min-h-0 overflow-hidden">
+  {children}
+</div>
     </div>
   );
 }
