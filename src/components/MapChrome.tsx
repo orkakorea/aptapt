@@ -1,27 +1,26 @@
 import React, { useEffect, useMemo, useState } from "react";
-import QuoteModal, { QuoteLineItem } from "./QuoteModal"; // ✅ 모달 import
-import InquiryModal from "./InquiryModal"; // ✅ InquiryModal import
-import { supabase } from "@/integrations/supabase/client"; // ✅ Supabase import
+import QuoteModal, { QuoteLineItem } from "./QuoteModal";
+import InquiryModal from "./InquiryModal";
+import { supabase } from "@/integrations/supabase/client";
 import LoginModal from "@/components/LoginModal";
 
 /** ====== 타입 ====== */
-// ✅ rowKey/rowId 추가: MapPage가 넘겨준 "행 구분 키"로 마커 색을 정확히 토글
 export type SelectedApt = {
-  rowKey?: string; // ★ 행 고유 키 (id 우선, 없으면 좌표+상품명+설치위치)
-  rowId?: string; // (옵션) DB id 문자열
-  name: string; // 단지명
-  address?: string; // 주소
-  productName?: string; // 상품명
-  installLocation?: string; // 설치 위치
-  monitors?: number; // 모니터 수량
-  monthlyImpressions?: number; // 월 송출횟수
-  costPerPlay?: number; // 송출 1회당 비용
-  hours?: string; // 운영 시간
-  households?: number; // 세대수
-  residents?: number; // 거주인원
-  monthlyFee?: number; // 기본 월 광고료 (할인 전)
-  monthlyFeeY1?: number; // 1년 계약 시 월 광고료(DB가 있으면 우선)
-  imageUrl?: string; // DB 썸네일
+  rowKey?: string;
+  rowId?: string;
+  name: string;
+  address?: string;
+  productName?: string;
+  installLocation?: string;
+  monitors?: number;
+  monthlyImpressions?: number;
+  costPerPlay?: number;
+  hours?: string;
+  households?: number;
+  residents?: number;
+  monthlyFee?: number;
+  monthlyFeeY1?: number;
+  imageUrl?: string;
   lat: number;
   lng: number;
 };
@@ -31,9 +30,11 @@ type Props = {
   onCloseSelected?: () => void;
   onSearch?: (query: string) => void;
   initialQuery?: string;
-  // 🔽 구 버전(이름 기준)과의 호환을 위해 유지하되 사용 안 함
+
+  // (구버전 호환)
   setMarkerState?: (name: string, state: "default" | "selected") => void;
-  // 🔽 새 버전: 행(rowKey) 단위로 마커 상태 토글 (즉시 노란색 강제 전환 옵션 추가)
+
+  // (신버전) 행(rowKey) 단위로 마커 상태 토글
   setMarkerStateByRowKey?: (rowKey: string, state: "default" | "selected", forceYellowNow?: boolean) => void;
 };
 
@@ -43,9 +44,8 @@ const FALLBACK_ASSET_BASE = (import.meta as any).env?.VITE_ASSET_BASE_FALLBACK |
 const PLACEHOLDER = "/placeholder.svg";
 
 const norm = (s?: string) => (s ? s.replace(/\s+/g, "").toLowerCase() : "");
-const keyName = (s: string) => s.trim().replace(/\s+/g, "").toLowerCase(); // ✅ statsMap 키 통일
+const keyName = (s: string) => s.trim().replace(/\s+/g, "").toLowerCase();
 
-/** 상품/설치위치 → 썸네일 파일명 매핑 */
 function resolveProductFile(productName?: string, installLocation?: string): string | undefined {
   const pn = norm(productName);
   const loc = norm(installLocation);
@@ -129,7 +129,6 @@ function findRate(rules: RangeRule[] | undefined, months: number): number {
   return rules.find((r) => months >= r.min && months <= r.max)?.rate ?? 0;
 }
 
-/** 할인 정책용 제품 키 분류 */
 function classifyProductForPolicy(productName?: string, installLocation?: string): keyof DiscountPolicy | undefined {
   const pn = norm(productName);
   const loc = norm(installLocation);
@@ -166,15 +165,14 @@ function classifyProductForPolicy(productName?: string, installLocation?: string
 }
 
 /** ====== Cart(작은박스) 타입 ====== */
-// ✅ rowKey 보관: 제거 시 정확히 그 행만 보라색 복귀
 type CartItem = {
   id: string; // name + product 조합 (UI용)
-  rowKey?: string; // ★ MapPage의 rowKey (정확한 마커 토글용)
+  rowKey?: string; // 지도 마커 토글용
   name: string;
   productKey?: keyof DiscountPolicy;
   productName?: string;
-  baseMonthly?: number; // 기본 월 광고료(할인 전)
-  months: number; // 선택 개월
+  baseMonthly?: number;
+  months: number;
 };
 
 /** ✅ Supabase 통계 캐시 타입 */
@@ -191,8 +189,8 @@ export default function MapChrome({
   onCloseSelected,
   onSearch,
   initialQuery,
-  setMarkerState, // (하위호환)
-  setMarkerStateByRowKey, // ★ 새 버전
+  setMarkerState,
+  setMarkerStateByRowKey,
 }: Props) {
   /** 검색어 */
   const [query, setQuery] = useState(initialQuery || "");
@@ -200,18 +198,14 @@ export default function MapChrome({
 
   /** 카트 */
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [applyAll, setApplyAll] = useState(true); // 광고기간 일괄적용 체크 (기본 ON)
+  const [applyAll, setApplyAll] = useState(true);
 
-  /** ✅ 견적 모달 on/off 상태 */
+  /** 모달 */
   const [openQuote, setOpenQuote] = useState(false);
-
-  /** ✅ 구좌(T.O) 문의 모달 on/off 상태 */
   const [openSeatInquiry, setOpenSeatInquiry] = useState(false);
-
-  /** ✅ 패키지 문의 모달 on/off 상태 */
   const [openPackageInquiry, setOpenPackageInquiry] = useState(false);
 
-  /** ✅ Supabase에서 받은 단지 통계 캐시 (key: 단지명 정규화) */
+  /** Supabase 통계 캐시 */
   const [statsMap, setStatsMap] = useState<Record<string, AptStats>>({});
 
   /** 포맷터 */
@@ -219,15 +213,14 @@ export default function MapChrome({
     typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() + (unit ? " " + unit : "") : "—";
   const fmtWon = (n?: number) => (typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() : "—");
 
-  /** 2탭 썸네일 계산 & 폴백 */
+  /** 2탭 썸네일 */
   const matchedFile = resolveProductFile(selected?.productName, selected?.installLocation);
   const initialThumb = selected?.imageUrl || (matchedFile ? PRIMARY_ASSET_BASE + matchedFile : PLACEHOLDER);
 
-  /** 2탭 1년 계약 월가 (DB 없을 시 정책으로 계산) */
+  /** 2탭 1년 계약 월가 (DB 없으면 정책 계산) */
   const computedY1 = useMemo(() => {
-    if (typeof selected?.monthlyFeeY1 === "number" && Number.isFinite(selected.monthlyFeeY1)) {
+    if (typeof selected?.monthlyFeeY1 === "number" && Number.isFinite(selected.monthlyFeeY1))
       return selected.monthlyFeeY1;
-    }
     const base = selected?.monthlyFee;
     const key = classifyProductForPolicy(selected?.productName, selected?.installLocation);
     if (!base || !key) return undefined;
@@ -236,15 +229,14 @@ export default function MapChrome({
     return Math.round(base * (1 - preRate) * (1 - periodRate));
   }, [selected]);
 
-  /** 카트 총합(총광고료) */
+  /** 카트 총합 */
   const cartTotal = useMemo(() => {
     return cart.reduce((sum, item) => {
       const rule = item.productKey ? DEFAULT_POLICY[item.productKey] : undefined;
       const periodRate = findRate(rule?.period, item.months);
       const preRate = item.productKey === "ELEVATOR TV" ? findRate(rule?.precomp, item.months) : 0;
       const monthlyAfter = Math.round((item.baseMonthly ?? 0) * (1 - preRate) * (1 - periodRate));
-      const total = monthlyAfter * item.months;
-      return sum + total;
+      return sum + monthlyAfter * item.months;
     }, 0);
   }, [cart]);
 
@@ -255,7 +247,7 @@ export default function MapChrome({
     onSearch?.(q);
   };
 
-  /** ✅ Supabase 조회 함수 (raw_places 한글 컬럼명 사용) */
+  /** Supabase 조회 */
   async function fetchStatsByNames(names: string[]) {
     const uniq = Array.from(new Set(names.filter(Boolean)));
     if (!uniq.length) return;
@@ -285,27 +277,28 @@ export default function MapChrome({
     setStatsMap((prev) => ({ ...prev, ...map }));
   }
 
-  /** 2탭 → 카트 담기 */
+  /** ===== 담기/삭제 유틸 ===== */
+  const makeIdFromSelected = (s: SelectedApt) => {
+    const nk = (v?: string) => (v ? v.replace(/\s+/g, "").toLowerCase() : "");
+    const nameKey = nk(s.name || s.address || "");
+    const prodKey = nk(s.productName || "");
+    return [nameKey, prodKey].join("||");
+  };
+
   const addSelectedToCart = () => {
     if (!selected) return;
-
-    // ID 안정화(공백 제거/소문자) - UI 식별용
-    const normKey = (v?: string) => (v ? v.replace(/\s+/g, "").toLowerCase() : "");
-    const nameKey = normKey(selected.name || selected.address || "");
-    const prodKey = normKey(selected.productName || "");
-    const id = [nameKey, prodKey].join("||");
-
+    const id = makeIdFromSelected(selected);
     const productKey = classifyProductForPolicy(selected.productName, selected.installLocation);
 
     setCart((prev) => {
       const exists = prev.find((x) => x.id === id);
       if (exists) {
-        // ✅ 이미 있는 항목은 months를 보존하고 나머지만 최신화 + rowKey 갱신
+        // 이미 있음: months 유지, 나머지 최신화
         return prev.map((x) =>
           x.id === id
             ? {
                 ...x,
-                rowKey: selected.rowKey ?? x.rowKey, // ★ rowKey 유지/갱신
+                rowKey: selected.rowKey ?? x.rowKey,
                 name: selected.name,
                 productKey,
                 productName: selected.productName,
@@ -315,24 +308,20 @@ export default function MapChrome({
         );
       }
 
-      // ✅ 신규 추가: "추가 직전의 첫 항목(prev[0])"의 months를 상속 (없으면 1개월)
       const defaultMonths = prev.length > 0 ? prev[0].months : 1;
-
       const newItem: CartItem = {
         id,
-        rowKey: selected.rowKey, // ★ 행 기준으로 마커 토글을 위해 저장
+        rowKey: selected.rowKey,
         name: selected.name,
         productKey,
         productName: selected.productName,
         baseMonthly: selected.monthlyFee,
         months: defaultMonths,
       };
-
-      // ✅ 상단으로 삽입
       return [newItem, ...prev];
     });
 
-    // ✅ (추가) 담자마자 selected에 있던 숫자를 캐시에 프라임
+    // 통계 캐시 프라임 + 최신값 덮어쓰기
     if (selected?.name) {
       const k = keyName(selected.name);
       setStatsMap((prev) => ({
@@ -344,26 +333,12 @@ export default function MapChrome({
           monitors: selected.monitors ?? prev[k]?.monitors,
         },
       }));
-      // ✅ Supabase 최신값으로 덮어쓰기
       fetchStatsByNames([selected.name]);
     }
 
-    // ✅ 새 방식: 정확히 "그 행(rowKey)"만 즉시 노란색으로 (보라@3x 상태여도 강제 변환)
-    if (selected.rowKey) {
-      setMarkerStateByRowKey?.(selected.rowKey, "selected", true);
-    } else if (selected.name) {
-      // (폴백) 구 방식 — 가능하면 rowKey 사용
-      setMarkerState?.(selected.name, "selected");
-    }
-  };
-
-  /** 카트 조작 */
-  const updateMonths = (id: string, months: number) => {
-    if (applyAll) {
-      setCart((prev) => prev.map((x) => ({ ...x, months })));
-    } else {
-      setCart((prev) => prev.map((x) => (x.id === id ? { ...x, months } : x)));
-    }
+    // 지도 마커 즉시 노란색
+    if (selected.rowKey) setMarkerStateByRowKey?.(selected.rowKey, "selected", true);
+    else setMarkerState?.(selected.name, "selected");
   };
 
   const removeItem = (id: string) => {
@@ -371,32 +346,47 @@ export default function MapChrome({
       const removed = prev.find((x) => x.id === id);
       const next = prev.filter((x) => x.id !== id);
 
-      // ✅ 지도 마커 복귀: 같은 rowKey가 더 이상 카트에 없으면 보라색
-      if (removed?.rowKey) {
-        const stillExists = next.some((x) => x.rowKey === removed.rowKey);
-        if (!stillExists) {
-          setMarkerStateByRowKey?.(removed.rowKey, "default");
-        }
-      } else if (removed?.name) {
-        // (폴백) 구 방식 – 이름 기준 (가능하면 rowKey 사용)
-        const stillExists = next.some((x) => x.name === removed.name);
-        if (!stillExists) {
-          setMarkerState?.(removed.name, "default");
-        }
+      // 같은 rowKey가 더 이상 카트에 없으면 보라 복귀
+      if (removed?.rowKey && !next.some((x) => x.rowKey === removed.rowKey)) {
+        setMarkerStateByRowKey?.(removed.rowKey, "default");
+      } else if (removed?.name && !next.some((x) => x.name === removed.name)) {
+        setMarkerState?.(removed.name, "default");
       }
-
       return next;
     });
   };
 
-  /** ✅ 모달 열릴 때 카트 단지명으로 통계 일괄 동기화 */
-  useEffect(() => {
-    if (openQuote && cart.length > 0) {
-      fetchStatsByNames(cart.map((c) => c.name));
+  const updateMonths = (id: string, months: number) => {
+    if (applyAll) setCart((prev) => prev.map((x) => ({ ...x, months })));
+    else setCart((prev) => prev.map((x) => (x.id === id ? { ...x, months } : x)));
+  };
+
+  /** 2탭 버튼 상태/동작: 즉시 "담기취소"로 토글 */
+  const inCart =
+    !!selected && cart.some((c) => c.id === makeIdFromSelected(selected)) // 같은 항목이 카트에 있나?
+      ? true
+      : false;
+
+  const onClickAddOrCancel = () => {
+    if (!selected) return;
+    const id = makeIdFromSelected(selected);
+    if (inCart) {
+      // 담기취소: 카트에서 제거 + 마커 복귀
+      removeItem(id);
+      if (selected.rowKey) setMarkerStateByRowKey?.(selected.rowKey, "default");
+      else setMarkerState?.(selected.name, "default");
+    } else {
+      // 담기: 즉시 회색 버튼으로 전환되도록 setState 선반영
+      addSelectedToCart();
     }
+  };
+
+  /** 견적 모달 열릴 때 통계 동기화 */
+  useEffect(() => {
+    if (openQuote && cart.length > 0) fetchStatsByNames(cart.map((c) => c.name));
   }, [openQuote, cart]);
 
-  /** ✅ 견적서 모달로 넘길 데이터 빌드 */
+  /** 견적 데이터 */
   function yyyy_mm_dd(d: Date) {
     const y = d.getFullYear();
     const m = `${d.getMonth() + 1}`.padStart(2, "0");
@@ -411,7 +401,7 @@ export default function MapChrome({
   const buildQuoteItems = (): QuoteLineItem[] => {
     const today = new Date();
     return cart.map((c) => {
-      const s = statsMap[keyName(c.name)]; // ✅ 통일 키로 조회
+      const s = statsMap[keyName(c.name)];
       return {
         id: c.id,
         name: c.name,
@@ -421,8 +411,6 @@ export default function MapChrome({
         mediaName: c.productName,
         baseMonthly: c.baseMonthly,
         productKeyHint: c.productKey,
-
-        // ✅ Supabase 수치 전달 (없으면 undefined → 모달에서 '—')
         households: s?.households,
         residents: s?.residents,
         monthlyImpressions: s?.monthlyImpressions,
@@ -435,8 +423,6 @@ export default function MapChrome({
     const first = cart[0];
     const aptName = selected?.name ?? first?.name ?? null;
     const prodName = selected?.productName ?? first?.productName ?? null;
-
-    // (선택) 광고기간 표시는 최댓값 쓰려면 이렇게:
     const monthsMax = cart.length ? Math.max(...cart.map((c) => c.months ?? 0)) : null;
 
     return {
@@ -447,22 +433,23 @@ export default function MapChrome({
       cart_snapshot: cart.length
         ? {
             items: cart,
-            months: monthsMax, // 또는 first?.months (원래대로)
-            cartTotal: cartTotal, // ✅ 헤더 총 비용 그대로 전달 (핵심!)
+            months: monthsMax,
+            cartTotal: cartTotal,
           }
         : undefined,
     };
   };
+
+  /** ===== 레이아웃 상수(PC) ===== */
+  const LEFT_W = 360;
+  const RIGHT_W = 360;
 
   return (
     <>
       {/* ===== 상단 바 ===== */}
       <div className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-[#E5E7EB] z-[60]">
         <div className="h-full flex items-center justify-between px-6">
-          {/* 좌측 타이틀 */}
           <div className="text-xl font-bold text.black">응답하라 입주민이여</div>
-
-          {/* 우측: 로그인 버튼(모달) */}
           <LoginModal />
         </div>
       </div>
@@ -501,7 +488,6 @@ export default function MapChrome({
               className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex h-8 w-8 items-center justify-center rounded-md bg-[#6C2DFF]"
               aria-label="검색"
             >
-              {/* 선(Stroke) 아이콘 */}
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
                 <circle cx="11" cy="11" r="7" stroke="white" strokeWidth="2" />
                 <path d="M20 20L17 17" stroke="white" strokeWidth="2" strokeLinecap="round" />
@@ -509,7 +495,7 @@ export default function MapChrome({
             </button>
           </div>
 
-          {/* 구좌(T.O) 문의하기 — 카트 없으면 비활성(이미지처럼) */}
+          {/* 구좌(T.O) 문의하기 */}
           <button
             disabled={cart.length === 0}
             onClick={() => cart.length > 0 && setOpenSeatInquiry(true)}
@@ -530,27 +516,33 @@ export default function MapChrome({
             </div>
           </div>
 
-          {/* CartBox 본문: 스크롤 컨테이너 + sticky 하단 버튼 */}
+          {/* CartBox 본문 */}
           <div className="rounded-2xl border border-[#E5E7EB] bg-white flex-1 min-h-0 overflow-hidden">
             {cart.length === 0 ? (
-              <div className="h-full flex items.center justify.center text-sm text-[#6B7280]">
-                광고를 원하는 아파트단지를 담아주세요!
+              /* ✅ 네모 상자 정중앙 안내 */
+              <div className="relative h-full">
+                <div className="absolute inset-0 grid place-items-center p-6">
+                  <div className="w-full max-w-[320px] min-h-[160px] grid place-items-center rounded-2xl border-2 border-dashed border-gray-300 bg-[#FAFAFA] text-gray-600 text-center px-4">
+                    광고를 원하는 아파트 단지를 담아주세요
+                  </div>
+                </div>
               </div>
             ) : (
-              /* 이 div가 스크롤 컨테이너 — 내부의 sticky 버튼이 하단에 고정됨 */
               <div className="h-full overflow-y-auto">
-                {/* 카운터 + 일괄적용 */}
-                <div className="px-5 pt-5 pb-2 flex items-center justify-between text-xs text-[#757575]">
-                  <span>총 {cart.length}건</span>
-                  <label className="flex items-center gap-1 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={applyAll}
-                      onChange={(e) => setApplyAll(e.target.checked)}
-                      className="accent-[#6C2DFF]"
-                    />
-                    <span className={applyAll ? "text-[#6C2DFF] font-medium" : ""}>광고기간 일괄적용</span>
-                  </label>
+                {/* ✅ sticky: 총 n건 + 광고기간 일괄적용 */}
+                <div className="sticky top-0 z-10 bg-white/95 backdrop-blur px-5 pt-5 pb-2 border-b border-[#F3F4F6]">
+                  <div className="flex items-center justify-between text-xs text-[#757575]">
+                    <span>총 {cart.length}건</span>
+                    <label className="flex items-center gap-1 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={applyAll}
+                        onChange={(e) => setApplyAll(e.target.checked)}
+                        className="accent-[#6C2DFF]"
+                      />
+                      <span className={applyAll ? "text-[#6C2DFF] font-medium" : ""}>광고기간 일괄적용</span>
+                    </label>
+                  </div>
                 </div>
 
                 {/* 리스트 */}
@@ -560,12 +552,12 @@ export default function MapChrome({
                   ))}
                 </div>
 
-                {/* sticky 하단 버튼 (스크롤 컨테이너 기준) */}
+                {/* sticky 하단 버튼 */}
                 <div className="sticky bottom-0 bg-white/95 backdrop-blur px-5 pt-3 pb-5 border-t border-[#F3F4F6]">
                   <button
                     type="button"
                     className="h-11 w-full rounded-xl border border-[#6C2DFF] text-[#6C2DFF] font-semibold hover:bg-[#F4F0FB]"
-                    onClick={() => setOpenQuote(true)} // ✅ 모달 열기
+                    onClick={() => setOpenQuote(true)}
                   >
                     상품견적 자세히보기
                   </button>
@@ -576,7 +568,7 @@ export default function MapChrome({
         </div>
       </aside>
 
-      {/* ===== 2탭(오른쪽 상세 패널) — 기존과 동일 ===== */}
+      {/* ===== 2탭(오른쪽 상세 패널) ===== */}
       {selected && (
         <aside
           className="hidden md:block fixed top-16 left-[360px] z-[60] w-[360px] pointer-events-none"
@@ -613,7 +605,7 @@ export default function MapChrome({
                 </div>
               </div>
 
-              {/* 타이틀 + 메타 + 닫기 */}
+              {/* 타이틀 + 닫기 */}
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <div className="text-xl font-bold text-black whitespace-pre-wrap break-words">{selected.name}</div>
@@ -649,12 +641,14 @@ export default function MapChrome({
                 </span>
               </div>
 
-              {/* 담기 버튼 */}
+              {/* ✅ 담기 버튼 즉시 토글 */}
               <button
-                className="mt-1 h-12 w-full rounded-xl bg-[#6C2DFF] text-white font-semibold"
-                onClick={addSelectedToCart}
+                className={`mt-1 h-12 w-full rounded-xl font-semibold transition-colors ${
+                  inCart ? "bg-[#E5E7EB] text-[#6B7280]" : "bg-[#6C2DFF] text-white"
+                }`}
+                onClick={onClickAddOrCancel}
               >
-                아파트 담기
+                {inCart ? "담기취소" : "아파트 담기"}
               </button>
 
               {/* 상세정보 */}
@@ -685,33 +679,29 @@ export default function MapChrome({
         </aside>
       )}
 
-      {/* ✅ 견적서 모달 (Fragment 끝나기 직전 위치) */}
+      {/* 모달 */}
       <QuoteModal
         open={openQuote}
         items={buildQuoteItems()}
         onClose={() => setOpenQuote(false)}
         onSubmitInquiry={({ items, subtotal, vat, total }) => {
           console.log("[T.O 문의]", { count: items.length, subtotal, vat, total });
-          setOpenQuote(false); // 견적 모달 닫고
-          setTimeout(() => setOpenSeatInquiry(true), 0); // 구좌문의 모달 열기
+          setOpenQuote(false);
+          setTimeout(() => setOpenSeatInquiry(true), 0);
         }}
       />
-
-      {/* ✅ 구좌(T.O) 문의 모달 */}
       <InquiryModal
         open={openSeatInquiry}
         mode="SEAT"
         prefill={buildSeatPrefill()}
         onClose={() => setOpenSeatInquiry(false)}
       />
-
-      {/* ✅ 패키지 문의 모달 */}
       <InquiryModal open={openPackageInquiry} mode="PACKAGE" onClose={() => setOpenPackageInquiry(false)} />
     </>
   );
 }
 
-/** ===== 공용 Row(상세정보) ===== */
+/** ===== 공용 Row ===== */
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-start justify-between py-3 border-b border-[#F4F0F6] last:border-b-0">
@@ -721,7 +711,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-/** ===== CartItem 카드(작은박스) ===== */
+/** ===== CartItem 카드 ===== */
 type CartItemCardProps = {
   item: CartItem;
   onChangeMonths: (id: string, months: number) => void;
@@ -732,15 +722,12 @@ function CartItemCard({ item, onChangeMonths, onRemove }: CartItemCardProps) {
   const periodRate = findRate(rule?.period, item.months);
   const preRate = item.productKey === "ELEVATOR TV" ? findRate(rule?.precomp, item.months) : 0;
 
-  // 월가 반올림 → 총광고료 계산
   const monthlyAfter = Math.round((item.baseMonthly ?? 0) * (1 - preRate) * (1 - periodRate));
   const total = monthlyAfter * item.months;
-
-  const discountCombined = 1 - (1 - preRate) * (1 - periodRate); // 총 할인율(배지)
+  const discountCombined = 1 - (1 - preRate) * (1 - periodRate);
 
   return (
     <div className="rounded-2xl border border-[#E5E7EB] bg-white p-4">
-      {/* 헤더: 단지명 + 상품명 + X버튼 */}
       <div className="flex items-start justify-between">
         <div className="min-w-0">
           <div className="font-semibold text-black leading-tight truncate">{item.name}</div>
@@ -757,7 +744,6 @@ function CartItemCard({ item, onChangeMonths, onRemove }: CartItemCardProps) {
         </button>
       </div>
 
-      {/* 광고기간: 왼쪽 라벨 + 오른쪽 드롭다운 (한 줄) */}
       <div className="mt-3 flex items-center justify-between whitespace-nowrap">
         <span className="text-sm text-[#6B7280]">광고기간</span>
         <select
@@ -773,13 +759,11 @@ function CartItemCard({ item, onChangeMonths, onRemove }: CartItemCardProps) {
         </select>
       </div>
 
-      {/* 월광고료 */}
       <div className="mt-3 flex items-center justify-between">
         <div className="text-[#6B7280] text-[13px]">월광고료</div>
-        <div className="text-sm font-semibold text-black whitespace-nowrap">{monthlyAfter.toLocaleString()}원 </div>
+        <div className="text-sm font-semibold text-black whitespace-nowrap">{monthlyAfter.toLocaleString()}원</div>
       </div>
 
-      {/* 총광고료(항상 한 줄) + 할인 배지 값 앞에 인라인 */}
       <div className="mt-2 flex items-center justify-between">
         <div className="text-[#6B7280] text-[13px]">총광고료</div>
         <div className="text-right whitespace-nowrap">
@@ -788,7 +772,7 @@ function CartItemCard({ item, onChangeMonths, onRemove }: CartItemCardProps) {
               {(Math.round(discountCombined * 1000) / 10).toFixed(1).replace(/\.0$/, "")}%할인
             </span>
           ) : null}
-          <span className="text-[#6C2DFF] text-base font-bold align-middle">{total.toLocaleString()}원</span>{" "}
+          <span className="text-[#6C2DFF] text-base font-bold align-middle">{total.toLocaleString()}원</span>
         </div>
       </div>
     </div>
