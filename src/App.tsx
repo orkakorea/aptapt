@@ -12,6 +12,7 @@ const SupaDebugPage = lazy(() => import("./pages/SupaDebug"));
 // 맨 위 lazy import들 옆에 추가
 const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
 const DashboardPage = lazy(() => import("./pages/admin/DashboardPage"));
+const MapMobilePage = lazy(() => import("./pages/mobile/MapMobilePage"));
 
 /** 경로에 따라 헤더를 조건부로 노출하는 레이아웃 */
 function AppLayout({ children }: PropsWithChildren) {
@@ -36,13 +37,14 @@ export default function App() {
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/map" element={<MapPage />} />
+            <Route path="/m" element={<MapMobilePage />} />
 
             {/* Admin */}
-           <Route path="/admin" element={<AdminLayout />}>
-  <Route index element={<Navigate to="dashboard" replace />} />
-  <Route path="dashboard" element={<DashboardPage />} />
-  <Route path="inquiries" element={<InquiriesPage />} />
-</Route>
+            <Route path="/admin" element={<AdminLayout />}>
+              <Route index element={<Navigate to="dashboard" replace />} />
+              <Route path="dashboard" element={<DashboardPage />} />
+              <Route path="inquiries" element={<InquiriesPage />} />
+            </Route>
 
             {/* 도구 페이지 (필요 시) */}
             <Route path="/supa-debug" element={<SupaDebugPage />} />
