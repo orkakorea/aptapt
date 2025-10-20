@@ -69,8 +69,7 @@ function imageForProduct(productName?: string): string {
   const p = (productName || "").toLowerCase().replace(/\s+/g, "");
   if (p.includes("elevator") || p.includes("elvt")) return "/products/elevator-tv.png";
   if (p.includes("townbord") || p.includes("townboard")) {
-    // 대략적 분기: L(대형) → b, 그 외 → a
-    if (p.includes("_l") || p.endsWith("l")) return "/products/townbord-b.png";
+    if (p.includes("_l") || p.endsWith("l")) return "/products/townbord-b.png"; // 대형
     return "/products/townbord-a.png";
   }
   return "/placeholder.svg";
@@ -169,17 +168,62 @@ const buildRowKeyFromRow = (row: PlaceRow) => {
 const monthlyFeeOf = (row: PlaceRow): number => toNumLoose(getField(row, ["월광고료", "month_fee", "monthlyFee"])) ?? 0;
 
 /** =========================================================================
+ * 할인 규칙 & 월요금 계산
+ *  - 12개월: row의 monthlyFeeY1가 있으면 그 값 사용, 없으면 상품 기본 할인율 적용
+ *  - 1~11개월: 별도 규칙 없으면 할인 0%
+ * ========================================================================= */
+type DiscountRule = {
+  default12?: number; // 12개월 기본 할인율(0~1)
+  byMonth?: Record<number, number>; // 특정 개월수 할인율(0~1)
+};
+const PRODUCT_DISCOUNT: Record<string, DiscountRule> = {
+  "elevator tv": { default12: 0.24 },
+  townbord_l: { default12: 0.3 },
+  "townbord a": { default12: 0.15 },
+  "townbord b": { default12: 0.3 },
+  _default: { default12: 0.2 },
+};
+function normProductKey(name?: string) {
+  const p = (name || "").toLowerCase().replace(/\s+/g, " ").trim();
+  if (p.includes("elevator")) return "elevator tv";
+  if (p.includes("townbord") || p.includes("townboard")) {
+    if (p.includes("_l") || p.endsWith(" l")) return "townbord_l";
+    if (p.includes(" b")) return "townbord b";
+    return "townbord a";
+  }
+  return "_default";
+}
+function calcEffectiveMonthly(productName: string | undefined, months: number, base: number, y1?: number) {
+  if (!Number.isFinite(base) || base <= 0) return { monthly: 0, discountRate: 0 };
+  // 12개월 우선 규칙
+  if (months === 12) {
+    if (Number.isFinite(y1) && y1! > 0) {
+      const rate = Math.max(0, 1 - y1! / base);
+      return { monthly: Math.round(y1!), discountRate: rate };
+    }
+    const rule = PRODUCT_DISCOUNT[normProductKey(productName)];
+    const r = rule?.default12 ?? PRODUCT_DISCOUNT._default.default12 ?? 0;
+    return { monthly: Math.round(base * (1 - r)), discountRate: r };
+  }
+  // 나머지 개월
+  const rule = PRODUCT_DISCOUNT[normProductKey(productName)];
+  const r = rule?.byMonth?.[months] ?? 0;
+  return { monthly: Math.round(base * (1 - r)), discountRate: r };
+}
+
+/** =========================================================================
  * 카트
  * ========================================================================= */
 type CartItem = {
   rowKey: string;
   aptName: string;
   productName?: string;
-  months: number;
-  baseMonthly?: number;
-  discountedMonthly?: number;
+  months: number; // ✔️ 1~12
+  baseMonthly?: number; // 월광고료(기본)
+  monthlyFeeY1?: number; // 12개월가(있으면 우선)
 };
-const monthOptions = [1, 3, 6, 12];
+// ✔️ 드롭다운 1~12개월
+const monthOptions: number[] = Array.from({ length: 12 }, (_, i) => i + 1);
 
 /** =========================================================================
  * 메인 페이지
@@ -223,7 +267,6 @@ export default function MapMobilePage() {
 
   // 모달
   const [pkgOpen, setPkgOpen] = useState(false);
-  const [telOpen, setTelOpen] = useState(false);
 
   const showSnack = (msg: string) => {
     setSnack(msg);
@@ -567,7 +610,7 @@ export default function MapMobilePage() {
     };
   }
 
-  /** 검색 핀/반경 오버레이(간단) */
+  /** 검색 오버레이 & 실행 */
   const drawSearchOverlays = (latlng: any) => {
     const kakao = (window as KakaoNS).kakao;
     if (!kakao?.maps || !mapObjRef.current) return;
@@ -600,8 +643,6 @@ export default function MapMobilePage() {
       searchPinRef.current.setMap(map);
     }
   };
-
-  /** 검색 실행 */
   const runPlaceSearch = (q: string) => {
     const kakao = (window as KakaoNS).kakao;
     if (!placesRef.current || !kakao?.maps) return;
@@ -626,14 +667,14 @@ export default function MapMobilePage() {
     if (!selected) return;
     const exists = cart.find((c) => c.rowKey === selected.rowKey);
     const base = selected.monthlyFee ?? 0;
-    const discounted = Math.round(base * 0.97);
+
     const nextItem: CartItem = {
       rowKey: selected.rowKey,
       aptName: selected.name,
       productName: selected.productName,
       months: 1,
       baseMonthly: base,
-      discountedMonthly: discounted,
+      monthlyFeeY1: selected.monthlyFeeY1 ?? undefined,
     };
     const next = exists
       ? cart.map((c) => (c.rowKey === selected.rowKey ? { ...c, months: c.months } : c))
@@ -658,14 +699,16 @@ export default function MapMobilePage() {
   }, [selected, isInCart, addSelectedToCart]);
 
   const updateMonths = (rowKey: string, months: number) => {
-    setCart((prev) => prev.map((c) => (c.rowKey === rowKey ? { ...c, months } : c)));
-    if (applyAll) setCart((prev) => prev.map((c) => ({ ...c, months })));
+    setCart((prev) => prev.map((c) => (c.rowKey === rowKey ? { ...c, months } : applyAll ? { ...c, months } : c)));
   };
 
-  const totalMonthly = useMemo(
-    () => cart.reduce((sum, c) => sum + (c.discountedMonthly ?? c.baseMonthly ?? 0), 0),
-    [cart],
-  );
+  // 총비용 = 각 아이템의 기간적용 월요금 합
+  const totalMonthly = useMemo(() => {
+    return cart.reduce((sum, c) => {
+      const { monthly } = calcEffectiveMonthly(c.productName, c.months, c.baseMonthly ?? 0, c.monthlyFeeY1);
+      return sum + monthly;
+    }, 0);
+  }, [cart]);
 
   /** 카트 → 지도 이동 + 상세 탭 */
   const goToRowKey = useCallback(
@@ -726,20 +769,24 @@ export default function MapMobilePage() {
   return (
     <div className="w-screen h-[100dvh] bg-white">
       {/* 상단 앱바 */}
-      <div className="fixed top-0 left-0 right-0 z-[40] bg-white/90 backdrop-blur border-b">
+      <div className="fixed top-0 left-0 right-0 z-[40] bg-white border-b">
         <div className="h-14 px-3 flex items-center justify-between">
           <div className="font-extrabold text-[15px]">응답하라 입주민이여</div>
           <div className="flex items-center gap-2">
             <button onClick={() => setPkgOpen(true)} className="px-3 py-1 rounded-full border text-sm font-semibold">
               패키지 문의
             </button>
-            <button
-              onClick={() => setTelOpen(true)}
-              className="px-3 py-1 rounded-full text-white text-sm font-semibold"
+            {/* 전화 아이콘 버튼 */}
+            <a
+              href="tel:1551-0810"
+              className="w-11 h-11 rounded-full flex items-center justify-center text-white"
               style={{ backgroundColor: COLOR_PRIMARY }}
+              aria-label="전화 연결"
             >
-              전화 연결
-            </button>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                <path d="M6.62 10.79a15.05 15.05 0 006.59 6.59l2.2-2.2a1 1 0 011.01-.24c1.12.37 2.33.57 3.58.57a1 1 0 011 1V21a1 1 0 01-1 1C10.3 22 2 13.7 2 3a1 1 0 011-1h3.5a1 1 0 011 1c0 1.25.2 2.46.57 3.58a1 1 0 01-.25 1.01l-2.2 2.2z" />
+              </svg>
+            </a>
           </div>
         </div>
 
@@ -760,7 +807,7 @@ export default function MapMobilePage() {
             />
             <button
               type="submit"
-              className="h-11 px-4 rounded-xl text-white font-semibold"
+              className="h-11 px-3 rounded-xl text-white font-semibold text-sm"
               style={{ backgroundColor: COLOR_PRIMARY }}
             >
               검색
@@ -826,8 +873,8 @@ export default function MapMobilePage() {
           </button>
         </div>
 
-        {/* 내용 */}
-        <div className="max-h-[70vh] overflow-y-auto px-4 pb-6 pt-3">
+        {/* 내용(배경 흰색 고정) */}
+        <div className="max-h-[70vh] overflow-y-auto px-4 pb-6 pt-3 bg-white">
           {activeTab === "cart" ? (
             <CartTab
               colorPrimary={COLOR_PRIMARY}
@@ -870,29 +917,21 @@ export default function MapMobilePage() {
         </div>
       )}
 
-      {/* 모달들 */}
-      <SimpleModal open={pkgOpen} onClose={() => setPkgOpen(false)} title="패키지 문의">
-        <div className="space-y-2">
-          <p className="text-sm text-gray-600">패키지 상품에 대해 상담을 원하시면 아래 연락처 또는 문의 남겨주세요.</p>
-          <a
-            href="tel:1551-0810"
-            className="inline-block px-4 py-2 rounded-xl text-white font-semibold"
-            style={{ backgroundColor: COLOR_PRIMARY }}
-          >
-            1551-0810 전화하기
-          </a>
-        </div>
-      </SimpleModal>
-
-      <SimpleModal open={telOpen} onClose={() => setTelOpen(false)} title="전화 연결">
-        <a
-          href="tel:1551-0810"
-          className="inline-block px-4 py-2 rounded-xl text-white font-semibold"
-          style={{ backgroundColor: COLOR_PRIMARY }}
-        >
-          1551-0810 전화하기
-        </a>
-      </SimpleModal>
+      {/* 간단 모달: 패키지 문의 */}
+      {pkgOpen && (
+        <SimpleModal open={pkgOpen} onClose={() => setPkgOpen(false)} title="패키지 문의">
+          <div className="space-y-2">
+            <p className="text-sm text-gray-600">패키지 상품 상담을 원하시면 아래 연락처로 문의 주세요.</p>
+            <a
+              href="tel:1551-0810"
+              className="inline-block px-4 py-2 rounded-xl text-white font-semibold"
+              style={{ backgroundColor: COLOR_PRIMARY }}
+            >
+              1551-0810 전화하기
+            </a>
+          </div>
+        </SimpleModal>
+      )}
     </div>
   );
 }
@@ -933,7 +972,7 @@ function MobileBottomSheet(props: {
 }
 
 /** =========================================================================
- * Cart 탭 (총비용 + 총 n건/일괄적용 sticky)
+ * Cart 탭 (총비용 + 총 n건/일괄적용 sticky, 드롭다운 1~12개월)
  * ========================================================================= */
 function CartTab(props: {
   colorPrimary: string;
@@ -950,7 +989,6 @@ function CartTab(props: {
   const {
     colorPrimary,
     colorPrimaryLight,
-    colorGrayCard,
     cart,
     applyAll,
     setApplyAll,
@@ -962,9 +1000,9 @@ function CartTab(props: {
 
   return (
     <div>
-      {/* sticky 헤더(총비용 + 총n건/일괄적용) */}
-      <div className="sticky top-0 z-10 -mx-4 px-4 pt-1 pb-3 bg-white/95 backdrop-blur border-b">
-        <div className="mb-3 rounded-xl px-4 py-3" style={{ backgroundColor: colorPrimaryLight }}>
+      {/* sticky 헤더(완전 불투명) */}
+      <div className="sticky top-0 z-10 -mx-4 px-4 pt-1 pb-3 bg-white border-b">
+        <div className="mb-3 rounded-xl px-4 py-3" style={{ backgroundColor: COLOR_PRIMARY_LIGHT }}>
           <div className="text-sm text-gray-600">총 비용</div>
           <div className="text-[20px] font-extrabold" style={{ color: colorPrimary }}>
             {fmtWon(totalMonthly)}
@@ -987,61 +1025,70 @@ function CartTab(props: {
 
       {/* 리스트 */}
       <div className="space-y-3 mt-3">
-        {cart.map((item) => (
-          <div key={item.rowKey} className="rounded-2xl border border-gray-200 p-4">
-            <div className="flex items-start gap-3">
-              <button onClick={() => onGoTo(item.rowKey)} className="flex-1 text-left" title="지도로 이동">
-                <div className="font-extrabold text-[16px] underline underline-offset-2">{item.aptName}</div>
-                <div className="text-xs text-gray-500">{item.productName ?? "ELEVATOR TV"}</div>
-              </button>
+        {cart.map((item) => {
+          const base = item.baseMonthly ?? 0;
+          const { monthly, discountRate } = calcEffectiveMonthly(
+            item.productName,
+            item.months,
+            base,
+            item.monthlyFeeY1,
+          );
+          const percent = Math.round(discountRate * 100);
+          return (
+            <div key={item.rowKey} className="rounded-2xl border border-gray-200 p-4">
+              <div className="flex items-start gap-3">
+                <button onClick={() => onGoTo(item.rowKey)} className="flex-1 text-left" title="지도로 이동">
+                  <div className="font-extrabold text-[16px] underline underline-offset-2">{item.aptName}</div>
+                  <div className="text-xs text-gray-500">{item.productName ?? "ELEVATOR TV"}</div>
+                </button>
 
-              <button
-                onClick={() => onRemove(item.rowKey)}
-                className="h-8 px-3 rounded-full bg-gray-100 text-gray-600 text-sm"
-                aria-label="삭제"
-              >
-                삭제
-              </button>
-            </div>
+                <button
+                  onClick={() => onRemove(item.rowKey)}
+                  className="h-8 px-3 rounded-full bg-gray-100 text-gray-600 text-sm"
+                  aria-label="삭제"
+                >
+                  삭제
+                </button>
+              </div>
 
-            {/* 기간 선택 */}
-            <div className="mt-3">
-              <div className="text-sm text-gray-600 mb-1">광고기간</div>
-              <select
-                className="w-32 rounded-xl border px-3 py-2"
-                value={item.months}
-                onChange={(e) => onUpdateMonths(item.rowKey, Number(e.target.value))}
-              >
-                {monthOptions.map((m) => (
-                  <option key={m} value={m}>
-                    {m}개월
-                  </option>
-                ))}
-              </select>
-            </div>
+              {/* 기간 선택 */}
+              <div className="mt-3">
+                <div className="text-sm text-gray-600 mb-1">광고기간</div>
+                <select
+                  className="w-36 rounded-xl border px-3 py-2"
+                  value={item.months}
+                  onChange={(e) => onUpdateMonths(item.rowKey, Number(e.target.value))}
+                >
+                  {monthOptions.map((m) => (
+                    <option key={m} value={m}>
+                      {m}개월
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-            {/* 금액 */}
-            <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
-              <div className="text-gray-600">월광고료</div>
-              <div className="text-right font-semibold">{fmtWon(item.baseMonthly)}</div>
-
-              <div className="text-gray-600">총광고료</div>
-              <div className="text-right">
-                <span className="inline-flex items-center gap-2">
-                  <span
-                    className="rounded-full px-2 py-0.5 text-[11px] font-bold"
-                    style={{ backgroundColor: colorPrimaryLight, color: colorPrimary }}
-                  >
-                    3%할인
+              {/* 금액 */}
+              <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+                <div className="text-gray-600">월광고료(기간 적용)</div>
+                <div className="text-right">
+                  <span className="inline-flex items-center gap-2">
+                    {percent > 0 && (
+                      <span
+                        className="rounded-full px-2 py-0.5 text-[11px] font-bold"
+                        style={{ backgroundColor: COLOR_PRIMARY_LIGHT, color: colorPrimary }}
+                      >
+                        {percent}%할인
+                      </span>
+                    )}
+                    <span className="font-extrabold" style={{ color: colorPrimary }}>
+                      {fmtWon(monthly)}
+                    </span>
                   </span>
-                  <span className="font-extrabold" style={{ color: colorPrimary }}>
-                    {fmtWon(item.discountedMonthly)}
-                  </span>
-                </span>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* 하단 CTA */}
@@ -1069,7 +1116,7 @@ function DetailTab(props: {
   isInCart: boolean;
   onToggleCart: () => void;
 }) {
-  const { colorPrimary, colorPrimaryLight, colorGrayCard, selected, isInCart, onToggleCart } = props;
+  const { colorPrimary, selected, isInCart, onToggleCart } = props;
   if (!selected) return <div className="text-center text-sm text-gray-500 py-6">지도의 단지를 선택하세요.</div>;
 
   const y1Monthly = selected.monthlyFeeY1 ?? Math.round((selected.monthlyFee ?? 0) * 0.7); // 임시 예시
@@ -1095,7 +1142,7 @@ function DetailTab(props: {
         </div>
       </div>
 
-      {/* 금액 카드 (스크린샷 톤) */}
+      {/* 금액 카드 */}
       <div className="mt-3 space-y-2">
         <div className="rounded-2xl px-4 py-3" style={{ backgroundColor: COLOR_GRAY_CARD }}>
           <div className="text-sm text-gray-600">월 광고료</div>
@@ -1105,7 +1152,7 @@ function DetailTab(props: {
         </div>
         <div
           className="rounded-2xl px-4 py-3 border-2"
-          style={{ borderColor: colorPrimary, backgroundColor: colorPrimaryLight }}
+          style={{ borderColor: colorPrimary, backgroundColor: COLOR_PRIMARY_LIGHT }}
         >
           <div className="text-sm text-gray-700">1년 계약 시 월 광고료</div>
           <div className="text-[20px] font-extrabold" style={{ color: colorPrimary }}>
