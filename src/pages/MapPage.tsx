@@ -12,10 +12,9 @@ const PIN_PURPLE_URL = "/makers/pin-purple@2x.png"; // 기본
 const PIN_YELLOW_URL = "/makers/pin-yellow@2x.png"; // 담김(선택)
 const PIN_CLICKED_URL = "/makers/pin-purple@3x.png"; // 클릭 강조(선택 아님일 때만)
 
-const PIN_SIZE = 51; // 원본 102px(@2x)의 절반
-const PIN_OFFSET = { x: PIN_SIZE / 2, y: PIN_SIZE }; // 바닥 중앙
+const PIN_SIZE = 51;
+const PIN_OFFSET = { x: PIN_SIZE / 2, y: PIN_SIZE };
 
-// 검색용 핀(요구사항: public/pin.png)
 const SEARCH_PIN_URL = "/pin.png";
 const SEARCH_PIN_SIZE = 51;
 const SEARCH_PIN_OFFSET = { x: SEARCH_PIN_SIZE / 2, y: SEARCH_PIN_SIZE };
@@ -29,7 +28,6 @@ function markerImages(maps: any) {
   const clicked = new MarkerImage(PIN_CLICKED_URL, sz, opt);
   return { purple, yellow, clicked };
 }
-
 function buildSearchMarkerImage(maps: any) {
   const { MarkerImage, Size, Point } = maps;
   return new MarkerImage(SEARCH_PIN_URL, new Size(SEARCH_PIN_SIZE, SEARCH_PIN_SIZE), {
@@ -38,12 +36,11 @@ function buildSearchMarkerImage(maps: any) {
 }
 
 /* =========================================================================
-   ② Kakao SDK 정리 + 로더
+   ② Kakao SDK 로더/정리
    ------------------------------------------------------------------------- */
 function cleanupKakaoScripts() {
   const candidates = Array.from(document.scripts).filter((s) => s.src.includes("dapi.kakao.com/v2/maps/sdk.js"));
   candidates.forEach((s) => s.parentElement?.removeChild(s));
-
   const w = window as any;
   if (w.kakao) {
     try {
@@ -53,13 +50,9 @@ function cleanupKakaoScripts() {
     }
   }
 }
-
 function loadKakao(): Promise<any> {
   const w = window as any;
-
-  if (w.kakao?.maps && typeof w.kakao.maps.LatLng === "function") {
-    return Promise.resolve(w.kakao);
-  }
+  if (w.kakao?.maps && typeof w.kakao.maps.LatLng === "function") return Promise.resolve(w.kakao);
   if (w.__kakaoLoadingPromise) return w.__kakaoLoadingPromise;
 
   const envKey = (import.meta as any).env?.VITE_KAKAO_JS_KEY as string | undefined;
@@ -75,16 +68,13 @@ function loadKakao(): Promise<any> {
     s.onload = () => {
       if (!w.kakao?.maps) return reject(new Error("kakao maps namespace missing"));
       w.kakao.maps.load(() => {
-        if (typeof w.kakao.maps.LatLng !== "function") {
-          return reject(new Error("LatLng constructor not ready"));
-        }
+        if (typeof w.kakao.maps.LatLng !== "function") return reject(new Error("LatLng constructor not ready"));
         resolve(w.kakao);
       });
     };
     s.onerror = () => reject(new Error("Failed to load Kakao Maps SDK"));
     document.head.appendChild(s);
   });
-
   return w.__kakaoLoadingPromise;
 }
 
@@ -110,43 +100,23 @@ function toNumLoose(v: any): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 function getField(obj: any, keys: string[]): any {
-  for (const k of keys) {
-    if (k in obj && obj[k] != null && obj[k] !== "") return obj[k];
-  }
+  for (const k of keys) if (k in obj && obj[k] != null && obj[k] !== "") return obj[k];
   return undefined;
 }
 function expandBounds(bounds: any, pad = 0.05) {
   const sw = bounds.getSouthWest();
   const ne = bounds.getNorthEast();
-  return {
-    minLat: sw.getLat() - pad,
-    maxLat: ne.getLat() + pad,
-    minLng: sw.getLng() - pad,
-    maxLng: ne.getLng() + pad,
-  };
+  return { minLat: sw.getLat() - pad, maxLat: ne.getLat() + pad, minLng: sw.getLng() - pad, maxLng: ne.getLng() + pad };
 }
 
 /* =========================================================================
    ④ 타입/키 유틸
    ------------------------------------------------------------------------- */
-type PlaceRow = {
-  id?: number | string;
-  lat?: number | null;
-  lng?: number | null;
-  [key: string]: any;
-};
-type KMarker = any & {
-  __key?: string;
-  __basePos?: any;
-  __row?: PlaceRow;
-};
+type PlaceRow = { id?: number | string; lat?: number | null; lng?: number | null; [key: string]: any };
+type KMarker = any & { __key?: string; __basePos?: any; __row?: PlaceRow };
 
-const monthlyFeeOf = (row: PlaceRow): number => {
-  return (
-    toNumLoose(getField(row, ["월광고료", "월 광고료", "월 광고비", "월비용", "월요금", "month_fee", "monthlyFee"])) ??
-    0
-  );
-};
+const monthlyFeeOf = (row: PlaceRow): number =>
+  toNumLoose(getField(row, ["월광고료", "월 광고료", "월 광고비", "월비용", "월요금", "month_fee", "monthlyFee"])) ?? 0;
 
 const groupKeyFromRow = (row: PlaceRow) => `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(7)}`;
 
@@ -167,13 +137,11 @@ function layoutMarkersSideBySide(map: any, group: KMarker[]) {
   const proj = map.getProjection();
   const center = group[0].__basePos;
   const cpt = proj.containerPointFromCoords(center);
-
-  const N = group.length;
-  const GAP = 26; // 마커 간 픽셀 간격
-  const totalW = GAP * (N - 1);
-  const startX = cpt.x - totalW / 2;
-  const y = cpt.y;
-
+  const N = group.length,
+    GAP = 26,
+    totalW = GAP * (N - 1),
+    startX = cpt.x - totalW / 2,
+    y = cpt.y;
   for (let i = 0; i < N; i++) {
     const pt = new (window as any).kakao.maps.Point(startX + i * GAP, y);
     const pos = proj.coordsFromContainerPoint(pt);
@@ -184,7 +152,6 @@ function layoutMarkersSideBySide(map: any, group: KMarker[]) {
 /* =========================================================================
    ⑥ 메인 컴포넌트
    ------------------------------------------------------------------------- */
-// 2탭 버튼 즉시 전환용: SelectedApt 확장
 type SelectedAptX = SelectedApt & { selectedInCart?: boolean };
 
 export default function MapPage() {
@@ -193,61 +160,54 @@ export default function MapPage() {
   const clustererRef = useRef<any>(null);
   const placesRef = useRef<any>(null);
 
-  // 검색 핀 & 반경(1km) 오버레이
   const searchPinRef = useRef<any>(null);
   const radiusCircleRef = useRef<any>(null);
   const radiusLabelRef = useRef<any>(null);
   const radiusLabelElRef = useRef<HTMLDivElement | null>(null);
 
-  // 마커/상태/그룹 캐시
   const markerCacheRef = useRef<Map<string, KMarker>>(new Map());
   const keyIndexRef = useRef<Record<string, KMarker[]>>({});
   const groupsRef = useRef<Map<string, KMarker[]>>(new Map());
   const selectedRowKeySetRef = useRef<Set<string>>(new Set());
   const lastReqIdRef = useRef<number>(0);
 
-  // 마지막 클릭 마커(보라@3x 강조용)
   const lastClickedRef = useRef<KMarker | null>(null);
 
   const [selected, setSelected] = useState<SelectedAptX | null>(null);
   const [initialQ, setInitialQ] = useState("");
   const [kakaoError, setKakaoError] = useState<string | null>(null);
 
-  // === 그룹 우선순위: 옐로(담김) > 월광고료 내림차순 ===
+  /* ---------- 정렬/우선순위 ---------- */
   const orderAndApplyZIndex = useCallback((arr: KMarker[]) => {
     if (!arr || arr.length <= 1) return arr;
     const sorted = arr.slice().sort((a, b) => {
-      const ra = a.__row as PlaceRow;
-      const rb = b.__row as PlaceRow;
-      const aRowKey = buildRowKeyFromRow(ra);
-      const bRowKey = buildRowKeyFromRow(rb);
+      const ra = a.__row as PlaceRow,
+        rb = b.__row as PlaceRow;
+      const aRowKey = buildRowKeyFromRow(ra),
+        bRowKey = buildRowKeyFromRow(rb);
       const aSel = selectedRowKeySetRef.current.has(aRowKey) ? 1 : 0;
       const bSel = selectedRowKeySetRef.current.has(bRowKey) ? 1 : 0;
       if (aSel !== bSel) return bSel - aSel;
-      const aFee = monthlyFeeOf(ra);
-      const bFee = monthlyFeeOf(rb);
+      const aFee = monthlyFeeOf(ra),
+        bFee = monthlyFeeOf(rb);
       if (aFee !== bFee) return bFee - aFee;
       return 0;
     });
-
     const TOP = 100000;
-    for (let i = 0; i < sorted.length; i++) {
+    for (let i = 0; i < sorted.length; i++)
       try {
         sorted[i].setZIndex?.(TOP - i);
       } catch {}
-    }
     arr.length = 0;
     sorted.forEach((m) => arr.push(m));
     return arr;
   }, []);
-
   const applyGroupPrioritiesMap = useCallback(
     (groups: Map<string, KMarker[]>) => {
       groups.forEach((list) => orderAndApplyZIndex(list));
     },
     [orderAndApplyZIndex],
   );
-
   const applyGroupPrioritiesForRowKey = useCallback(
     (rowKey: string) => {
       const list = keyIndexRef.current[rowKey];
@@ -260,37 +220,31 @@ export default function MapPage() {
     [orderAndApplyZIndex],
   );
 
-  /** 같은 좌표 그룹 전체를 ‘항상 나란히’ 재배치 */
   const applyStaticSeparationAll = useCallback(() => {
     const map = mapObjRef.current;
     if (!map || !(window as any).kakao?.maps) return;
     groupsRef.current.forEach((group) => layoutMarkersSideBySide(map, group));
   }, []);
 
-  /* ------------------ 지도 초기화 ------------------ */
+  /* ---------- 지도 초기화 ---------- */
   useEffect(() => {
     let resizeHandler: any;
     let map: any;
-
     cleanupKakaoScripts();
-
     loadKakao()
       .then((kakao) => {
         setKakaoError(null);
         if (!mapRef.current) return;
         mapRef.current.style.minHeight = "300px";
         mapRef.current.style.minWidth = "300px";
-
         const center = new kakao.maps.LatLng(37.5665, 126.978);
         map = new kakao.maps.Map(mapRef.current, { center, level: 6 });
         mapObjRef.current = map;
-
         (window as any).kakaoMap = map;
         (window as any).__kakaoMap = map;
 
         placesRef.current = new kakao.maps.services.Places();
 
-        // 🎨 클러스터 스타일: 연한 파스텔 보라색(통일)
         const SIZES = [34, 44, 54];
         const clusterStyles = SIZES.map((sz) => ({
           width: `${sz}px`,
@@ -298,23 +252,21 @@ export default function MapPage() {
           lineHeight: `${sz}px`,
           textAlign: "center",
           borderRadius: "999px",
-          background: "rgba(108, 45, 255, 0.18)", // 배경(은은한 라일락)
-          border: "1px solid rgba(108, 45, 255, 0.35)", // 테두리
-          color: "#6C2DFF", // 숫자(보라)
+          background: "rgba(108, 45, 255, 0.18)",
+          border: "1px solid rgba(108, 45, 255, 0.35)",
+          color: "#6C2DFF",
           fontWeight: "700",
           fontSize: "13px",
         }));
-
         clustererRef.current = new kakao.maps.MarkerClusterer({
           map,
           averageCenter: true,
           minLevel: 6,
           disableClickZoom: true,
           gridSize: 80,
-          styles: clusterStyles, // ✅ 파스텔 보라 클러스터
+          styles: clusterStyles,
         });
 
-        // 줌/리사이즈/렌더링 직후에도 항상 고정 분리 유지
         kakao.maps.event.addListener(map, "zoom_changed", applyStaticSeparationAll);
         kakao.maps.event.addListener(map, "idle", async () => {
           await loadMarkersInBounds();
@@ -348,7 +300,6 @@ export default function MapPage() {
       const w = window as any;
       if (w.kakaoMap === mapObjRef.current) w.kakaoMap = null;
       if (w.__kakaoMap === mapObjRef.current) w.__kakaoMap = null;
-
       try {
         radiusCircleRef.current?.setMap(null);
         radiusLabelRef.current?.setMap(null);
@@ -358,7 +309,6 @@ export default function MapPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applyStaticSeparationAll]);
 
-  // 2탭 열고 닫을 때 레이아웃 보정
   useEffect(() => {
     const m = mapObjRef.current;
     if ((window as any).kakao?.maps && m)
@@ -368,14 +318,13 @@ export default function MapPage() {
       }, 0);
   }, [selected, applyStaticSeparationAll]);
 
-  /* ------------------ 먼저 선언: MapChrome → 행(rowKey) 단위 색 전환 ------------------ */
+  /* ---------- 마커 색 전환(행 키) ---------- */
   const setMarkerStateByRowKey = useCallback(
     (rowKey: string, state: "default" | "selected", forceYellowNow = false) => {
       if (!rowKey) return;
       const maps = (window as KakaoNS).kakao?.maps;
       if (!maps) return;
       const imgs = markerImages(maps);
-
       if (state === "selected") selectedRowKeySetRef.current.add(rowKey);
       else selectedRowKeySetRef.current.delete(rowKey);
 
@@ -386,16 +335,11 @@ export default function MapPage() {
           if (forceYellowNow || shouldBeYellow) {
             mk.setImage(imgs.yellow);
             if (lastClickedRef.current === mk) lastClickedRef.current = null;
-          } else {
-            mk.setImage(imgs.purple);
-          }
+          } else mk.setImage(imgs.purple);
         });
-
-        // 현재 2탭이 같은 rowKey를 보고 있다면 버튼표시 즉시 반영
         setSelected((prev) =>
           prev && prev.rowKey === rowKey ? { ...prev, selectedInCart: state === "selected" } : prev,
         );
-
         applyGroupPrioritiesForRowKey(rowKey);
         applyStaticSeparationAll();
       }
@@ -403,52 +347,92 @@ export default function MapPage() {
     [applyGroupPrioritiesForRowKey, applyStaticSeparationAll],
   );
 
-  /* ------------------ Cart 선택 상태/토글 (setMarkerStateByRowKey 이후 의존) ------------------ */
-  const isRowKeySelected = useCallback((rowKey?: string | null) => {
-    if (!rowKey) return false;
-    return selectedRowKeySetRef.current.has(rowKey);
-  }, []);
-
+  /* ---------- 카트 제어 헬퍼 ---------- */
+  const isRowKeySelected = useCallback(
+    (rowKey?: string | null) => !!rowKey && selectedRowKeySetRef.current.has(rowKey),
+    [],
+  );
   const addToCartByRowKey = useCallback(
     (rowKey: string) => {
-      if (!rowKey) return;
       selectedRowKeySetRef.current.add(rowKey);
       setMarkerStateByRowKey(rowKey, "selected", true);
-      // 2탭 선택 객체 즉시 업데이트 → 버튼이 곧바로 "담기취소"(회색)로 보이도록
-      setSelected((prev) => (prev && prev.rowKey === rowKey ? { ...prev, selectedInCart: true } : prev));
+      setSelected((p) => (p && p.rowKey === rowKey ? { ...p, selectedInCart: true } : p));
       applyGroupPrioritiesForRowKey(rowKey);
       applyStaticSeparationAll();
       window.dispatchEvent(new CustomEvent("orka:cart:changed", { detail: { rowKey, selected: true } }));
     },
     [applyGroupPrioritiesForRowKey, applyStaticSeparationAll, setMarkerStateByRowKey],
   );
-
   const removeFromCartByRowKey = useCallback(
     (rowKey: string) => {
-      if (!rowKey) return;
       selectedRowKeySetRef.current.delete(rowKey);
       setMarkerStateByRowKey(rowKey, "default");
-      setSelected((prev) => (prev && prev.rowKey === rowKey ? { ...prev, selectedInCart: false } : prev));
+      setSelected((p) => (p && p.rowKey === rowKey ? { ...p, selectedInCart: false } : p));
       applyGroupPrioritiesForRowKey(rowKey);
       applyStaticSeparationAll();
       window.dispatchEvent(new CustomEvent("orka:cart:changed", { detail: { rowKey, selected: false } }));
     },
     [applyGroupPrioritiesForRowKey, applyStaticSeparationAll, setMarkerStateByRowKey],
   );
-
   const toggleCartByRowKey = useCallback(
     (rowKey: string) => {
-      if (!rowKey) return;
-      if (selectedRowKeySetRef.current.has(rowKey)) {
-        removeFromCartByRowKey(rowKey);
-      } else {
-        addToCartByRowKey(rowKey);
-      }
+      if (selectedRowKeySetRef.current.has(rowKey)) removeFromCartByRowKey(rowKey);
+      else addToCartByRowKey(rowKey);
     },
     [addToCartByRowKey, removeFromCartByRowKey],
   );
 
-  /* ------------------ 바운드 내 마커 로드 ------------------ */
+  /* ---------- 포커스(카트에서 단지 클릭 시) ---------- */
+  const focusByRowKey = useCallback(
+    async (rowKey: string, opts?: { level?: number }) => {
+      const kakao = (window as KakaoNS).kakao;
+      const maps = kakao?.maps;
+      const map = mapObjRef.current;
+      if (!maps || !map || !rowKey) return;
+      const list = keyIndexRef.current[rowKey];
+      if (list?.length) {
+        const mk = list[0];
+        const pos = mk.getPosition?.() || mk.__basePos;
+        if (opts?.level != null) map.setLevel(opts.level);
+        map.setCenter(pos);
+        maps.event.trigger(mk, "click"); // ← 마커 클릭과 동일 동작
+        applyStaticSeparationAll();
+      }
+    },
+    [applyStaticSeparationAll],
+  );
+
+  const focusByLatLng = useCallback(
+    async (lat: number, lng: number, opts?: { level?: number }) => {
+      const kakao = (window as KakaoNS).kakao;
+      const maps = kakao?.maps;
+      const map = mapObjRef.current;
+      if (!maps || !map || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      const latlng = new maps.LatLng(lat, lng);
+      if (opts?.level != null) map.setLevel(opts.level);
+      map.setCenter(latlng);
+      await loadMarkersInBounds(); // 로드 후 가장 가까운 마커 트리거
+      let best: KMarker | null = null;
+      let bestDist = Infinity;
+      markerCacheRef.current.forEach((mk) => {
+        const r = mk.__row as PlaceRow;
+        const dlat = Number(r.lat) - lat;
+        const dlng = Number(r.lng) - lng;
+        const ds = dlat * dlat + dlng * dlng;
+        if (ds < bestDist) {
+          bestDist = ds;
+          best = mk;
+        }
+      });
+      if (best) {
+        maps.event.trigger(best, "click");
+        applyStaticSeparationAll();
+      }
+    },
+    [applyStaticSeparationAll],
+  );
+
+  /* ---------- 바운드 내 마커 로드 ---------- */
   async function loadMarkersInBounds() {
     const kakao = (window as KakaoNS).kakao;
     const maps = kakao?.maps;
@@ -458,9 +442,8 @@ export default function MapPage() {
 
     const bounds = map.getBounds();
     if (!bounds) return;
-
-    const sw = bounds.getSouthWest();
-    const ne = bounds.getNorthEast();
+    const sw = bounds.getSouthWest(),
+      ne = bounds.getNorthEast();
 
     const reqId = Date.now();
     lastReqIdRef.current = reqId;
@@ -502,7 +485,6 @@ export default function MapPage() {
 
     rows.forEach((row) => {
       if (row.lat == null || row.lng == null) return;
-
       const key = keyOf(row);
       const rowKey = buildRowKeyFromRow(row);
       nowKeys.add(key);
@@ -515,22 +497,16 @@ export default function MapPage() {
 
       if (!mk) {
         const isSelected = selectedRowKeySetRef.current.has(rowKey);
-        mk = new maps.Marker({
-          position: pos,
-          title: nameText,
-          image: isSelected ? imgs.yellow : imgs.purple,
-        });
+        mk = new maps.Marker({ position: pos, title: nameText, image: isSelected ? imgs.yellow : imgs.purple });
         mk.__key = key;
         mk.__basePos = pos;
         mk.__row = row;
 
-        // ✅ 클릭 즉시 반응 & 담김 상태 유지
         maps.event.addListener(mk, "click", () => {
           const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
           const address = getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
           const productName = getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName"]) || "";
           const installLocation = getField(row, ["설치위치", "설치 위치", "installLocation"]) || "";
-
           const households = toNumLoose(
             getField(row, ["세대수", "세대 수", "세대", "가구수", "가구 수", "세대수(가구)", "households"]),
           );
@@ -578,7 +554,6 @@ export default function MapPage() {
             imageUrl,
             lat,
             lng,
-            // 2탭 버튼 토글 즉시 반영용
             selectedInCart: selectedRowKeySetRef.current.has(rowKey),
           };
           setSelected(sel);
@@ -601,7 +576,6 @@ export default function MapPage() {
             mk.setImage(imgs.clicked);
             lastClickedRef.current = mk;
           }
-
           applyStaticSeparationAll();
         });
 
@@ -612,9 +586,7 @@ export default function MapPage() {
         if (mk.getTitle?.() !== nameText) mk.setTitle?.(nameText);
         const isSelected = selectedRowKeySetRef.current.has(rowKey);
         let imgToUse = isSelected ? imgs.yellow : imgs.purple;
-        if (!isSelected && lastClickedRef.current && lastClickedRef.current.__key === key) {
-          imgToUse = imgs.clicked;
-        }
+        if (!isSelected && lastClickedRef.current && lastClickedRef.current.__key === key) imgToUse = imgs.clicked;
         mk.setImage(imgToUse);
       }
 
@@ -638,15 +610,12 @@ export default function MapPage() {
       }
     });
     if (toRemove.length) clustererRef.current.removeMarkers(toRemove);
-
-    if (lastClickedRef.current && toRemove.includes(lastClickedRef.current)) {
-      lastClickedRef.current = null;
-    }
+    if (lastClickedRef.current && toRemove.includes(lastClickedRef.current)) lastClickedRef.current = null;
 
     applyGroupPrioritiesMap(groups);
     groupsRef.current = groups;
 
-    // 확장 조회(패딩) 분기
+    // 확장 조회
     if (!newMarkers.length) {
       const pad = expandBounds(bounds, 0.12);
       const { data: data2, error: err2 } = await supabase
@@ -659,7 +628,6 @@ export default function MapPage() {
         .gte("lng", pad.minLng)
         .lte("lng", pad.maxLng)
         .limit(5000);
-
       if (err2) {
         console.warn("[MapPage] expanded select error:", err2.message);
         return;
@@ -669,7 +637,6 @@ export default function MapPage() {
       const rows2 = (data2 ?? []) as PlaceRow[];
       rows2.forEach((row) => {
         if (row.lat == null || row.lng == null) return;
-
         const key = `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(7)}|${row.id != null ? String(row.id) : ""}|${String(getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName"]) || "")}|${String(getField(row, ["설치위치", "설치 위치", "installLocation"]) || "")}`;
         if (markerCacheRef.current.has(key)) return;
 
@@ -761,7 +728,6 @@ export default function MapPage() {
             mk.setImage(imgs.clicked);
             lastClickedRef.current = mk;
           }
-
           applyStaticSeparationAll();
         });
 
@@ -783,16 +749,14 @@ export default function MapPage() {
         if (!groups2.has(gk)) groups2.set(gk, []);
         groups2.get(gk)!.push(m);
       });
-
       applyGroupPrioritiesMap(groups2);
       groupsRef.current = groups2;
     }
 
-    // 마지막: 항상 ‘나란히’ 배치 적용
     applyStaticSeparationAll();
   }
 
-  /* ------------------ 반경 UI 컨트롤 ------------------ */
+  /* ---------- 반경 UI ---------- */
   function clearRadiusUI() {
     try {
       radiusCircleRef.current?.setMap(null);
@@ -803,20 +767,16 @@ export default function MapPage() {
     try {
       searchPinRef.current?.setMap?.(null);
     } catch {}
-
     radiusCircleRef.current = null;
     radiusLabelRef.current = null;
     searchPinRef.current = null;
     radiusLabelElRef.current = null;
   }
-
   function ensureRadiusLabelContent(onClose: () => void) {
     if (radiusLabelElRef.current) return radiusLabelElRef.current;
-
     const root = document.createElement("div");
     root.style.position = "relative";
     root.style.pointerEvents = "none";
-
     const chip = document.createElement("div");
     chip.textContent = "1km";
     chip.style.padding = "6px 10px";
@@ -828,7 +788,6 @@ export default function MapPage() {
     chip.style.boxShadow = "0 2px 6px rgba(0,0,0,0.15)";
     chip.style.whiteSpace = "nowrap";
     chip.style.userSelect = "none";
-
     const btn = document.createElement("button");
     btn.setAttribute("type", "button");
     btn.setAttribute("aria-label", "1km 범위 닫기");
@@ -855,20 +814,15 @@ export default function MapPage() {
       e.stopPropagation();
       onClose();
     });
-
     root.appendChild(chip);
     root.appendChild(btn);
-
     radiusLabelElRef.current = root;
     return root;
   }
-
-  /* ------------------ 검색 핀 + 반경 1km 오버레이 ------------------ */
   function drawSearchOverlays(latlng: any) {
     const kakao = (window as KakaoNS).kakao;
     if (!kakao?.maps || !mapObjRef.current) return;
     const map = mapObjRef.current;
-
     if (!radiusCircleRef.current) {
       radiusCircleRef.current = new kakao.maps.Circle({
         map,
@@ -893,7 +847,6 @@ export default function MapPage() {
       radiusCircleRef.current.setZIndex?.(-1000);
       radiusCircleRef.current.setMap(map);
     }
-
     const labelContent = ensureRadiusLabelContent(clearRadiusUI);
     if (!radiusLabelRef.current) {
       radiusLabelRef.current = new kakao.maps.CustomOverlay({
@@ -909,7 +862,6 @@ export default function MapPage() {
       radiusLabelRef.current.setZIndex?.(1000000);
       radiusLabelRef.current.setMap(map);
     }
-
     const searchImg = buildSearchMarkerImage(kakao.maps);
     if (!searchPinRef.current) {
       searchPinRef.current = new kakao.maps.Marker({
@@ -927,7 +879,7 @@ export default function MapPage() {
     }
   }
 
-  /* ------------------ 장소 검색 → 이동 ------------------ */
+  /* ---------- 검색 ---------- */
   function runPlaceSearch(query: string) {
     const kakao = (window as KakaoNS).kakao;
     const places = placesRef.current;
@@ -939,12 +891,9 @@ export default function MapPage() {
         lng = Number(first.x);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
       const latlng = new kakao.maps.LatLng(lat, lng);
-
       mapObjRef.current.setLevel(4);
       mapObjRef.current.setCenter(latlng);
-
       drawSearchOverlays(latlng);
-
       loadMarkersInBounds().then(() => applyStaticSeparationAll());
     });
   }
@@ -957,36 +906,26 @@ export default function MapPage() {
   }
 
   const mapLeftClass = selected ? "md:left-[720px]" : "md:left-[360px]";
-
-  /* ------------------ 렌더 ------------------ */
   const MapChromeAny = MapChrome as any;
 
   return (
-    <div
-      className="w-screen h-[100dvh] bg-white"
-      // 1탭 카트 고정 범위(‘총 n건 + 광고기간 일괄적용’까지) 힌트 전달용 data-attr
-      data-cart-sticky-until="bulkMonthsApply"
-      style={
-        {
-          // 상단 고정 높이 마진(헤더 64px 가정). MapChrome이 사용해도 되고 무시해도 됨.
-          ["--cart-sticky-top" as any]: "64px",
-        } as React.CSSProperties
-      }
-    >
+    <div className="w-screen h-[100dvh] bg-white">
       <div ref={mapRef} className={`fixed top-16 left-0 right-0 bottom-0 z-[10] ${mapLeftClass}`} aria-label="map" />
       <MapChromeAny
         selected={selected}
         onCloseSelected={closeSelected}
         onSearch={handleSearch}
         initialQuery={initialQ}
-        /* ====== 아래 prop들이 렌더 시점에 이미 선언되어 있어야 함 ====== */
         setMarkerStateByRowKey={setMarkerStateByRowKey}
         isRowKeySelected={isRowKeySelected}
         addToCartByRowKey={addToCartByRowKey}
         removeFromCartByRowKey={removeFromCartByRowKey}
         toggleCartByRowKey={toggleCartByRowKey}
-        cartStickyTopPx={64} // 상단 고정 시작점
-        cartStickyUntil="bulkMonthsApply" // '총 n건 + 광고기간 일괄적용' 행까지 고정
+        /* 🔎 카트에서 단지 클릭 → 지도 이동 + 2탭 오픈 */
+        focusByRowKey={focusByRowKey}
+        focusByLatLng={focusByLatLng}
+        cartStickyTopPx={64}
+        cartStickyUntil="bulkMonthsApply"
       />
       {kakaoError && (
         <div className="fixed bottom-4 right-4 z-[100] rounded-lg bg-red-600 text-white px-3 py-2 text-sm shadow">
