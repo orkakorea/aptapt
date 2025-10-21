@@ -841,7 +841,7 @@ export default function MapMobilePage() {
     const opts: AddEventListenerOptions = { passive: false };
     const move = (ev: PointerEvent) => {
       if (!isDraggingRef.current || dragStartYRef.current == null) return;
-      ev.preventDefault(); // iOS 스크롤 방지
+      ev.preventDefault(); // iOS 스크롤 방지(드래그 중)
       const dy = Math.max(0, ev.clientY - dragStartYRef.current);
       setDragY(dy);
     };
@@ -1017,7 +1017,7 @@ export default function MapMobilePage() {
           {/* 스크롤 영역 */}
           <div
             className="flex-1 min-h-0 overflow-y-auto pt-2 pb-6 overscroll-contain"
-            style={{ WebkitOverflowScrolling: "touch" }}
+            style={{ WebkitOverflowScrolling: "touch", overscrollBehavior: "contain" as any }}
           >
             {activeTab === "cart" ? (
               <CartList
@@ -1103,7 +1103,7 @@ export default function MapMobilePage() {
 }
 
 /* =========================================================================
- * BottomSheet (윈도우 리스너 기반 드래그 대응)
+ * BottomSheet (iOS 스크롤 버그 회피: 열려있을 때 transform 제거)
  * ========================================================================= */
 function MobileBottomSheet(props: {
   open: boolean;
@@ -1114,6 +1114,9 @@ function MobileBottomSheet(props: {
 }) {
   const { open, translateY, maxHeightPx, onHandlePointerDown, children } = props;
 
+  // 열려 있고 드래그 중이 아니면 transform을 완전히 끈다 (iOS overflow:auto 스크롤 버그 회피)
+  const isRestOpen = open && translateY === 0;
+
   return (
     <div
       className={`fixed left-0 right-0 z-[55] transition-transform duration-200 ease-out ${
@@ -1121,13 +1124,14 @@ function MobileBottomSheet(props: {
       }`}
       style={{
         bottom: 0,
-        transform: open ? `translateY(${translateY}px)` : "translateY(110%)",
-        willChange: "transform",
+        transform: open ? (isRestOpen ? "none" : `translateY(${translateY}px)`) : "translateY(110%)",
+        willChange: isRestOpen ? "auto" : "transform",
       }}
     >
       <div
         className="mx-auto w-full max-w-[560px] rounded-t-2xl bg-white shadow-[0_-10px_30px_rgba(0,0,0,0.12)] overflow-hidden flex flex-col min-h-0"
-        style={{ maxHeight: maxHeightPx ?? undefined }}
+        // 높이를 숫자로 확정해서 내부 overflow-y-auto가 스크롤 컨테이너로 동작하도록 함
+        style={{ height: maxHeightPx ?? undefined, maxHeight: maxHeightPx ?? undefined }}
       >
         <div
           className="pt-3 pb-2 cursor-grab touch-none select-none"
