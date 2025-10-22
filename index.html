@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ko">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>응답하라 입주민이여</title>
     <meta name="description" content="원하는 지역의 광고 가능 단지를 확인하세요" />
 
-    <!-- Fonts -->
+    <!-- Pretendard Font -->
     <link
       rel="stylesheet"
       as="style"
@@ -14,7 +14,7 @@
       href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css"
     />
 
-    <!-- Open Graph / Twitter -->
+    <!-- OG/Twitter -->
     <meta property="og:title" content="pixel-perfect-canvas-203" />
     <meta property="og:description" content="Lovable Generated Project" />
     <meta property="og:type" content="website" />
@@ -28,30 +28,14 @@
       href="https://storage.googleapis.com/gpt-engineer-file-uploads/l9ReRfdxdDgyJ7CgrBmzTfaz1yG3/uploads/1758605356545-favicon2.ico.png"
     />
 
-    <!-- (권장) 네트워크 성능 향상 -->
-    <link rel="preconnect" href="https://dapi.kakao.com" crossorigin />
-    <link rel="preconnect" href="https://t1.daumcdn.net" crossorigin />
-    <link rel="preconnect" href="https://ssl.daumcdn.net" crossorigin />
+    <!-- ⚠️중요: CSP 메타는 일단 제거(추후 다시 최소 권한만 넣자) -->
 
-    <!-- CSP: Kakao/Daum/Supabase 허용 -->
-    <meta
-      http-equiv="Content-Security-Policy"
-      content="
-        default-src 'self' data: blob:;
-        script-src 'self' 'unsafe-inline' 'unsafe-eval' https://dapi.kakao.com https://ssl.daumcdn.net;
-        img-src 'self' data: blob: https://t1.daumcdn.net https://ssl.daumcdn.net https://dapi.kakao.com;
-        style-src 'self' 'unsafe-inline' https://t1.daumcdn.net https://ssl.daumcdn.net;
-        connect-src 'self' https://*.supabase.co https://*.supabase.in https://dapi.kakao.com https://t1.daumcdn.net https://map.daum.net;
-        font-src 'self' data: https://t1.daumcdn.net https://ssl.daumcdn.net;
-      "
-    />
-
-    <!-- Kakao Maps SDK: 정적 로드 (Vite가 %VITE_KAKAO_JS_KEY%를 치환) -->
+    <!-- ✅ Kakao Maps SDK: 정적 로드 (키를 직접 넣어 주세요) -->
     <script
       id="kakao-maps-sdk"
       async
       defer
-      src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=%VITE_KAKAO_JS_KEY%&autoload=false&libraries=services,clusterer"
+      src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=6ac882543cab52d452d3aa0ec888ce49&autoload=false&libraries=services,clusterer"
     ></script>
   </head>
 
