@@ -73,20 +73,19 @@ export default function MapMobilePageV2() {
     popHandlerRef.current = onPop;
     window.addEventListener("popstate", onPop);
 
-useEffect(() => {
-  history.pushState({ guard: true }, "");
-  const onPop = () => {
-    history.pushState({ guard: true }, "");
-    setExitAsk(true);
-  };
-  popHandlerRef.current = onPop;
-  window.addEventListener("popstate", onPop);
+    // 탭/창 닫기 방지
+    const onBeforeUnload = (ev: BeforeUnloadEvent) => {
+      ev.preventDefault();
+      ev.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
 
-  return () => {
-    const h = popHandlerRef.current;
-    if (h) window.removeEventListener("popstate", h);
-  };
-}, []);
+    return () => {
+      const h = popHandlerRef.current;
+      if (h) window.removeEventListener("popstate", h);
+      window.removeEventListener("beforeunload", onBeforeUnload);
+    };
+  }, []);
 
   /* 검색 실행 + blur(모바일 키보드 내림) */
   const runSearchAndBlur = useCallback(async () => {
