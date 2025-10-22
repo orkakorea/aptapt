@@ -121,8 +121,10 @@ export default function DetailPanel({
 function InfoRow({ label, value, children }: { label: string; value?: React.ReactNode; children?: React.ReactNode }) {
   return (
     <tr className="border-b last:border-b-0">
-      <td className="text-gray-500 w-36">{label}</td>
-      <td className="font-semibold">{children ?? value ?? "-"}</td>
+      {/* 라벨: 좌측 정렬 */}
+      <td className="text-gray-500 w-36 text-left">{label}</td>
+      {/* 값: 우측 정렬(숫자 정렬 깔끔하게 tabular-nums) */}
+      <td className="font-semibold text-right tabular-nums">{children ?? value ?? "-"}</td>
     </tr>
   );
 }
