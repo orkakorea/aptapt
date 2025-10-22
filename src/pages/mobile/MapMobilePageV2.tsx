@@ -203,16 +203,6 @@ export default function MapMobilePageV2() {
           </div>
         </div>
       </div>
-// ✅ 맵이 생기면 첫 로딩을 한 번 강제로 실행
-useEffect(() => {
-  if (map && kakao) {
-    // 다음 틱에 실행(레이아웃/idle 타이밍 이슈 회피)
-    setTimeout(() => {
-      try { markers.refreshInBounds(); } catch {}
-    }, 0);
-  }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [map, kakao]);
 
       {/* 바깥 클릭으로 닫기 */}
       {sheetOpen && <div className="fixed inset-0 z-[50] bg-black/0" onClick={() => setSheetOpen(false)} />}
