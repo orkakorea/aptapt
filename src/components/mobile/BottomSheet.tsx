@@ -1,53 +1,80 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 
-type BottomSheetProps = {
+type Props = {
   open: boolean;
-  /** useSheetDrag().translateY 값을 그대로 넣어주세요 */
-  translateY?: number;
-  /** 시트 최대 높이(px). 없으면 콘텐츠 높이대로 */
-  maxHeightPx?: number;
-  /** 손잡이(상단 바)에서 pointerdown 이벤트 핸들러 */
-  onHandlePointerDown?: (e: React.PointerEvent) => void;
-  /** 시트 내용 */
+  maxHeightPx?: number; // 시트 전체 높이(고정)
+  thresholdPx?: number; // 드래그로 닫기 임계값 (기본 120px)
+  onClose: () => void;
   children: React.ReactNode;
-  /** z-index 커스터마이즈(기본 55) */
-  zIndex?: number;
 };
 
-/**
- * 매우 단순한 프레젠테이션 전용 바텀시트
- * - iOS 스크롤 버그 회피: 열림+드래그중 아님 → transform 제거
- * - 드래그 제스처는 useSheetDrag 훅에서 처리하고, 여기에는 결과만 주입
- */
-export default function BottomSheet({
-  open,
-  translateY = 0,
-  maxHeightPx,
-  onHandlePointerDown,
-  children,
-  zIndex = 55,
-}: BottomSheetProps) {
-  const isRestOpen = open && translateY === 0;
+export default function BottomSheet({ open, maxHeightPx, thresholdPx = 120, onClose, children }: Props) {
+  const [dragY, setDragY] = useState(0);
+  const startYRef = useRef<number | null>(null);
+  const draggingRef = useRef(false);
+
+  // 드래그 리스너(윈도우 레벨)
+  useEffect(() => {
+    const opts: AddEventListenerOptions = { passive: false };
+
+    const onMove = (e: PointerEvent) => {
+      if (!draggingRef.current || startYRef.current == null) return;
+      e.preventDefault(); // iOS에서 스크롤 끊기
+      const dy = Math.max(0, e.clientY - startYRef.current);
+      setDragY(dy);
+    };
+
+    const end = (e: PointerEvent) => {
+      if (!draggingRef.current) return;
+      e.preventDefault();
+      const dy = Math.max(0, e.clientY - (startYRef.current ?? e.clientY));
+      draggingRef.current = false;
+      startYRef.current = null;
+      setDragY(0);
+      if (dy > thresholdPx) onClose();
+      window.removeEventListener("pointermove", onMove, opts);
+      window.removeEventListener("pointerup", end, opts);
+      window.removeEventListener("pointercancel", end, opts);
+    };
+
+    if (draggingRef.current) {
+      window.addEventListener("pointermove", onMove, opts);
+      window.addEventListener("pointerup", end, opts);
+      window.addEventListener("pointercancel", end, opts);
+    }
+
+    return () => {
+      window.removeEventListener("pointermove", onMove, opts);
+      window.removeEventListener("pointerup", end, opts);
+      window.removeEventListener("pointercancel", end, opts);
+    };
+  }, [onClose, thresholdPx]);
+
+  const onHandleDown = (e: React.PointerEvent) => {
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    draggingRef.current = true;
+    startYRef.current = e.clientY;
+    setDragY(0);
+  };
+
+  const isRestOpen = open && dragY === 0;
 
   return (
     <div
-      className={`fixed left-0 right-0 ${open ? "pointer-events-auto" : "pointer-events-none"}`}
+      className={`fixed left-0 right-0 z-[55] transition-transform duration-200 ease-out ${
+        open ? "pointer-events-auto" : "pointer-events-none"
+      }`}
       style={{
         bottom: 0,
-        zIndex,
-        transform: open ? (isRestOpen ? "none" : `translateY(${translateY}px)`) : "translateY(110%)",
-        transition: "transform 200ms ease-out",
-        willChange: isRestOpen ? ("auto" as any) : "transform",
+        transform: open ? (isRestOpen ? "none" : `translateY(${dragY}px)`) : "translateY(110%)",
+        willChange: isRestOpen ? "auto" : "transform",
       }}
-      aria-hidden={!open}
     >
       <div
         className="mx-auto w-full max-w-[560px] rounded-t-2xl bg-white shadow-[0_-10px_30px_rgba(0,0,0,0.12)] overflow-hidden flex flex-col min-h-0"
-        style={{ height: maxHeightPx ?? undefined, maxHeight: maxHeightPx ?? undefined }}
-        role="dialog"
-        aria-modal={open}
+        style={{ height: maxHeightPx ?? Math.floor(window.innerHeight * 0.75) }}
       >
-        <div className="pt-3 pb-2 cursor-grab touch-none select-none" onPointerDown={onHandlePointerDown}>
+        <div className="pt-3 pb-2 cursor-grab touch-none select-none" onPointerDown={onHandleDown}>
           <div className="mx-auto h-1.5 w-12 rounded-full bg-gray-300" />
         </div>
         <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
