@@ -337,11 +337,8 @@ export default function MapMobilePageV2() {
         {/* 경계 띠 */}
         <div className="-mx-4 h-3 bg-white" />
 
-        {/* 본문(내부 스크롤 가능) */}
-        <div
-          className="px-4 pb-4 flex-1 min-h-0 overflow-y-auto"
-          style={{ WebkitOverflowScrolling: "touch", overscrollBehavior: "contain" as any }}
-        >
+        {/* 본문(스크롤은 BottomSheet가 담당) */}
+        <div className="px-4 pb-4">
           {activeTab === "detail" && (
             <DetailPanel
               selected={selected}
