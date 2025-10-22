@@ -1,18 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useKakaoLoader } from "../../hooks/useKakaoLoader";
-import { useKakaoMap } from "../../hooks/useKakaoMap";
-import usePlaceSearch from "../../hooks/usePlaceSearch";
-import useMarkers from "../../hooks/useMarkers";
-import BottomSheet from "../../components/mobile/BottomSheet";
 
-import type { SelectedApt, CartItem } from "../../core/types";
-import { fmtNum, fmtWon } from "../../core/utils";
-import { calcMonthlyWithPolicy, normPolicyKey } from "../../core/pricing";
+import BottomSheet from "@/components/mobile/BottomSheet";
+import DetailPanel from "@/components/mobile/DetailPanel";
 
-/* 색상 */
+import { useKakaoLoader } from "@/hooks/useKakaoLoader";
+import { useKakaoMap } from "@/hooks/useKakaoMap";
+import usePlaceSearch from "@/hooks/usePlaceSearch";
+import useMarkers from "@/hooks/useMarkers";
+
+import type { SelectedApt, CartItem } from "@/core/types";
+import { fmtWon } from "@/core/utils";
+import { calcMonthlyWithPolicy, normPolicyKey } from "@/core/pricing";
+
+/* ===== 색상/상수 ===== */
 const COLOR_PRIMARY = "#6F4BF2";
 const COLOR_PRIMARY_LIGHT = "#EEE8FF";
-const COLOR_GRAY_CARD = "#F4F6FA";
 const monthOptions: number[] = Array.from({ length: 12 }, (_, i) => i + 1);
 
 export default function MapMobilePageV2() {
@@ -22,7 +24,7 @@ export default function MapMobilePageV2() {
   const { kakao, error: kakaoError } = useKakaoLoader();
   const { map, clusterer } = useKakaoMap(mapRef, {
     kakao,
-    center: { lat: 37.5665, lng: 126.978 }, // 서울시청
+    center: { lat: 37.5665, lng: 126.978 },
     level: 6,
     idleDebounceMs: 150,
   });
@@ -49,7 +51,7 @@ export default function MapMobilePageV2() {
   const recalcSheetMax = useCallback(() => {
     const winH = window.innerHeight;
     const rect = phoneBtnRef.current?.getBoundingClientRect();
-    const topEdge = rect ? Math.max(0, rect.bottom + 8) : winH * 0.25; // 전화 버튼 아래 + 8px
+    const topEdge = rect ? Math.max(0, rect.bottom + 8) : Math.floor(winH * 0.25);
     const h = Math.max(320, winH - topEdge);
     setSheetMaxH(h);
   }, []);
@@ -59,7 +61,7 @@ export default function MapMobilePageV2() {
     if (sheetOpen) recalcSheetMax();
   }, [sheetOpen, recalcSheetMax]);
 
-  /* 마커들: 클릭 시 시트 열고 '단지상세' 탭으로 */
+  /* 마커 */
   const markers = useMarkers({
     kakao,
     map,
@@ -73,7 +75,7 @@ export default function MapMobilePageV2() {
     externalSelectedRowKeys: selectedRowKeys,
   });
 
-  /* 첫 로딩 */
+  /* 첫 로딩 시 바운드 로딩 */
   useEffect(() => {
     if (map && kakao) {
       setTimeout(() => {
@@ -100,14 +102,11 @@ export default function MapMobilePageV2() {
   useEffect(() => {
     history.pushState({ guard: true }, "");
     const onPop = () => {
-      // 1) 시트가 열려 있으면 일단 시트 닫기
       if (sheetOpenRef.current) {
         setSheetOpen(false);
-        // 다시 가드 스택 추가 (뒤로가기로 바로 종료되지 않도록)
         history.pushState({ guard: true }, "");
         return;
       }
-      // 2) 시트가 닫혀 있으면 종료 확인
       history.pushState({ guard: true }, "");
       setExitAsk(true);
     };
@@ -115,7 +114,7 @@ export default function MapMobilePageV2() {
     window.addEventListener("popstate", onPop);
 
     const onBeforeUnload = (ev: BeforeUnloadEvent) => {
-      if (allowUnloadRef.current) return; // 전화 등 허용 이탈은 통과
+      if (allowUnloadRef.current) return;
       ev.preventDefault();
       ev.returnValue = "";
     };
@@ -128,7 +127,7 @@ export default function MapMobilePageV2() {
     };
   }, []);
 
-  /* 외부 탭 시 blur */
+  /* 외부 탭 시 검색창 blur */
   useEffect(() => {
     const blurActive = () => {
       const el = document.activeElement as HTMLElement | null;
@@ -154,6 +153,7 @@ export default function MapMobilePageV2() {
 
   /* 카트 조작 */
   const isInCart = useCallback((rowKey?: string | null) => !!rowKey && cart.some((c) => c.rowKey === rowKey), [cart]);
+
   const addSelectedToCart = useCallback(() => {
     if (!selected) return;
     const next: CartItem = {
@@ -309,12 +309,12 @@ export default function MapMobilePageV2() {
         </div>
       </div>
 
-      {/* 지도 클릭 시 닫힘(현재 동작 유지): 화면 전체 투명 클릭 레이어 */}
+      {/* 지도 클릭 시 닫힘(투명 레이어) */}
       {sheetOpen && <div className="fixed inset-0 z-[50] bg-black/0" onClick={() => setSheetOpen(false)} />}
 
       {/* 바텀시트 */}
       <BottomSheet open={sheetOpen} maxHeightPx={sheetMaxH} onClose={() => setSheetOpen(false)}>
-        {/* 탭 헤더 — 항상 고정 */}
+        {/* 탭 헤더 — sticky */}
         <div className="sticky top-0 z-20 px-4 pt-1 pb-2 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80 border-b">
           <div className="flex items-center gap-2">
             <TabBtn active={activeTab === "detail"} onClick={() => setActiveTab("detail")} label="단지상세" />
@@ -335,7 +335,7 @@ export default function MapMobilePageV2() {
           </div>
         </div>
 
-        {/* 본문(스크롤은 BottomSheet가 담당) */}
+        {/* 본문(스크롤은 BottomSheet 쪽에서 담당) */}
         <div className="px-4 pb-4">
           {activeTab === "detail" && (
             <DetailPanel
@@ -343,8 +343,9 @@ export default function MapMobilePageV2() {
               inCart={isInCart(selected?.rowKey)}
               onToggleCart={() => {
                 if (!selected) return;
-                if (isInCart(selected.rowKey)) removeFromCart(selected.rowKey);
-                else {
+                if (isInCart(selected.rowKey)) {
+                  removeFromCart(selected.rowKey);
+                } else {
                   const next: CartItem = {
                     rowKey: selected.rowKey,
                     aptName: selected.name,
@@ -357,6 +358,7 @@ export default function MapMobilePageV2() {
                   setActiveTab("cart");
                 }
               }}
+              onClose={() => setSheetOpen(false)}
             />
           )}
 
@@ -398,7 +400,7 @@ export default function MapMobilePageV2() {
   );
 }
 
-/* ---------- 작은 컴포넌트들 ---------- */
+/* ===== 작은 컴포넌트들 ===== */
 
 function TabBtn({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
   return (
@@ -409,69 +411,6 @@ function TabBtn({ active, onClick, label }: { active: boolean; onClick: () => vo
     >
       {label}
     </button>
-  );
-}
-
-function DetailPanel({
-  selected,
-  inCart,
-  onToggleCart,
-}: {
-  selected: SelectedApt | null;
-  inCart: boolean;
-  onToggleCart: () => void;
-}) {
-  if (!selected) return <div className="text-center text-sm text-gray-500 py-6">지도의 단지를 선택하세요.</div>;
-  const y1Monthly = selected.monthlyFeeY1 ?? Math.round((selected.monthlyFee ?? 0) * 0.7);
-
-  return (
-    <div>
-      <div className="rounded-2xl overflow-hidden bg-gray-100 aspect-[4/3]">
-        {selected.imageUrl ? (
-          <img src={selected.imageUrl} alt={selected.name} className="w-full h-full object-cover" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-gray-400">이미지</div>
-        )}
-      </div>
-
-      <div className="mt-3 flex items-start gap-3">
-        <div className="flex-1">
-          <div className="text-[20px] font-extrabold">{selected.name}</div>
-          <div className="text-sm text-gray-500">
-            {fmtNum(selected.households)} 세대 · {fmtNum(selected.residents)} 명
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-3 space-y-2">
-        <div className="rounded-2xl px-4 py-3" style={{ backgroundColor: COLOR_GRAY_CARD }}>
-          <div className="text-sm text-gray-600">월 광고료</div>
-          <div className="text-[20px] font-extrabold">
-            {fmtWon(selected.monthlyFee)} <span className="text-xs text-gray-500">(VAT별도)</span>
-          </div>
-        </div>
-        <div
-          className="rounded-2xl px-4 py-3 border-2"
-          style={{ borderColor: COLOR_PRIMARY, backgroundColor: "#EEE8FF" }}
-        >
-          <div className="text-sm text-gray-700">1년 계약 시 월 광고료</div>
-          <div className="text:[20px] font-extrabold" style={{ color: COLOR_PRIMARY }}>
-            {fmtWon(y1Monthly)} <span className="text-xs text-gray-500">(VAT별도)</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-3">
-        <button
-          className={`w-full h-12 rounded-2xl font-extrabold ${inCart ? "text-gray-700" : "text-white"}`}
-          style={{ backgroundColor: inCart ? "#E5E7EB" : COLOR_PRIMARY }}
-          aria-pressed={inCart}
-          onClick={onToggleCart}
-        >
-          {inCart ? "담기 취소" : "아파트 담기"}
-        </button>
-      </div>
-    </div>
   );
 }
 
