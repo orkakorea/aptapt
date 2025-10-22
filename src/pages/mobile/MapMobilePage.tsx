@@ -1017,7 +1017,12 @@ export default function MapMobilePage() {
           {/* 스크롤 영역 */}
           <div
             className="flex-1 min-h-0 overflow-y-auto pt-2 pb-6 overscroll-contain"
-            style={{ WebkitOverflowScrolling: "touch", overscrollBehavior: "contain" as any }}
+            style={{
+  WebkitOverflowScrolling: "touch",
+  touchAction: "pan-y",
+  overscrollBehavior: "contain",
+}}
+
           >
             {activeTab === "cart" ? (
               <CartList
@@ -1122,16 +1127,21 @@ function MobileBottomSheet(props: {
       className={`fixed left-0 right-0 z-[55] transition-transform duration-200 ease-out ${
         open ? "pointer-events-auto" : "pointer-events-none"
       }`}
-      style={{
-        bottom: 0,
-        transform: open ? (isRestOpen ? "none" : `translateY(${translateY}px)`) : "translateY(110%)",
-        willChange: isRestOpen ? "auto" : "transform",
-      }}
+      // nearZero를 허용해 소수점 잔류를 없앰
+const isRestOpen = open && Math.abs(translateY) < 1;
+
+style={{
+  bottom: 0,
+  transform: open ? (isRestOpen ? "none" : `translateY(${Math.max(0, Math.round(translateY))}px)`) : "translateY(110%)",
+  willChange: isRestOpen ? "auto" : "transform",
+}}
+
     >
       <div
         className="mx-auto w-full max-w-[560px] rounded-t-2xl bg-white shadow-[0_-10px_30px_rgba(0,0,0,0.12)] overflow-hidden flex flex-col min-h-0"
         // 높이를 숫자로 확정해서 내부 overflow-y-auto가 스크롤 컨테이너로 동작하도록 함
         style={{ height: maxHeightPx ?? undefined, maxHeight: maxHeightPx ?? undefined }}
+
       >
         <div
           className="pt-3 pb-2 cursor-grab touch-none select-none"
@@ -1140,7 +1150,7 @@ function MobileBottomSheet(props: {
         >
           <div className="mx-auto h-1.5 w-12 rounded-full bg-gray-300" />
         </div>
-        <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
+        <div className="flex-1 min-h-0">{children}</div>
       </div>
     </div>
   );
