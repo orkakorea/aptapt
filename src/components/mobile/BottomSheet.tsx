@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 
 type Props = {
   open: boolean;
@@ -13,51 +13,42 @@ export default function BottomSheet({ open, maxHeightPx, thresholdPx = 120, onCl
   const startYRef = useRef<number | null>(null);
   const draggingRef = useRef(false);
 
-  // 윈도우 레벨 드래그 리스너
-  useEffect(() => {
+  /** 드래그 시작: 여기서 윈도우 리스너를 붙였다가, 끝날 때 해제 */
+  const onHandleDown = (e: React.PointerEvent) => {
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    draggingRef.current = true;
+    startYRef.current = e.clientY;
+    setDragY(0);
+
     const opts: AddEventListenerOptions = { passive: false };
 
-    const onMove = (e: PointerEvent) => {
+    const onMove = (ev: PointerEvent) => {
       if (!draggingRef.current || startYRef.current == null) return;
-      e.preventDefault(); // iOS 스크롤 차단
-      const dy = Math.max(0, e.clientY - startYRef.current);
+      ev.preventDefault(); // iOS 스크롤 차단(핸들 드래그 중)
+      const dy = Math.max(0, ev.clientY - startYRef.current);
       setDragY(dy);
     };
 
-    const end = (e: PointerEvent) => {
+    const onEnd = (ev: PointerEvent) => {
+      ev.preventDefault();
       if (!draggingRef.current) return;
-      e.preventDefault();
-      const dy = Math.max(0, e.clientY - (startYRef.current ?? e.clientY));
+      const dy = Math.max(0, ev.clientY - (startYRef.current ?? ev.clientY));
       draggingRef.current = false;
       startYRef.current = null;
       setDragY(0);
       if (dy > thresholdPx) onClose();
 
       window.removeEventListener("pointermove", onMove, opts);
-      window.removeEventListener("pointerup", end, opts);
-      window.removeEventListener("pointercancel", end, opts);
+      window.removeEventListener("pointerup", onEnd, opts);
+      window.removeEventListener("pointercancel", onEnd, opts);
     };
 
-    if (draggingRef.current) {
-      window.addEventListener("pointermove", onMove, opts);
-      window.addEventListener("pointerup", end, opts);
-      window.addEventListener("pointercancel", end, opts);
-    }
-
-    return () => {
-      window.removeEventListener("pointermove", onMove, opts);
-      window.removeEventListener("pointerup", end, opts);
-      window.removeEventListener("pointercancel", end, opts);
-    };
-  }, [onClose, thresholdPx]);
-
-  const onHandleDown = (e: React.PointerEvent) => {
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-    draggingRef.current = true;
-    startYRef.current = e.clientY;
-    setDragY(0);
+    window.addEventListener("pointermove", onMove, opts);
+    window.addEventListener("pointerup", onEnd, opts);
+    window.addEventListener("pointercancel", onEnd, opts);
   };
 
+  // 열려 있고 드래그 중이 아니면 transform 제거(iOS 스크롤 버그 회피)
   const isRestOpen = open && dragY === 0;
 
   return (
@@ -75,13 +66,18 @@ export default function BottomSheet({ open, maxHeightPx, thresholdPx = 120, onCl
         className="mx-auto w-full max-w-[560px] rounded-t-2xl bg-white shadow-[0_-10px_30px_rgba(0,0,0,0.12)] overflow-hidden flex flex-col min-h-0"
         style={{ height: maxHeightPx ?? Math.floor(window.innerHeight * 0.75) }}
       >
-        {/* 드래그 핸들 */}
+        {/* 드래그 핸들 (여길 아래로 끌면 닫힘) */}
         <div className="pt-3 pb-2 cursor-grab touch-none select-none" onPointerDown={onHandleDown}>
           <div className="mx-auto h-1.5 w-12 rounded-full bg-gray-300" />
         </div>
 
-        {/* 내부 스크롤 영역은 부모가 아니라 "자식"이 overflow-y-auto를 가져야 함 */}
-        <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
+        {/* ✅ 내부 스크롤 컨테이너 (여기 하나만 overflow-y-auto) */}
+        <div
+          className="flex-1 min-h-0 overflow-y-auto"
+          style={{ WebkitOverflowScrolling: "touch", overscrollBehavior: "contain" as any }}
+        >
+          {children}
+        </div>
       </div>
     </div>
   );
