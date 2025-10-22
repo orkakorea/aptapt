@@ -15,7 +15,6 @@ import { calcMonthlyWithPolicy, normPolicyKey } from "@/core/pricing";
 
 /* ===== 색상/상수 ===== */
 const COLOR_PRIMARY = "#6F4BF2";
-// const COLOR_PRIMARY_LIGHT = "#EEE8FF"; // (이 파일 내부에서는 미사용)
 
 export default function MapMobilePageV2() {
   const mapRef = useRef<HTMLDivElement | null>(null);
@@ -45,7 +44,7 @@ export default function MapMobilePageV2() {
   const sheetOpenRef = useRef(false);
   const [activeTab, setActiveTab] = useState<"detail" | "cart" | "quote">("detail");
 
-  /* 전화 버튼 위치 기준으로 시트 최대 높이 계산 */
+  /* 전화 버튼 기준 시트 최대 높이 */
   const phoneBtnRef = useRef<HTMLAnchorElement>(null);
   const [sheetMaxH, setSheetMaxH] = useState<number>(() => Math.max(320, Math.floor(window.innerHeight * 0.75)));
 
@@ -62,7 +61,7 @@ export default function MapMobilePageV2() {
     if (sheetOpen) recalcSheetMax();
   }, [sheetOpen, recalcSheetMax]);
 
-  /* 마커: 클릭 시 시트 열기 */
+  /* 마커 */
   const markers = useMarkers({
     kakao,
     map,
@@ -115,7 +114,7 @@ export default function MapMobilePageV2() {
     window.addEventListener("popstate", onPop);
 
     const onBeforeUnload = (ev: BeforeUnloadEvent) => {
-      if (allowUnloadRef.current) return; // 전화 등 허용 이탈
+      if (allowUnloadRef.current) return;
       ev.preventDefault();
       ev.returnValue = "";
     };
@@ -152,25 +151,34 @@ export default function MapMobilePageV2() {
     } catch {}
   }, [searchQ, search]);
 
+  /* =========================
+   *  기간 기억하기 (기본값)
+   * ========================= */
+  const [preferredMonths, setPreferredMonths] = useState<number>(() => {
+    const raw = localStorage.getItem("m2_preferred_months");
+    const n = raw ? Number(raw) : 1;
+    return n >= 1 && n <= 12 ? n : 1;
+  });
+  useEffect(() => {
+    localStorage.setItem("m2_preferred_months", String(preferredMonths));
+  }, [preferredMonths]);
+
   /* 카트 조작 */
   const isInCart = useCallback((rowKey?: string | null) => !!rowKey && cart.some((c) => c.rowKey === rowKey), [cart]);
 
   const addSelectedToCart = useCallback(() => {
     if (!selected) return;
-    // 최근 담은 항목이 맨 위로 오도록 앞에 삽입
+    // 새로 담길 때 기본 기간은 preferredMonths 사용
     const next: CartItem = {
       rowKey: selected.rowKey,
       aptName: selected.name,
       productName: selected.productName,
-      months: 1,
+      months: preferredMonths,
       baseMonthly: selected.monthlyFee ?? 0,
       monthlyFeeY1: selected.monthlyFeeY1 ?? undefined,
     };
     setCart((prev) => [next, ...prev.filter((c) => c.rowKey !== next.rowKey)]);
-    setActiveTab("cart");
-    setSheetOpen(true);
-    recalcSheetMax();
-  }, [selected, recalcSheetMax]);
+  }, [selected, preferredMonths]);
 
   const removeFromCart = useCallback((rowKey: string) => {
     setCart((prev) => prev.filter((c) => c.rowKey !== rowKey));
@@ -181,6 +189,8 @@ export default function MapMobilePageV2() {
 
   const updateMonths = useCallback(
     (rowKey: string, months: number) => {
+      // 드롭다운에서 바꾼 값은 사용자가 원하는 기본값으로 기억
+      setPreferredMonths(months);
       setCart((prev) => {
         if (applyAll) return prev.map((c) => ({ ...c, months }));
         return prev.map((c) => (c.rowKey === rowKey ? { ...c, months } : c));
@@ -356,20 +366,13 @@ export default function MapMobilePageV2() {
                 if (!selected) return;
                 if (isInCart(selected.rowKey)) {
                   removeFromCart(selected.rowKey);
+                  // 취소 시에는 시트 유지 (요청: 담기 시에만 닫기)
                 } else {
-                  const next: CartItem = {
-                    rowKey: selected.rowKey,
-                    aptName: selected.name,
-                    productName: selected.productName,
-                    months: 1,
-                    baseMonthly: selected.monthlyFee ?? 0,
-                    monthlyFeeY1: selected.monthlyFeeY1 ?? undefined,
-                  };
-                  setCart((prev) => [next, ...prev.filter((c) => c.rowKey !== next.rowKey)]);
-                  setActiveTab("cart");
+                  addSelectedToCart();
+                  setSheetOpen(false); // ✅ 담기 후 바로 시트 종료
                 }
               }}
-              onClose={() => setSheetOpen(false)}
+              /* onClose 제거 → 상세 타이틀 옆 동그라미 X 버튼 숨김 */
             />
           )}
 
