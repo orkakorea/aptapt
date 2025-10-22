@@ -1,91 +1,57 @@
-import { ReactNode, useEffect } from "react";
-import { cn } from "@/lib/utils";
-import { useSheetDrag } from "@/hooks/useSheetDrag";
+import React from "react";
 
-export interface BottomSheetProps {
-  /** 시트 열림 상태 */
+type BottomSheetProps = {
   open: boolean;
-  /** 닫힘 콜백 */
-  onClose: () => void;
+  /** useSheetDrag().translateY 값을 그대로 넣어주세요 */
+  translateY?: number;
+  /** 시트 최대 높이(px). 없으면 콘텐츠 높이대로 */
+  maxHeightPx?: number;
+  /** 손잡이(상단 바)에서 pointerdown 이벤트 핸들러 */
+  onHandlePointerDown?: (e: React.PointerEvent) => void;
   /** 시트 내용 */
-  children: ReactNode;
-  /** 추가 className */
-  className?: string;
-  /** 드래그로 닫힐 임계치(px), 기본 120 */
-  threshold?: number;
-}
+  children: React.ReactNode;
+  /** z-index 커스터마이즈(기본 55) */
+  zIndex?: number;
+};
 
 /**
- * 모바일 바텀시트 컴포넌트
- * - useSheetDrag 훅을 사용하여 드래그로 닫기 기능 제공
- * - 배경 오버레이 클릭 시 닫기
+ * 매우 단순한 프레젠테이션 전용 바텀시트
+ * - iOS 스크롤 버그 회피: 열림+드래그중 아님 → transform 제거
+ * - 드래그 제스처는 useSheetDrag 훅에서 처리하고, 여기에는 결과만 주입
  */
-export function BottomSheet({
+export default function BottomSheet({
   open,
-  onClose,
+  translateY = 0,
+  maxHeightPx,
+  onHandlePointerDown,
   children,
-  className,
-  threshold = 120,
+  zIndex = 55,
 }: BottomSheetProps) {
-  const { translateY, onHandlePointerDown } = useSheetDrag({
-    open,
-    onClose,
-    threshold,
-  });
-
-  // 시트가 열렸을 때 body 스크롤 방지
-  useEffect(() => {
-    if (open) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
-    }
-    return () => {
-      document.body.style.overflow = "";
-    };
-  }, [open]);
-
-  if (!open && translateY === 0) return null;
+  const isRestOpen = open && translateY === 0;
 
   return (
-    <>
-      {/* Overlay */}
+    <div
+      className={`fixed left-0 right-0 ${open ? "pointer-events-auto" : "pointer-events-none"}`}
+      style={{
+        bottom: 0,
+        zIndex,
+        transform: open ? (isRestOpen ? "none" : `translateY(${translateY}px)`) : "translateY(110%)",
+        transition: "transform 200ms ease-out",
+        willChange: isRestOpen ? ("auto" as any) : "transform",
+      }}
+      aria-hidden={!open}
+    >
       <div
-        className={cn(
-          "fixed inset-0 z-40 bg-black/80 transition-opacity",
-          open ? "opacity-100" : "opacity-0 pointer-events-none"
-        )}
-        onClick={onClose}
-      />
-
-      {/* Bottom Sheet */}
-      <div
-        className={cn(
-          "fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-[20px] bg-background border-t shadow-lg transition-transform",
-          "max-h-[85vh]",
-          className
-        )}
-        style={{
-          transform: open
-            ? `translateY(${translateY}px)`
-            : "translateY(100%)",
-        }}
+        className="mx-auto w-full max-w-[560px] rounded-t-2xl bg-white shadow-[0_-10px_30px_rgba(0,0,0,0.12)] overflow-hidden flex flex-col min-h-0"
+        style={{ height: maxHeightPx ?? undefined, maxHeight: maxHeightPx ?? undefined }}
+        role="dialog"
+        aria-modal={open}
       >
-        {/* Drag Handle */}
-        <div
-          className="flex justify-center py-3 cursor-grab active:cursor-grabbing"
-          onPointerDown={onHandlePointerDown}
-        >
-          <div className="w-12 h-1.5 rounded-full bg-muted" />
+        <div className="pt-3 pb-2 cursor-grab touch-none select-none" onPointerDown={onHandlePointerDown}>
+          <div className="mx-auto h-1.5 w-12 rounded-full bg-gray-300" />
         </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto px-4 pb-6">
-          {children}
-        </div>
+        <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
       </div>
-    </>
+    </div>
   );
 }
-
-export default BottomSheet;
