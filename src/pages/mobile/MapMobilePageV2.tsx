@@ -3,19 +3,18 @@ import { useKakaoLoader } from "../../hooks/useKakaoLoader";
 import { useKakaoMap } from "../../hooks/useKakaoMap";
 import usePlaceSearch from "../../hooks/usePlaceSearch";
 import useMarkers from "../../hooks/useMarkers";
+import BottomSheet from "../../components/mobile/BottomSheet";
 
 import type { SelectedApt, CartItem } from "../../core/types";
+import { fmtNum, fmtWon } from "../../core/utils";
+import { calcMonthlyWithPolicy, normPolicyKey } from "../../core/pricing";
 
 /* 색상 */
 const COLOR_PRIMARY = "#6F4BF2";
+const COLOR_PRIMARY_LIGHT = "#EEE8FF";
+const COLOR_GRAY_CARD = "#F4F6FA";
+const monthOptions: number[] = Array.from({ length: 12 }, (_, i) => i + 1);
 
-/**
- * 기본화면(V2)
- * - 상단바 우측: "패키지 문의" 버튼(모달은 다음 단계에서)
- * - 검색창 왼쪽 배치, 오른쪽 버튼 스택(검색/카트/전화)
- * - 검색 실행 또는 외부 탭 시 input blur → 모바일 키보드 자동 내림
- * - 브라우저 뒤로가기 → 종료 확인 모달(전화는 예외 처리)
- */
 export default function MapMobilePageV2() {
   const mapRef = useRef<HTMLDivElement | null>(null);
 
@@ -31,24 +30,43 @@ export default function MapMobilePageV2() {
   /* 검색 */
   const [searchQ, setSearchQ] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const searchAreaRef = useRef<HTMLDivElement>(null); // 검색 영역 외부 탭 감지용
+  const searchAreaRef = useRef<HTMLDivElement>(null);
   const search = usePlaceSearch({ kakao, map, defaultLevel: 4, smoothPan: true });
 
-  /* 선택/카트 (배지용 카운트만 사용) */
+  /* 선택/카트 */
   const [selected, setSelected] = useState<SelectedApt | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const selectedRowKeys = useMemo(() => cart.map((c) => c.rowKey), [cart]);
 
-  /* 마커들 (클릭 시 선택만 저장) */
+  /* 마커들: 클릭 시 시트 열고 '단지상세' 탭으로 */
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"detail" | "cart" | "quote">("detail");
+
+  const phoneBtnRef = useRef<HTMLAnchorElement>(null);
+  const [sheetMaxH, setSheetMaxH] = useState<number>(() => Math.max(320, Math.floor(window.innerHeight * 0.75)));
+
+  const recalcSheetMax = useCallback(() => {
+    const winH = window.innerHeight;
+    const rect = phoneBtnRef.current?.getBoundingClientRect();
+    const topEdge = rect ? Math.max(0, rect.bottom + 8) : winH * 0.25; // 전화 버튼 바로 아래 + 8px
+    const h = Math.max(320, winH - topEdge);
+    setSheetMaxH(h);
+  }, []);
+
   const markers = useMarkers({
     kakao,
     map,
     clusterer,
-    onSelect: (apt) => setSelected(apt),
+    onSelect: (apt) => {
+      setSelected(apt);
+      setActiveTab("detail");
+      setSheetOpen(true);
+      recalcSheetMax(); // 위치에 맞춰 높이 갱신
+    },
     externalSelectedRowKeys: selectedRowKeys,
   });
 
-  /* 맵 준비 시 첫 로딩 강제 */
+  /* 첫 로딩 */
   useEffect(() => {
     if (map && kakao) {
       setTimeout(() => {
@@ -60,15 +78,19 @@ export default function MapMobilePageV2() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, kakao]);
 
-  /* =========================
-   * 뒤로가기 가드 (+ 전화만 예외)
-   * ========================= */
+  /* 리사이즈 시 높이 재계산 */
+  useEffect(() => {
+    const onResize = () => recalcSheetMax();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [recalcSheetMax]);
+
+  /* 뒤로가기 가드(+전화 예외) */
   const [exitAsk, setExitAsk] = useState(false);
   const popHandlerRef = useRef<(e: PopStateEvent) => void>();
-  const allowUnloadRef = useRef(false); // tel: 클릭 시 잠시 true → beforeunload 우회
+  const allowUnloadRef = useRef(false);
 
   useEffect(() => {
-    // 히스토리에 가드 스택 쌓기
     history.pushState({ guard: true }, "");
     const onPop = () => {
       history.pushState({ guard: true }, "");
@@ -77,9 +99,8 @@ export default function MapMobilePageV2() {
     popHandlerRef.current = onPop;
     window.addEventListener("popstate", onPop);
 
-    // 전화 등 허용된 이탈은 통과, 그 외는 이탈 방지
     const onBeforeUnload = (ev: BeforeUnloadEvent) => {
-      if (allowUnloadRef.current) return; // ✅ 허용된 이탈은 막지 않음
+      if (allowUnloadRef.current) return;
       ev.preventDefault();
       ev.returnValue = "";
     };
@@ -92,28 +113,22 @@ export default function MapMobilePageV2() {
     };
   }, []);
 
-  /* =========================
-   * 바깥 탭 시 커서/키보드 닫기
-   * ========================= */
+  /* 외부 탭 시 blur */
   useEffect(() => {
     const blurActive = () => {
       const el = document.activeElement as HTMLElement | null;
       if (el && typeof el.blur === "function") el.blur();
     };
-
-    // 캡처 단계에서 먼저 받음 → 지도/오버레이가 이벤트 소비해도 동작
     const onPointerDown = (e: PointerEvent) => {
       const target = e.target as Node;
-      // 검색 입력 영역을 눌렀을 땐 그대로 두고, 그 외엔 blur
       if (searchAreaRef.current?.contains(target)) return;
       blurActive();
     };
-
     document.addEventListener("pointerdown", onPointerDown, true);
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
   }, []);
 
-  /* 검색 실행 + blur(모바일 키보드 내림) */
+  /* 검색 실행 + blur */
   const runSearchAndBlur = useCallback(async () => {
     try {
       searchInputRef.current?.blur();
@@ -122,19 +137,75 @@ export default function MapMobilePageV2() {
     } catch {}
   }, [searchQ, search]);
 
+  /* 카트 조작 */
+  const isInCart = useCallback((rowKey?: string | null) => !!rowKey && cart.some((c) => c.rowKey === rowKey), [cart]);
+  const addSelectedToCart = useCallback(() => {
+    if (!selected) return;
+    const next: CartItem = {
+      rowKey: selected.rowKey,
+      aptName: selected.name,
+      productName: selected.productName,
+      months: 1,
+      baseMonthly: selected.monthlyFee ?? 0,
+      monthlyFeeY1: selected.monthlyFeeY1 ?? undefined,
+    };
+    setCart((prev) => [next, ...prev.filter((c) => c.rowKey !== next.rowKey)]);
+    setActiveTab("cart");
+    setSheetOpen(true);
+    recalcSheetMax();
+  }, [selected, recalcSheetMax]);
+
+  const removeFromCart = useCallback((rowKey: string) => {
+    setCart((prev) => prev.filter((c) => c.rowKey !== rowKey));
+  }, []);
+
+  const updateMonths = useCallback((rowKey: string, months: number) => {
+    setCart((prev) => prev.map((c) => (c.rowKey === rowKey ? { ...c, months } : c)));
+  }, []);
+
+  /* 할인/총액 계산 */
+  const computedCart = useMemo(() => {
+    const cnt = new Map<string, number>();
+    cart.forEach((c) => {
+      const k = normPolicyKey(c.productName);
+      cnt.set(k, (cnt.get(k) ?? 0) + 1);
+    });
+    return cart.map((c) => {
+      const k = normPolicyKey(c.productName);
+      const same = cnt.get(k) ?? 1;
+      const { monthly, rate } = calcMonthlyWithPolicy(
+        c.productName,
+        c.months,
+        c.baseMonthly ?? 0,
+        c.monthlyFeeY1,
+        same,
+      );
+      return { ...c, _monthly: monthly, _discountRate: rate, _total: monthly * c.months };
+    });
+  }, [cart]);
+
+  const totalCost = useMemo(() => computedCart.reduce((s, c) => s + (c._total ?? 0), 0), [computedCart]);
+
+  /* 특정 아이템 포커스 */
+  const goToRowKey = useCallback(
+    (rk: string) => {
+      markers.focusRowKey(rk);
+      setActiveTab("detail");
+      setSheetOpen(true);
+      recalcSheetMax();
+    },
+    [markers, recalcSheetMax],
+  );
+
   return (
     <div className="w-screen h-[100dvh] bg-white">
       {/* 상단바 */}
       <div className="fixed top-0 left-0 right-0 z-[40] bg-white border-b">
         <div className="h-14 px-3 flex items-center justify-between">
           <div className="font-extrabold text-[15px]">응답하라 입주민이여</div>
-          {/* 우측: 패키지 문의 (모달은 다음 단계에서) */}
           <button
             className="px-3 py-1 rounded-full border text-sm font-semibold"
-            onClick={() => {
-              // TODO: 다음 단계에서 문의 모달 오픈
-              console.log("패키지 문의 클릭");
-            }}
+            onClick={() => console.log("패키지 문의 클릭")}
           >
             패키지 문의
           </button>
@@ -167,7 +238,7 @@ export default function MapMobilePageV2() {
       {/* 오른쪽 상단 버튼 스택: 검색 → 카트 → 전화 */}
       <div className="fixed z-[35] right-3 top-[64px] pointer-events-none">
         <div className="flex flex-col gap-2 pointer-events-auto">
-          {/* 검색 버튼 */}
+          {/* 검색 */}
           <button
             onClick={runSearchAndBlur}
             className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow"
@@ -180,13 +251,12 @@ export default function MapMobilePageV2() {
             </svg>
           </button>
 
-          {/* 카트 버튼(배지) - 바텀시트는 다음 단계 */}
+          {/* 카트 */}
           <button
             onClick={() => {
-              // TODO: 다음 단계에서 카트 시트 열기
-              console.log("카트 클릭");
-              // 외부 탭과 동일하게 포커스 제거
-              (document.activeElement as HTMLElement | null)?.blur?.();
+              setActiveTab("cart");
+              setSheetOpen(true);
+              recalcSheetMax();
             }}
             className="relative w-11 h-11 rounded-full flex items-center justify-center text-white shadow"
             style={{ backgroundColor: COLOR_PRIMARY }}
@@ -203,16 +273,13 @@ export default function MapMobilePageV2() {
             )}
           </button>
 
-          {/* 전화 버튼(☎) — beforeunload 예외 처리 */}
+          {/* 전화 (beforeunload 예외) */}
           <a
+            ref={phoneBtnRef}
             href="tel:1551-0810"
             onClick={() => {
-              // ✅ 이탈 허용 (2초 뒤 자동 복원)
               allowUnloadRef.current = true;
-              setTimeout(() => {
-                allowUnloadRef.current = false;
-              }, 2000);
-              // 포커스도 제거해서 키보드 닫기
+              setTimeout(() => (allowUnloadRef.current = false), 2000);
               (document.activeElement as HTMLElement | null)?.blur?.();
             }}
             className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow"
@@ -226,6 +293,52 @@ export default function MapMobilePageV2() {
           </a>
         </div>
       </div>
+
+      {/* 시트 밖 클릭 시 닫기 */}
+      {sheetOpen && <div className="fixed inset-0 z-[50] bg-black/0" onClick={() => setSheetOpen(false)} />}
+
+      {/* 바텀시트 */}
+      <BottomSheet open={sheetOpen} maxHeightPx={sheetMaxH} onClose={() => setSheetOpen(false)}>
+        {/* 탭 헤더 */}
+        <div className="px-4 mt-1 flex items-center gap-2">
+          <TabBtn active={activeTab === "detail"} onClick={() => setActiveTab("detail")} label="단지상세" />
+          <TabBtn active={activeTab === "cart"} onClick={() => setActiveTab("cart")} label="장바구니" />
+          <TabBtn active={activeTab === "quote"} onClick={() => setActiveTab("quote")} label="견적상세" />
+        </div>
+
+        <div className="-mx-4 h-3 bg-white" />
+
+        {/* 본문 */}
+        <div
+          className="px-4 pb-4 flex-1 min-h-0 overflow-y-auto"
+          style={{ WebkitOverflowScrolling: "touch", overscrollBehavior: "contain" as any }}
+        >
+          {activeTab === "detail" && (
+            <DetailPanel
+              selected={selected}
+              onToggleCart={() => {
+                if (!selected) return;
+                if (isInCart(selected.rowKey)) removeFromCart(selected.rowKey);
+                else addSelectedToCart();
+              }}
+              inCart={isInCart(selected?.rowKey)}
+            />
+          )}
+
+          {activeTab === "cart" && (
+            <CartList
+              colorPrimary={COLOR_PRIMARY}
+              colorPrimaryLight={COLOR_PRIMARY_LIGHT}
+              cart={computedCart}
+              onUpdateMonths={updateMonths}
+              onRemove={removeFromCart}
+              onGoTo={goToRowKey}
+            />
+          )}
+
+          {activeTab === "quote" && <QuotePanel total={totalCost} />}
+        </div>
+      </BottomSheet>
 
       {/* SDK 에러 토스트 */}
       {kakaoError && (
@@ -250,9 +363,174 @@ export default function MapMobilePageV2() {
   );
 }
 
-/* -----------------------------
- * 종료 확인 모달 (심플)
- * ----------------------------- */
+/* ---------- 작은 컴포넌트들 ---------- */
+
+function TabBtn({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
+  return (
+    <button
+      className={`px-4 py-2 rounded-full text-sm font-semibold ${active ? "text-white" : "bg-gray-100"}`}
+      style={active ? { backgroundColor: COLOR_PRIMARY } : {}}
+      onClick={onClick}
+    >
+      {label}
+    </button>
+  );
+}
+
+function DetailPanel({
+  selected,
+  inCart,
+  onToggleCart,
+}: {
+  selected: SelectedApt | null;
+  inCart: boolean;
+  onToggleCart: () => void;
+}) {
+  if (!selected) return <div className="text-center text-sm text-gray-500 py-6">지도의 단지를 선택하세요.</div>;
+  const y1Monthly = selected.monthlyFeeY1 ?? Math.round((selected.monthlyFee ?? 0) * 0.7);
+
+  return (
+    <div>
+      <div className="rounded-2xl overflow-hidden bg-gray-100 aspect-[4/3]">
+        {selected.imageUrl ? (
+          <img src={selected.imageUrl} alt={selected.name} className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-gray-400">이미지</div>
+        )}
+      </div>
+
+      <div className="mt-3 flex items-start gap-3">
+        <div className="flex-1">
+          <div className="text-[20px] font-extrabold">{selected.name}</div>
+          <div className="text-sm text-gray-500">
+            {fmtNum(selected.households)} 세대 · {fmtNum(selected.residents)} 명
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-2">
+        <div className="rounded-2xl px-4 py-3" style={{ backgroundColor: COLOR_GRAY_CARD }}>
+          <div className="text-sm text-gray-600">월 광고료</div>
+          <div className="text-[20px] font-extrabold">
+            {fmtWon(selected.monthlyFee)} <span className="text-xs text-gray-500">(VAT별도)</span>
+          </div>
+        </div>
+        <div
+          className="rounded-2xl px-4 py-3 border-2"
+          style={{ borderColor: COLOR_PRIMARY, backgroundColor: "#EEE8FF" }}
+        >
+          <div className="text-sm text-gray-700">1년 계약 시 월 광고료</div>
+          <div className="text:[20px] font-extrabold" style={{ color: COLOR_PRIMARY }}>
+            {fmtWon(y1Monthly)} <span className="text-xs text-gray-500">(VAT별도)</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-3">
+        <button
+          className={`w-full h-12 rounded-2xl font-extrabold ${inCart ? "text-gray-700" : "text-white"}`}
+          style={{ backgroundColor: inCart ? "#E5E7EB" : COLOR_PRIMARY }}
+          aria-pressed={inCart}
+          onClick={onToggleCart}
+        >
+          {inCart ? "담기 취소" : "아파트 담기"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CartList(props: {
+  colorPrimary: string;
+  colorPrimaryLight: string;
+  cart: (CartItem & { _monthly: number; _discountRate: number; _total: number })[];
+  onUpdateMonths: (rowKey: string, months: number) => void;
+  onRemove: (rowKey: string) => void;
+  onGoTo: (rowKey: string) => void;
+}) {
+  const { colorPrimary, colorPrimaryLight, cart, onUpdateMonths, onRemove, onGoTo } = props;
+
+  return (
+    <div className="space-y-3">
+      {cart.map((item) => {
+        const percent = Math.round((item._discountRate ?? 0) * 100);
+        return (
+          <div key={item.rowKey} className="rounded-2xl border border-gray-200 p-4">
+            <div className="flex items-start gap-3">
+              <button onClick={() => onGoTo(item.rowKey)} className="flex-1 text-left" title="지도로 이동">
+                <div className="font-extrabold text-[16px]">{item.aptName}</div>
+                <div className="text-xs text-gray-500">{item.productName ?? "ELEVATOR TV"}</div>
+              </button>
+              <button
+                onClick={() => onRemove(item.rowKey)}
+                className="h-8 px-3 rounded-full bg-gray-100 text-gray-600 text-sm"
+                aria-label="삭제"
+              >
+                삭제
+              </button>
+            </div>
+
+            <div className="mt-3">
+              <div className="text-sm text-gray-600 mb-1">광고기간</div>
+              <select
+                className="w-36 rounded-xl border px-3 py-2"
+                value={item.months}
+                onChange={(e) => onUpdateMonths(item.rowKey, Number(e.target.value))}
+              >
+                {monthOptions.map((m) => (
+                  <option key={m} value={m}>
+                    {m}개월
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+              <div className="text-gray-600">월광고료(기본)</div>
+              <div className="text-right font-semibold">{fmtWon(item.baseMonthly)}</div>
+            </div>
+
+            <div className="mt-1 grid grid-cols-2 gap-3 text-sm">
+              <div className="text-gray-600">총광고료</div>
+              <div className="text-right">
+                <span className="inline-flex items-center gap-2">
+                  {percent > 0 && (
+                    <span
+                      className="rounded-full px-2 py-0.5 text-[11px] font-bold"
+                      style={{ backgroundColor: colorPrimaryLight, color: colorPrimary }}
+                    >
+                      {percent}%할인
+                    </span>
+                  )}
+                  <span className="font-extrabold" style={{ color: colorPrimary }}>
+                    {fmtWon(item._total)}
+                  </span>
+                </span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+      {!cart.length && <div className="text-center text-sm text-gray-500 py-6">카트가 비어 있어요.</div>}
+    </div>
+  );
+}
+
+function QuotePanel({ total }: { total: number }) {
+  return (
+    <div className="space-y-3">
+      <div className="rounded-2xl px-4 py-3" style={{ backgroundColor: COLOR_PRIMARY_LIGHT }}>
+        <div className="text-sm text-gray-600">총 비용</div>
+        <div className="text-[20px] font-extrabold" style={{ color: COLOR_PRIMARY }}>
+          {fmtWon(total)}
+        </div>
+        <div className="text-[11px] text-gray-500">(VAT별도)</div>
+      </div>
+      <div className="text-sm text-gray-600">※ 견적 상세는 추후 확장</div>
+    </div>
+  );
+}
+
 function ConfirmExitModal({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
   return (
     <div className="fixed inset-0 z-[90]">
