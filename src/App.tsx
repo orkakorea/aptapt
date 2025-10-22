@@ -9,7 +9,6 @@ const MapPage = lazy(() => import("./pages/MapPage"));
 const InquiriesPage = lazy(() => import("./pages/admin/InquiriesPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const SupaDebugPage = lazy(() => import("./pages/SupaDebug"));
-// 맨 위 lazy import들 옆에 추가
 const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
 const DashboardPage = lazy(() => import("./pages/admin/DashboardPage"));
 const MapMobilePage = lazy(() => import("./pages/mobile/MapMobilePage"));
@@ -18,7 +17,6 @@ const MapMobilePageV2 = lazy(() => import("./pages/mobile/MapMobilePageV2")); //
 /** 경로에 따라 헤더를 조건부로 노출하는 레이아웃 */
 function AppLayout({ children }: PropsWithChildren) {
   const { pathname } = useLocation();
-
   // "/" 와 "/map" 계열에서만 헤더 노출
   const showHeader = pathname === "/" || pathname.startsWith("/map");
 
@@ -39,17 +37,15 @@ export default function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/map" element={<MapPage />} />
             <Route path="/m" element={<MapMobilePage />} />
-
+            <Route path="/m2" element={<MapMobilePageV2 />} /> {/* ⬇ NEW */}
             {/* Admin */}
             <Route path="/admin" element={<AdminLayout />}>
               <Route index element={<Navigate to="dashboard" replace />} />
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="inquiries" element={<InquiriesPage />} />
             </Route>
-
             {/* 도구 페이지 (필요 시) */}
             <Route path="/supa-debug" element={<SupaDebugPage />} />
-
             {/* 404 */}
             <Route path="*" element={<NotFound />} />
           </Routes>
