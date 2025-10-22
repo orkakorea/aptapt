@@ -26,7 +26,7 @@ export default function MapMobilePageV2() {
   const mapRef = useRef<HTMLDivElement | null>(null);
 
   // Kakao SDK → 지도/클러스터
-  const { kakao, loading: kakaoLoading, error: kakaoError } = useKakaoLoader();
+  const { kakao, error: kakaoError } = useKakaoLoader();
   const { map, clusterer } = useKakaoMap(mapRef, {
     kakao,
     center: { lat: 37.5665, lng: 126.978 }, // 서울시청
@@ -36,6 +36,7 @@ export default function MapMobilePageV2() {
 
   // 검색
   const [searchQ, setSearchQ] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const search = usePlaceSearch({ kakao, map, defaultLevel: 4, smoothPan: true });
 
   // 선택된 아파트(상세 탭에 표시)
@@ -58,6 +59,20 @@ export default function MapMobilePageV2() {
     externalSelectedRowKeys: selectedRowKeys,
   });
 
+  // ✅ 맵/SDK가 준비되면 첫 로딩을 강제로 한 번 실행
+  useEffect(() => {
+    if (map && kakao) {
+      setTimeout(() => {
+        try {
+          markers.refreshInBounds();
+        } catch {
+          /* no-op */
+        }
+      }, 0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map, kakao]);
+
   // 바텀시트 상태/드래그
   const [sheetOpen, setSheetOpen] = useState(false);
   const [sheetMaxH, setSheetMaxH] = useState<number>(Math.max(320, Math.floor(window.innerHeight * 0.75)));
@@ -69,6 +84,9 @@ export default function MapMobilePageV2() {
 
   // 탭: 카트/상세
   const [activeTab, setActiveTab] = useState<"cart" | "detail">("cart");
+
+  // 패키지 문의 모달
+  const [pkgOpen, setPkgOpen] = useState(false);
 
   // 시트 최대 높이 계산(리사이즈 대응)
   useEffect(() => {
@@ -144,6 +162,18 @@ export default function MapMobilePageV2() {
     [markers],
   );
 
+  // 검색 실행 + 키보드 내리기(blur)
+  const runSearchAndBlur = useCallback(async () => {
+    try {
+      // 포커스 제거(모바일 키보드 닫힘)
+      searchInputRef.current?.blur();
+      (document.activeElement as HTMLElement | null)?.blur?.();
+      await search.run(searchQ);
+    } catch {
+      /* no-op */
+    }
+  }, [searchQ, search]);
+
   /* ============
    * 렌더
    * ============ */
@@ -153,54 +183,96 @@ export default function MapMobilePageV2() {
       <div className="fixed top-0 left-0 right-0 z-[40] bg-white border-b">
         <div className="h-14 px-3 flex items-center justify-between">
           <div className="font-extrabold text-[15px]">응답하라 입주민이여 (V2)</div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                setSheetOpen(true);
-                setActiveTab("cart");
-              }}
-              className="px-3 py-1 rounded-full border text-sm font-semibold"
-            >
-              카트 {cart.length ? `(${cart.length})` : ""}
-            </button>
-          </div>
+          {/* 헤더 오른쪽 버튼은 제거(오른쪽 스택으로 이동) */}
         </div>
       </div>
 
       {/* 지도 */}
       <div ref={mapRef} className="fixed top-[56px] left-0 right-0 bottom-0 z-[10]" aria-label="map" />
 
-      {/* 검색창 */}
-      <div className="fixed z-[35] left-3 right-3 top-[64px] pointer-events-none">
-        <div className="flex items-start gap-2">
-          <form
-            onSubmit={async (e) => {
-              e.preventDefault();
-              await search.run(searchQ);
-            }}
-            className="flex-1 pointer-events-auto"
+      {/* 검색 입력창 (상단, 왼쪽) */}
+      <div className="fixed z-[35] left-3 right-[76px] top-[64px] pointer-events-none">
+        <form
+          onSubmit={async (e) => {
+            e.preventDefault();
+            await runSearchAndBlur();
+          }}
+          className="pointer-events-auto"
+        >
+          <input
+            ref={searchInputRef}
+            value={searchQ}
+            onChange={(e) => setSearchQ(e.target.value)}
+            placeholder="지역명, 아파트 이름, 단지명, 건물명"
+            className="w-full h-11 px-4 rounded-xl border outline-none bg-white/95"
+            style={{ borderColor: "#E8E0FF" }}
+          />
+        </form>
+      </div>
+
+      {/* 오른쪽 상단 버튼 스택 */}
+      <div className="fixed z-[35] right-3 top-[64px] pointer-events-none">
+        <div className="flex flex-col gap-2 pointer-events-auto">
+          {/* 패키지 문의 (모달 오픈) */}
+          <button
+            onClick={() => setPkgOpen(true)}
+            className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow"
+            style={{ backgroundColor: COLOR_PRIMARY }}
+            aria-label="패키지 문의"
+            title="패키지 문의"
           >
-            <input
-              value={searchQ}
-              onChange={(e) => setSearchQ(e.target.value)}
-              placeholder="지역명, 아파트 이름, 단지명, 건물명"
-              className="w-full h-11 px-4 rounded-xl border outline-none bg-white/95"
-              style={{ borderColor: "#E8E0FF" }}
-            />
-          </form>
-          <div className="flex flex-col gap-2 pointer-events-auto">
-            <button
-              onClick={() => search.run(searchQ)}
-              className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow"
-              style={{ backgroundColor: COLOR_PRIMARY }}
-              aria-label="검색"
-              title="검색"
-            >
-              <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79L20 21.49 21.49 20l-5.99-6zM9.5 14C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
-              </svg>
-            </button>
-          </div>
+            {/* 아이콘: headset(심플) */}
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+              <path d="M12 1a9 9 0 00-9 9v5a3 3 0 003 3h2v-8H6a7 7 0 0114 0h-2v8h2a3 3 0 003-3v-5a9 9 0 00-9-9z" />
+            </svg>
+          </button>
+
+          {/* 검색 실행 버튼 */}
+          <button
+            onClick={runSearchAndBlur}
+            className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow"
+            style={{ backgroundColor: COLOR_PRIMARY }}
+            aria-label="검색"
+            title="검색"
+          >
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+              <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79L20 21.49 21.49 20l-5.99-6zM9.5 14C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
+            </svg>
+          </button>
+
+          {/* 카트 버튼(배지) */}
+          <button
+            onClick={() => {
+              setSheetOpen(true);
+              setActiveTab("cart");
+            }}
+            className="relative w-11 h-11 rounded-full flex items-center justify-center text-white shadow"
+            style={{ backgroundColor: COLOR_PRIMARY }}
+            aria-label="카트 열기"
+            title="카트"
+          >
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+              <path d="M7 4h-2l-1 2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h9v-2h-8.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h5.74c.75 0 1.41-.41 1.75-1.03L23 6H6.21l-.94-2zM7 20c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm10 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
+            </svg>
+            {cart.length > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-[#FF3B30] text-[10px] font-bold flex items-center justify-center">
+                {cart.length > 99 ? "99+" : cart.length}
+              </span>
+            )}
+          </button>
+
+          {/* 전화 버튼 */}
+          <a
+            href="tel:1551-0810"
+            className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow"
+            style={{ backgroundColor: COLOR_PRIMARY }}
+            aria-label="전화 연결"
+            title="전화 연결"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+              <path d="M6.62 10.79a15.05 15.05 0 006.59 6.59l2.2-2.2a1 1 0 011.01-.24c1.12.37 2.33.57 3.58.57a1 1 0 011 1V21a1 1 0 01-1 1C10.3 22 2 13.7 2 3a1 1 0 011-1h3.5a1 1 0 011 1c0 1.25.2 2.46.57 3.58a1 1 0 01-.25 1.01l-2.2 2.2z" />
+            </svg>
+          </a>
         </div>
       </div>
 
@@ -287,6 +359,9 @@ export default function MapMobilePageV2() {
           Kakao SDK 오류: {kakaoError}
         </div>
       )}
+
+      {/* 패키지 문의 모달 */}
+      <PackageModal open={pkgOpen} onClose={() => setPkgOpen(false)} />
     </div>
   );
 }
@@ -472,6 +547,36 @@ function DetailPanel(props: {
             </tr>
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+/* =========================
+ * 패키지 문의 모달(심플)
+ * ========================= */
+function PackageModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[80]">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="absolute inset-x-4 top-24 rounded-2xl bg-white p-4 shadow-xl">
+        <div className="flex items-center justify-between mb-2">
+          <div className="font-extrabold">패키지 문의</div>
+          <button onClick={onClose} className="h-8 w-8 rounded-full bg-gray-100 text-gray-600">
+            ×
+          </button>
+        </div>
+        <div className="space-y-2">
+          <p className="text-sm text-gray-600">패키지 상품 상담을 원하시면 아래 연락처로 문의 주세요.</p>
+          <a
+            href="tel:1551-0810"
+            className="inline-block px-4 py-2 rounded-xl text-white font-semibold"
+            style={{ backgroundColor: COLOR_PRIMARY }}
+          >
+            1551-0810 전화하기
+          </a>
+        </div>
       </div>
     </div>
   );
