@@ -315,7 +315,7 @@ export default function MapMobilePageV2() {
       {/* 바텀시트 */}
       <BottomSheet open={sheetOpen} maxHeightPx={sheetMaxH} onClose={() => setSheetOpen(false)}>
         {/* 탭 헤더 — sticky */}
-        <div className="sticky top-0 z-20 px-4 pt-1 pb-2 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80 border-b">
+        <div className="sticky top-0 z-20 px-4 pt-1 pb-2 bg-white border-b">
           <div className="flex items-center gap-2">
             <TabBtn active={activeTab === "detail"} onClick={() => setActiveTab("detail")} label="단지상세" />
             <TabBtn active={activeTab === "cart"} onClick={() => setActiveTab("cart")} label="장바구니" />
