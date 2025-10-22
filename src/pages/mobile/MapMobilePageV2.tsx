@@ -233,6 +233,9 @@ export default function MapMobilePageV2() {
     [markers, recalcSheetMax],
   );
 
+  // ✅ 바텀시트가 항상 맨 위에서 시작하도록 신호 키
+  const resetScrollKey = `${sheetOpen ? 1 : 0}-${activeTab}-${selected?.rowKey ?? ""}`;
+
   return (
     <div className="w-screen h-[100dvh] bg-white">
       {/* 상단바 */}
@@ -314,9 +317,10 @@ export default function MapMobilePageV2() {
             ref={phoneBtnRef}
             href="tel:1551-0810"
             onClick={() => {
+              const el = document.activeElement as HTMLElement | null;
+              el?.blur?.();
               allowUnloadRef.current = true;
               setTimeout(() => (allowUnloadRef.current = false), 2000);
-              (document.activeElement as HTMLElement | null)?.blur?.();
             }}
             className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow"
             style={{ backgroundColor: COLOR_PRIMARY }}
@@ -334,7 +338,12 @@ export default function MapMobilePageV2() {
       {sheetOpen && <div className="fixed inset-0 z-[50] bg-black/0" onClick={() => setSheetOpen(false)} />}
 
       {/* 바텀시트 */}
-      <BottomSheet open={sheetOpen} maxHeightPx={sheetMaxH} onClose={() => setSheetOpen(false)}>
+      <BottomSheet
+        open={sheetOpen}
+        maxHeightPx={sheetMaxH}
+        onClose={() => setSheetOpen(false)}
+        resetScrollKey={resetScrollKey} // ✅ 바뀔 때마다 스크롤 맨 위
+      >
         {/* 탭 헤더 — 항상 고정(불투명) */}
         <div className="sticky top-0 z-20 px-4 pt-1 pb-2 bg-white border-b">
           <div className="flex items-center gap-2">
@@ -366,13 +375,12 @@ export default function MapMobilePageV2() {
                 if (!selected) return;
                 if (isInCart(selected.rowKey)) {
                   removeFromCart(selected.rowKey);
-                  // 취소 시에는 시트 유지 (요청: 담기 시에만 닫기)
                 } else {
+                  // ✅ 담기 → 시트 닫기 (그리고 다음에 열리면 항상 맨 위)
                   addSelectedToCart();
-                  setSheetOpen(false); // ✅ 담기 후 바로 시트 종료
+                  setSheetOpen(false);
                 }
               }}
-              /* onClose 제거 → 상세 타이틀 옆 동그라미 X 버튼 숨김 */
             />
           )}
 
@@ -384,7 +392,7 @@ export default function MapMobilePageV2() {
               onToggleApplyAll={setApplyAll}
               onUpdateMonths={updateMonths}
               onRemove={removeFromCart}
-              onGoTo={goToRowKey}
+              onGoTo={goToRowKey} // ✅ 클릭 시 단지상세 이동
             />
           )}
 
@@ -434,7 +442,7 @@ function QuotePanel({ total }: { total: number }) {
     <div className="space-y-3">
       <div className="rounded-2xl px-4 py-3 bg-[#EEE8FF]">
         <div className="text-sm text-gray-600">총 비용</div>
-        <div className="text-[20px] font-extrabold" style={{ color: COLOR_PRIMARY }}>
+        <div className="text-[20px] font-extrabold" style={{ color: "#6F4BF2" }}>
           {fmtWon(total)}
         </div>
         <div className="text-[11px] text-gray-500">(VAT별도)</div>
@@ -457,7 +465,7 @@ function ConfirmExitModal({ onConfirm, onCancel }: { onConfirm: () => void; onCa
           <button
             onClick={onConfirm}
             className="px-4 py-2 rounded-xl text-white font-semibold"
-            style={{ backgroundColor: COLOR_PRIMARY }}
+            style={{ backgroundColor: "#6F4BF2" }}
           >
             예
           </button>
