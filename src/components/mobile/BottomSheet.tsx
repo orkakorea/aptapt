@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 
 type Props = {
   open: boolean;
-  maxHeightPx?: number; // 시트 전체 높이(고정)
+  maxHeightPx?: number; // 시트 전체 높이
   thresholdPx?: number; // 드래그로 닫기 임계값 (기본 120px)
   onClose: () => void;
   children: React.ReactNode;
@@ -13,13 +13,13 @@ export default function BottomSheet({ open, maxHeightPx, thresholdPx = 120, onCl
   const startYRef = useRef<number | null>(null);
   const draggingRef = useRef(false);
 
-  // 드래그 리스너(윈도우 레벨)
+  // 윈도우 레벨 드래그 리스너
   useEffect(() => {
     const opts: AddEventListenerOptions = { passive: false };
 
     const onMove = (e: PointerEvent) => {
       if (!draggingRef.current || startYRef.current == null) return;
-      e.preventDefault(); // iOS에서 스크롤 끊기
+      e.preventDefault(); // iOS 스크롤 차단
       const dy = Math.max(0, e.clientY - startYRef.current);
       setDragY(dy);
     };
@@ -32,6 +32,7 @@ export default function BottomSheet({ open, maxHeightPx, thresholdPx = 120, onCl
       startYRef.current = null;
       setDragY(0);
       if (dy > thresholdPx) onClose();
+
       window.removeEventListener("pointermove", onMove, opts);
       window.removeEventListener("pointerup", end, opts);
       window.removeEventListener("pointercancel", end, opts);
@@ -74,9 +75,12 @@ export default function BottomSheet({ open, maxHeightPx, thresholdPx = 120, onCl
         className="mx-auto w-full max-w-[560px] rounded-t-2xl bg-white shadow-[0_-10px_30px_rgba(0,0,0,0.12)] overflow-hidden flex flex-col min-h-0"
         style={{ height: maxHeightPx ?? Math.floor(window.innerHeight * 0.75) }}
       >
+        {/* 드래그 핸들 */}
         <div className="pt-3 pb-2 cursor-grab touch-none select-none" onPointerDown={onHandleDown}>
           <div className="mx-auto h-1.5 w-12 rounded-full bg-gray-300" />
         </div>
+
+        {/* 내부 스크롤 영역은 부모가 아니라 "자식"이 overflow-y-auto를 가져야 함 */}
         <div className="flex-1 min-h-0 overflow-hidden">{children}</div>
       </div>
     </div>
