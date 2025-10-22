@@ -12,10 +12,9 @@ const COLOR_PRIMARY = "#6F4BF2";
 /**
  * 기본화면(V2)
  * - 상단바 우측: "패키지 문의" 버튼(모달은 다음 단계에서)
- * - 검색창 왼쪽에 배치, 오른쪽엔 버튼 스택(검색/카트/전화)
- * - 검색 실행 시 input blur로 모바일 키보드 자동 내림
- * - 브라우저 뒤로가기 → 종료 확인 모달
- * - 바텀시트/상세/모달은 아직 없음(다음 단계)
+ * - 검색창 왼쪽 배치, 오른쪽 버튼 스택(검색/카트/전화)
+ * - 검색 실행 또는 외부 탭 시 input blur → 모바일 키보드 자동 내림
+ * - 브라우저 뒤로가기 → 종료 확인 모달(전화는 예외 처리)
  */
 export default function MapMobilePageV2() {
   const mapRef = useRef<HTMLDivElement | null>(null);
@@ -32,6 +31,7 @@ export default function MapMobilePageV2() {
   /* 검색 */
   const [searchQ, setSearchQ] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchAreaRef = useRef<HTMLDivElement>(null); // 검색 영역 외부 탭 감지용
   const search = usePlaceSearch({ kakao, map, defaultLevel: 4, smoothPan: true });
 
   /* 선택/카트 (배지용 카운트만 사용) */
@@ -60,9 +60,13 @@ export default function MapMobilePageV2() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, kakao]);
 
-  /* 뒤로가기 가드 */
+  /* =========================
+   * 뒤로가기 가드 (+ 전화만 예외)
+   * ========================= */
   const [exitAsk, setExitAsk] = useState(false);
   const popHandlerRef = useRef<(e: PopStateEvent) => void>();
+  const allowUnloadRef = useRef(false); // tel: 클릭 시 잠시 true → beforeunload 우회
+
   useEffect(() => {
     // 히스토리에 가드 스택 쌓기
     history.pushState({ guard: true }, "");
@@ -73,8 +77,9 @@ export default function MapMobilePageV2() {
     popHandlerRef.current = onPop;
     window.addEventListener("popstate", onPop);
 
-    // 탭/창 닫기 방지
+    // 전화 등 허용된 이탈은 통과, 그 외는 이탈 방지
     const onBeforeUnload = (ev: BeforeUnloadEvent) => {
+      if (allowUnloadRef.current) return; // ✅ 허용된 이탈은 막지 않음
       ev.preventDefault();
       ev.returnValue = "";
     };
@@ -85,6 +90,27 @@ export default function MapMobilePageV2() {
       if (h) window.removeEventListener("popstate", h);
       window.removeEventListener("beforeunload", onBeforeUnload);
     };
+  }, []);
+
+  /* =========================
+   * 바깥 탭 시 커서/키보드 닫기
+   * ========================= */
+  useEffect(() => {
+    const blurActive = () => {
+      const el = document.activeElement as HTMLElement | null;
+      if (el && typeof el.blur === "function") el.blur();
+    };
+
+    // 캡처 단계에서 먼저 받음 → 지도/오버레이가 이벤트 소비해도 동작
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as Node;
+      // 검색 입력 영역을 눌렀을 땐 그대로 두고, 그 외엔 blur
+      if (searchAreaRef.current?.contains(target)) return;
+      blurActive();
+    };
+
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
   }, []);
 
   /* 검색 실행 + blur(모바일 키보드 내림) */
@@ -107,7 +133,6 @@ export default function MapMobilePageV2() {
             className="px-3 py-1 rounded-full border text-sm font-semibold"
             onClick={() => {
               // TODO: 다음 단계에서 문의 모달 오픈
-              // 임시로 토스트/콘솔
               console.log("패키지 문의 클릭");
             }}
           >
@@ -120,7 +145,7 @@ export default function MapMobilePageV2() {
       <div ref={mapRef} className="fixed top-[56px] left-0 right-0 bottom-0 z-[10]" aria-label="map" />
 
       {/* 검색창 (좌측) */}
-      <div className="fixed z-[35] left-3 right-[76px] top-[64px] pointer-events-none">
+      <div ref={searchAreaRef} className="fixed z-[35] left-3 right-[76px] top-[64px] pointer-events-none">
         <form
           onSubmit={async (e) => {
             e.preventDefault();
@@ -160,6 +185,8 @@ export default function MapMobilePageV2() {
             onClick={() => {
               // TODO: 다음 단계에서 카트 시트 열기
               console.log("카트 클릭");
+              // 외부 탭과 동일하게 포커스 제거
+              (document.activeElement as HTMLElement | null)?.blur?.();
             }}
             className="relative w-11 h-11 rounded-full flex items-center justify-center text-white shadow"
             style={{ backgroundColor: COLOR_PRIMARY }}
@@ -176,9 +203,18 @@ export default function MapMobilePageV2() {
             )}
           </button>
 
-          {/* 전화 버튼 */}
+          {/* 전화 버튼(☎) — beforeunload 예외 처리 */}
           <a
             href="tel:1551-0810"
+            onClick={() => {
+              // ✅ 이탈 허용 (2초 뒤 자동 복원)
+              allowUnloadRef.current = true;
+              setTimeout(() => {
+                allowUnloadRef.current = false;
+              }, 2000);
+              // 포커스도 제거해서 키보드 닫기
+              (document.activeElement as HTMLElement | null)?.blur?.();
+            }}
             className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow"
             style={{ backgroundColor: COLOR_PRIMARY }}
             aria-label="전화 연결"
