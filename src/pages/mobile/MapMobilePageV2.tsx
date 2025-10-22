@@ -314,28 +314,26 @@ export default function MapMobilePageV2() {
 
       {/* 바텀시트 */}
       <BottomSheet open={sheetOpen} maxHeightPx={sheetMaxH} onClose={() => setSheetOpen(false)}>
-        {/* 탭 헤더 */}
-        <div className="px-4 mt-1 flex items-center gap-2">
-          <TabBtn active={activeTab === "detail"} onClick={() => setActiveTab("detail")} label="단지상세" />
-          <TabBtn active={activeTab === "cart"} onClick={() => setActiveTab("cart")} label="장바구니" />
-          <TabBtn active={activeTab === "quote"} onClick={() => setActiveTab("quote")} label="견적상세" />
-          {/* 오른쪽 끝 X 버튼 */}
-          <div className="ml-auto">
-            <button
-              onClick={() => setSheetOpen(false)}
-              aria-label="닫기"
-              title="닫기"
-              className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center"
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                <path d="M18.3 5.71a1 1 0 00-1.41 0L12 10.59 7.11 5.7A1 1 0 105.7 7.11L10.59 12l-4.9 4.89a1 1 0 101.41 1.42L12 13.41l4.89 4.9a1 1 0 001.42-1.42L13.41 12l4.9-4.89a1 1 0 000-1.4z" />
-              </svg>
-            </button>
+        {/* 탭 헤더 — 항상 고정 */}
+        <div className="sticky top-0 z-20 px-4 pt-1 pb-2 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80 border-b">
+          <div className="flex items-center gap-2">
+            <TabBtn active={activeTab === "detail"} onClick={() => setActiveTab("detail")} label="단지상세" />
+            <TabBtn active={activeTab === "cart"} onClick={() => setActiveTab("cart")} label="장바구니" />
+            <TabBtn active={activeTab === "quote"} onClick={() => setActiveTab("quote")} label="견적상세" />
+            <div className="ml-auto">
+              <button
+                onClick={() => setSheetOpen(false)}
+                aria-label="닫기"
+                title="닫기"
+                className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                  <path d="M18.3 5.71a1 1 0 00-1.41 0L12 10.59 7.11 5.7A1 1 0 105.7 7.11L10.59 12l-4.9 4.89a1 1 0 101.41 1.42L12 13.41l4.89 4.9a1 1 0 001.42-1.42L13.41 12l4.9-4.89a1 1 0 000-1.4z" />
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
-
-        {/* 경계 띠 */}
-        <div className="-mx-4 h-3 bg-white" />
 
         {/* 본문(스크롤은 BottomSheet가 담당) */}
         <div className="px-4 pb-4">
