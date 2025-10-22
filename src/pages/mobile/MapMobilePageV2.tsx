@@ -338,30 +338,25 @@ export default function MapMobilePageV2() {
         {/* 본문(스크롤은 BottomSheet가 담당) */}
         <div className="px-4 pb-4">
           {activeTab === "detail" && (
-  <DetailPanel
-    selected={selected}
-    inCart={isInCart(selected?.rowKey)}
-    onToggleCart={() => {
-      if (!selected) return;
-      if (isInCart(selected.rowKey)) {
-        removeFromCart(selected.rowKey);
-      } else {
-        const next: CartItem = {
-          rowKey: selected.rowKey,
-          aptName: selected.name,
-          productName: selected.productName,
-          months: 1,
-          baseMonthly: selected.monthlyFee ?? 0,
-          monthlyFeeY1: selected.monthlyFeeY1 ?? undefined,
-        };
-        setCart((prev) => [next, ...prev.filter((c) => c.rowKey !== next.rowKey)]);
-        setActiveTab("cart");
-      }
-    }}
-    onClose={() => setSheetOpen(false)}
-  />
-)}
-
+            <DetailPanel
+              selected={selected}
+              inCart={isInCart(selected?.rowKey)}
+              onToggleCart={() => {
+                if (!selected) return;
+                if (isInCart(selected.rowKey)) removeFromCart(selected.rowKey);
+                else {
+                  const next: CartItem = {
+                    rowKey: selected.rowKey,
+                    aptName: selected.name,
+                    productName: selected.productName,
+                    months: 1,
+                    baseMonthly: selected.monthlyFee ?? 0,
+                    monthlyFeeY1: selected.monthlyFeeY1 ?? undefined,
+                  };
+                  setCart((prev) => [next, ...prev.filter((c) => c.rowKey !== next.rowKey)]);
+                  setActiveTab("cart");
+                }
+              }}
             />
           )}
 
