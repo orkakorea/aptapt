@@ -66,8 +66,7 @@ export function useKakaoMap(containerRef: React.RefObject<HTMLDivElement>, opts:
     debounceRef.current = (fn, ms) => {
       let t: number | undefined;
       return () => {
-        if (t) window.clearTimeout(t);
-        // @ts-expect-error setTimeout 타입 브라우저/노드 차이 무시
+        if (t !== undefined) window.clearTimeout(t);
         t = window.setTimeout(() => fn(), ms);
       };
     };
