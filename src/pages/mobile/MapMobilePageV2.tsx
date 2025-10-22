@@ -38,8 +38,9 @@ export default function MapMobilePageV2() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const selectedRowKeys = useMemo(() => cart.map((c) => c.rowKey), [cart]);
 
-  /* 마커들: 클릭 시 시트 열고 '단지상세' 탭으로 */
+  /* 바텀시트 상태 */
   const [sheetOpen, setSheetOpen] = useState(false);
+  const sheetOpenRef = useRef(false);
   const [activeTab, setActiveTab] = useState<"detail" | "cart" | "quote">("detail");
 
   const phoneBtnRef = useRef<HTMLAnchorElement>(null);
@@ -48,11 +49,17 @@ export default function MapMobilePageV2() {
   const recalcSheetMax = useCallback(() => {
     const winH = window.innerHeight;
     const rect = phoneBtnRef.current?.getBoundingClientRect();
-    const topEdge = rect ? Math.max(0, rect.bottom + 8) : winH * 0.25; // 전화 버튼 바로 아래 + 8px
+    const topEdge = rect ? Math.max(0, rect.bottom + 8) : winH * 0.25; // 전화 버튼 아래 + 8px
     const h = Math.max(320, winH - topEdge);
     setSheetMaxH(h);
   }, []);
 
+  useEffect(() => {
+    sheetOpenRef.current = sheetOpen;
+    if (sheetOpen) recalcSheetMax();
+  }, [sheetOpen, recalcSheetMax]);
+
+  /* 마커들: 클릭 시 시트 열고 '단지상세' 탭으로 */
   const markers = useMarkers({
     kakao,
     map,
@@ -61,7 +68,7 @@ export default function MapMobilePageV2() {
       setSelected(apt);
       setActiveTab("detail");
       setSheetOpen(true);
-      recalcSheetMax(); // 위치에 맞춰 높이 갱신
+      recalcSheetMax();
     },
     externalSelectedRowKeys: selectedRowKeys,
   });
@@ -85,7 +92,7 @@ export default function MapMobilePageV2() {
     return () => window.removeEventListener("resize", onResize);
   }, [recalcSheetMax]);
 
-  /* 뒤로가기 가드(+전화 예외) */
+  /* 뒤로가기 가드(+전화 예외 & 시트 먼저 닫기) */
   const [exitAsk, setExitAsk] = useState(false);
   const popHandlerRef = useRef<(e: PopStateEvent) => void>();
   const allowUnloadRef = useRef(false);
@@ -93,6 +100,14 @@ export default function MapMobilePageV2() {
   useEffect(() => {
     history.pushState({ guard: true }, "");
     const onPop = () => {
+      // 1) 시트가 열려 있으면 일단 시트 닫기
+      if (sheetOpenRef.current) {
+        setSheetOpen(false);
+        // 다시 가드 스택 추가 (뒤로가기로 바로 종료되지 않도록)
+        history.pushState({ guard: true }, "");
+        return;
+      }
+      // 2) 시트가 닫혀 있으면 종료 확인
       history.pushState({ guard: true }, "");
       setExitAsk(true);
     };
@@ -100,7 +115,7 @@ export default function MapMobilePageV2() {
     window.addEventListener("popstate", onPop);
 
     const onBeforeUnload = (ev: BeforeUnloadEvent) => {
-      if (allowUnloadRef.current) return;
+      if (allowUnloadRef.current) return; // 전화 등 허용 이탈은 통과
       ev.preventDefault();
       ev.returnValue = "";
     };
@@ -294,7 +309,7 @@ export default function MapMobilePageV2() {
         </div>
       </div>
 
-      {/* 시트 밖 클릭 시 닫기 */}
+      {/* 지도 클릭 시 닫힘(현재 동작 유지): 화면 전체 투명 클릭 레이어 */}
       {sheetOpen && <div className="fixed inset-0 z-[50] bg-black/0" onClick={() => setSheetOpen(false)} />}
 
       {/* 바텀시트 */}
@@ -304,11 +319,25 @@ export default function MapMobilePageV2() {
           <TabBtn active={activeTab === "detail"} onClick={() => setActiveTab("detail")} label="단지상세" />
           <TabBtn active={activeTab === "cart"} onClick={() => setActiveTab("cart")} label="장바구니" />
           <TabBtn active={activeTab === "quote"} onClick={() => setActiveTab("quote")} label="견적상세" />
+          {/* 오른쪽 끝 X 버튼 */}
+          <div className="ml-auto">
+            <button
+              onClick={() => setSheetOpen(false)}
+              aria-label="닫기"
+              title="닫기"
+              className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                <path d="M18.3 5.71a1 1 0 00-1.41 0L12 10.59 7.11 5.7A1 1 0 105.7 7.11L10.59 12l-4.9 4.89a1 1 0 101.41 1.42L12 13.41l4.89 4.9a1 1 0 001.42-1.42L13.41 12l4.9-4.89a1 1 0 000-1.4z" />
+              </svg>
+            </button>
+          </div>
         </div>
 
+        {/* 경계 띠 */}
         <div className="-mx-4 h-3 bg-white" />
 
-        {/* 본문 */}
+        {/* 본문(내부 스크롤 가능) */}
         <div
           className="px-4 pb-4 flex-1 min-h-0 overflow-y-auto"
           style={{ WebkitOverflowScrolling: "touch", overscrollBehavior: "contain" as any }}
@@ -316,12 +345,23 @@ export default function MapMobilePageV2() {
           {activeTab === "detail" && (
             <DetailPanel
               selected={selected}
+              inCart={isInCart(selected?.rowKey)}
               onToggleCart={() => {
                 if (!selected) return;
                 if (isInCart(selected.rowKey)) removeFromCart(selected.rowKey);
-                else addSelectedToCart();
+                else {
+                  const next: CartItem = {
+                    rowKey: selected.rowKey,
+                    aptName: selected.name,
+                    productName: selected.productName,
+                    months: 1,
+                    baseMonthly: selected.monthlyFee ?? 0,
+                    monthlyFeeY1: selected.monthlyFeeY1 ?? undefined,
+                  };
+                  setCart((prev) => [next, ...prev.filter((c) => c.rowKey !== next.rowKey)]);
+                  setActiveTab("cart");
+                }
               }}
-              inCart={isInCart(selected?.rowKey)}
             />
           )}
 
