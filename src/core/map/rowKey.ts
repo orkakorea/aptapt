@@ -5,7 +5,7 @@
  * - 지도 마커/카트에서 동일한 기준으로 키를 만들기 위한 모듈입니다.
  */
 
-import { getField, toNumLoose } from "@core/utils";
+import { getField, toNumLoose } from "../utils"; // ✅ 별칭 대신 상대경로로 변경
 
 /** 소수점 자릿수(위경도 키 생성 시 사용) */
 export const LAT_LNG_PRECISION = 7;
