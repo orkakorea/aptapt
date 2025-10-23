@@ -12,7 +12,7 @@ import useMarkers from "@/hooks/useMarkers";
 import useUserMarker from "@/hooks/useUserMarker";
 
 import type { SelectedApt, CartItem } from "@/core/types";
-import { calcMonthlyWithPolicy, normPolicyKey } from "@/core/pricing";
+import { calcMonthlyWithPolicy, normPolicyKey, DEFAULT_POLICY, rateFromRanges } from "@/core/pricing";
 
 const COLOR_PRIMARY = "#6F4BF2";
 
@@ -170,16 +170,23 @@ export default function MapMobilePageV2() {
    * ========================= */
   const isInCart = useCallback((rowKey?: string | null) => !!rowKey && cart.some((c) => c.rowKey === rowKey), [cart]);
 
-  // 담기 시 항상 1개월 기본
+  // 담기 시 항상 1개월 기본 + 현장 수치 복사
   const addSelectedToCart = useCallback(() => {
     if (!selected) return;
     const next: CartItem = {
       rowKey: selected.rowKey,
       aptName: selected.name,
-      productName: selected.productName ?? "기본상품", // 필수 string 보장
+      productName: selected.productName ?? "기본상품",
       months: 1,
-      baseMonthly: selected.monthlyFee ?? 0, // 필수 number 보장
+      baseMonthly: selected.monthlyFee ?? 0,
       monthlyFeeY1: selected.monthlyFeeY1 ?? undefined,
+
+      // 현장 수치 복사(옵션)
+      households: selected.households,
+      residents: selected.residents,
+      monthlyImpressions: selected.monthlyImpressions,
+      monitors: selected.monitors,
+      costPerPlay: selected.costPerPlay,
     };
     setCart((prev) => [next, ...prev.filter((c) => c.rowKey !== next.rowKey)]);
   }, [selected]);
@@ -202,8 +209,9 @@ export default function MapMobilePageV2() {
 
   /** =========================
    * 할인/총액 계산
-   *  - CartPanel(ItemComputed) & QuotePanel(QuoteComputedItem) 요구사항을 모두 만족
-   *    productName/baseMonthly/_discountRate를 “필수”로 강제
+   *  - productName/baseMonthly/_discountRate 필수 보장
+   *  - discPeriodRate/discPrecompRate(표시용) 포함
+   *  - monthlyImpressions 보조 산출
    * ========================= */
   type ComputedItem = Omit<CartItem, "productName" | "baseMonthly"> & {
     productName: string;
@@ -211,6 +219,8 @@ export default function MapMobilePageV2() {
     _monthly: number;
     _discountRate: number;
     _total: number;
+    discPeriodRate?: number;
+    discPrecompRate?: number;
   };
 
   const computedCart: ComputedItem[] = useMemo(() => {
@@ -221,21 +231,35 @@ export default function MapMobilePageV2() {
     });
 
     return cart.map((c) => {
-      const k = normPolicyKey(c.productName);
-      const same = cnt.get(k) ?? 1;
+      const key = normPolicyKey(c.productName);
+      const same = cnt.get(key) ?? 1;
 
       const name = c.productName ?? "기본상품";
       const base = c.baseMonthly ?? 0;
 
+      // 총 할인 적용 월가/율
       const { monthly, rate } = calcMonthlyWithPolicy(name, c.months, base, c.monthlyFeeY1, same);
+
+      // 분리 할인률(표시용)
+      const rules: any = (DEFAULT_POLICY as any)[key as any];
+      const discPeriodRate = rateFromRanges(rules?.period, c.months);
+      const discPrecompRate = rateFromRanges(rules?.precomp, same);
+
+      // 월송출 보조 산출
+      const monthlyImpressions =
+        c.monthlyImpressions ??
+        (base > 0 && (c.costPerPlay ?? 0) > 0 ? Math.floor(base / (c.costPerPlay as number)) : undefined);
 
       return {
         ...c,
-        productName: name, // 필수 string
-        baseMonthly: base, // 필수 number
+        productName: name,
+        baseMonthly: base,
+        monthlyImpressions,
         _monthly: monthly,
-        _discountRate: rate, // 필수 number
+        _discountRate: rate,
         _total: monthly * c.months,
+        discPeriodRate,
+        discPrecompRate,
       };
     });
   }, [cart]);
@@ -433,8 +457,7 @@ export default function MapMobilePageV2() {
                   removeFromCart(selected.rowKey);
                 } else {
                   addSelectedToCart(); // 1개월 기본
-                  // 바텀시트 닫지 않음 (요청사항)
-                  // setSheetOpen(false);
+                  // 담기 후 바텀시트 유지
                 }
               }}
             />
