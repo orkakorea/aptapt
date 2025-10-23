@@ -78,7 +78,7 @@ export default function QuotePanel({
   const vat = Math.round(supply * 0.1);
   const grand = supply + vat;
 
-  // 상단 요약(집계) - 부모에서 내려주지 않아도 여기서 안전하게 계산
+  // 상단 요약(집계)
   const summary: Summary = useMemo(() => {
     const acc = items.reduce<Required<Summary>>(
       (s, it) => ({
@@ -103,9 +103,7 @@ export default function QuotePanel({
 
   return (
     <div className="space-y-4">
-      {/* =========================
-       * 상단 요약(PC 모달 상단 라벨 대응)
-       * ========================= */}
+      {/* 상단 요약 */}
       <div className="rounded-2xl border px-4 py-3 bg-white">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div className="text-[12px] sm:text-[13px] text-gray-700 leading-relaxed">
@@ -118,9 +116,7 @@ export default function QuotePanel({
         </div>
       </div>
 
-      {/* =========================
-       * 상세 테이블(가로 스크롤, sticky 헤더)
-       * ========================= */}
+      {/* 상세 테이블 */}
       <div className="rounded-2xl border overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-[1200px] w-full text-[12px]">
@@ -193,9 +189,7 @@ export default function QuotePanel({
         </div>
       </div>
 
-      {/* =========================
-       * 합계 영역(부가세/최종광고료)
-       * ========================= */}
+      {/* 합계 영역 */}
       <div className="rounded-2xl border bg-white">
         <div className="px-4 py-3 border-b flex items-center justify-between">
           <div className="text-[13px] text-gray-700">부가세 (VAT 10%)</div>
@@ -208,7 +202,7 @@ export default function QuotePanel({
             {fmtWon(grand)} <span className="text-[12px] text-gray-500 font-normal">(VAT 포함)</span>
           </div>
 
-          {/* VAT 토글(원하면 숨겨도 됨) */}
+          {/* VAT 토글 */}
           <div className="mt-3">
             <button
               type="button"
@@ -239,10 +233,7 @@ export default function QuotePanel({
         제공됩니다.
       </div>
 
-      {/* =========================
-       * 하단 CTA(PC 모달의 보라색 바 버튼 대응)
-       * - 바텀시트 내부에서 sticky bottom으로 고정
-       * ========================= */}
+      {/* 하단 CTA */}
       <div className="h-4" />
       <div className="sticky bottom-0 left-0 right-0">
         <div className="pointer-events-none h-6 bg-gradient-to-t from-white to-transparent" />
@@ -261,14 +252,28 @@ export default function QuotePanel({
 
 /* =========================================================================
  * 소형 테이블 셀/헤더 컴포넌트
+ *  - style 프롭 허용(오류 원인 해결)
  * ========================================================================= */
-function Th({ className = "", children }: React.PropsWithChildren<{ className?: string }>) {
-  return <th className={`px-3 py-3 text-left whitespace-nowrap border-b ${className}`}>{children}</th>;
+function Th({
+  className = "",
+  style,
+  children,
+}: React.PropsWithChildren<{ className?: string; style?: React.CSSProperties }>) {
+  return (
+    <th className={`px-3 py-3 text-left whitespace-nowrap border-b ${className}`} style={style}>
+      {children}
+    </th>
+  );
 }
 
-function Td({ className = "", colSpan, children }: React.PropsWithChildren<{ className?: string; colSpan?: number }>) {
+function Td({
+  className = "",
+  colSpan,
+  style,
+  children,
+}: React.PropsWithChildren<{ className?: string; colSpan?: number; style?: React.CSSProperties }>) {
   return (
-    <td className={`px-3 py-3 align-middle whitespace-nowrap ${className}`} colSpan={colSpan}>
+    <td className={`px-3 py-3 align-middle whitespace-nowrap ${className}`} colSpan={colSpan} style={style}>
       {children}
     </td>
   );
