@@ -396,7 +396,6 @@ export default function MapMobilePageV2() {
                   removeFromCart(selected.rowKey);
                 } else {
                   addSelectedToCart(); // 1개월 기본
-                  setSheetOpen(false); // 담기 후 시트 닫기
                 }
               }}
             />
