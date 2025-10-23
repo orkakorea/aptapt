@@ -14,7 +14,7 @@ export type Prefill = {
   apt_name?: string | null;
   product_code?: string | null;
   product_name?: string | null;
-  cart_snapshot?: any | null; // items[], months, cartTotal 등(유연한 키 허용)
+  cart_snapshot?: any | null; // items[], months, cartTotal 등(유연 키 허용)
 };
 
 type Props = {
@@ -29,9 +29,10 @@ type Props = {
 // ===== UI helpers =====
 const COLOR_PRIMARY = "#6F4BF2";
 const INPUT =
-  "w-full rounded-xl border border-gray-200 px-4 py-3 outline-none focus:ring-2 focus:ring-violet-400 text-sm";
-const LABEL = "text-[13px] font-semibold text-gray-700 mb-1";
+  "w-full rounded-xl border border-gray-200 px-4 py-3 outline-none focus:ring-2 focus:ring-violet-400 text-[13px]";
+const LABEL = "text-[12px] font-semibold text-gray-700 mb-1";
 const READ = "text-[12px] text-gray-500";
+const SAFE_BOTTOM = "pb-[env(safe-area-inset-bottom)]";
 
 // ===== utils =====
 function getUTM() {
@@ -56,7 +57,7 @@ function fmtWon(n: number | null | undefined) {
   if (n == null || isNaN(Number(n))) return "-";
   return `${Number(n).toLocaleString("ko-KR")}원`;
 }
-/** cart_snapshot에서 총액을 최대한 유연하게 추출 */
+/** cart_snapshot에서 총액 유연 추출 */
 function pickCartTotal(snap: any): number | null {
   if (!snap) return null;
   const candidates = [
@@ -84,50 +85,15 @@ function pickCartTotal(snap: any): number | null {
   return null;
 }
 
-// ===== Success Modal =====
-function SuccessModal({ open, mode, onClose }: { open: boolean; mode: InquiryKind; onClose: () => void }) {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-[2000]">
-      <div className="absolute inset-0 bg-black/45" />
-      <div className="absolute inset-x-6 top-1/3 -translate-y-1/2 rounded-2xl bg-white shadow-2xl p-6 text-center">
-        <div className="mx-auto mb-5 w-16 h-16 rounded-full bg-violet-100 flex items-center justify-center">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10Z"
-              fill="#7C3AED"
-              opacity="0.15"
-            />
-            <path d="M8 12h8M8 15h5M9 8h6" stroke="#7C3AED" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-        </div>
-        <div className="text-[16px] font-extrabold mb-1">
-          {mode === "SEAT" ? "구좌문의가 완료되었습니다." : "광고문의가 완료되었습니다."}
-        </div>
-        <div className="text-[13px] text-gray-700 leading-6">
-          영업일 기준 1~2일 이내로 담당자가 배정되어
-          <br />
-          답변드릴 예정입니다.
-        </div>
-        <button
-          onClick={onClose}
-          className="mt-6 w-full rounded-xl py-3 text-white font-semibold"
-          style={{ backgroundColor: COLOR_PRIMARY }}
-        >
-          확인
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ===== 정책 모달 (간단) =====
+// ===== 정책 모달 (모바일 경량) =====
 function PolicyModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[1900]">
+    <div className="fixed inset-0 z-[1900]" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="absolute inset-x-6 top-1/2 -translate-y-1/2 rounded-2xl bg-white shadow-2xl max-h-[70vh] overflow-auto">
+      <div
+        className={`absolute inset-x-4 top-1/2 -translate-y-1/2 rounded-2xl bg-white shadow-2xl max-h-[70vh] overflow-auto ${SAFE_BOTTOM}`}
+      >
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
           <div className="text-[15px] font-extrabold">개인정보 수집·이용 정책</div>
           <button className="rounded-full p-2 hover:bg-gray-50" onClick={onClose} aria-label="close-policy">
@@ -161,7 +127,46 @@ function PolicyModal({ open, onClose }: { open: boolean; onClose: () => void }) 
   );
 }
 
-// ===== Main: MobileInquirySheet =====
+// ===== 성공 모달 (모바일 경량) =====
+function SuccessModal({ open, mode, onClose }: { open: boolean; mode: InquiryKind; onClose: () => void }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[2000]" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-black/45" />
+      <div
+        className={`absolute inset-x-6 top-1/3 -translate-y-1/2 rounded-2xl bg-white shadow-2xl p-6 text-center ${SAFE_BOTTOM}`}
+      >
+        <div className="mx-auto mb-5 w-16 h-16 rounded-full bg-violet-100 flex items-center justify-center">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+            <path
+              d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10Z"
+              fill="#7C3AED"
+              opacity="0.15"
+            />
+            <path d="M8 12h8M8 15h5M9 8h6" stroke="#7C3AED" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+        </div>
+        <div className="text-[16px] font-extrabold mb-1">
+          {mode === "SEAT" ? "구좌문의가 완료되었습니다." : "광고문의가 완료되었습니다."}
+        </div>
+        <div className="text-[13px] text-gray-700 leading-6">
+          영업일 기준 1~2일 이내로 담당자가 배정되어
+          <br />
+          답변드릴 예정입니다.
+        </div>
+        <button
+          onClick={onClose}
+          className={`mt-6 w-full rounded-xl py-3 text-white font-semibold ${SAFE_BOTTOM}`}
+          style={{ backgroundColor: COLOR_PRIMARY }}
+        >
+          확인
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ===== Main: MobileInquirySheet (Bottom Sheet 스타일) =====
 export default function MobileInquirySheet({ open, mode, prefill, sourcePage, onClose, onSubmitted }: Props) {
   // 공통 입력값
   const [brand, setBrand] = useState("");
@@ -209,7 +214,7 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
     }
   }, [open]);
 
-  // 본문 스크롤 잠금 (모달 열릴 때)
+  // 본문 스크롤 잠금
   useEffect(() => {
     if (!open || typeof document === "undefined") return;
     const prev = document.body.style.overflow;
@@ -225,7 +230,7 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
     setPhone(digits);
   }
 
-  // ——— SEAT 요약 박스 파생값 ———
+  // ——— SEAT 요약(문의 내용) ———
   const seatSummary = useMemo(() => {
     if (mode !== "SEAT") return null;
     const snap = prefill?.cart_snapshot || null;
@@ -318,7 +323,7 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
       const { error } = await (supabase as any).from("inquiries").insert(payload);
       if (error) throw error;
 
-      // 성공: 성공 모달 띄우고, 확인 시 상위 onSubmitted → onClose 호출
+      // 성공 → 성공 모달
       setSuccessOpen(true);
     } catch (err: any) {
       setErrorMsg(err?.message || "제출 중 오류가 발생했습니다.");
@@ -329,26 +334,25 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
 
   const submitDisabled = submitting || !agreePrivacy;
 
-  // 서버(SSR) 단계에서 document가 없으니, 포털 렌더는 클라이언트에서만
   if (!open || typeof document === "undefined") return null;
 
   const sheet = (
-    <div className="fixed inset-0 z-[1800]">
-      {/* backdrop */}
-      <div className="absolute inset-0 bg-black/40" onClick={() => !submitting && onClose()} />
+    <div className="fixed inset-0 z-[1800]" role="dialog" aria-modal="true">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/45 backdrop-blur-[1px]" onClick={() => !submitting && onClose()} />
 
-      {/* bottom sheet */}
+      {/* Bottom Sheet */}
       <div
-        className="absolute inset-x-0 bottom-0 rounded-t-2xl bg-white shadow-2xl"
-        style={{ maxHeight: "85vh" }}
+        className={`absolute inset-x-0 bottom-0 rounded-t-3xl bg-white shadow-2xl ${SAFE_BOTTOM}`}
+        style={{ maxHeight: "86vh" }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* drag bar */}
+        {/* Drag handle */}
         <div className="pt-2 pb-1 flex justify-center">
           <div className="w-10 h-1.5 rounded-full bg-gray-300" />
         </div>
 
-        {/* header */}
+        {/* Header */}
         <div className="px-4 pb-3 border-b border-gray-100 flex items-center justify-between">
           <div className="min-w-0">
             <div className="text-[15px] font-extrabold truncate">
@@ -371,11 +375,15 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
           </button>
         </div>
 
-        {/* body */}
-        <form onSubmit={handleSubmit} className="px-4 py-3 overflow-y-auto" style={{ maxHeight: "calc(85vh - 96px)" }}>
-          {/* SEAT: 요약 박스 */}
+        {/* Scrollable Body */}
+        <form
+          onSubmit={handleSubmit}
+          className="px-4 pt-3 overflow-y-auto"
+          style={{ maxHeight: "calc(86vh - 52px - 56px)" }} // (전체−헤더−푸터)
+        >
+          {/* SEAT: 문의 내용 요약 */}
           {mode === "SEAT" && seatSummary && (
-            <div className="rounded-xl border border-gray-100 bg-gray-50 p-3 mb-3">
+            <div className="rounded-2xl border border-gray-100 bg-gray-50 p-3 mb-3">
               <div className="text-[12px] font-semibold mb-2">문의 내용</div>
               <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[12px]">
                 <div>
@@ -400,7 +408,7 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
             </div>
           )}
 
-          {/* form fields */}
+          {/* 입력 필드 */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <div className={LABEL}>
@@ -485,7 +493,7 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
             />
           </div>
 
-          <div className="mt-3">
+          <div className="mt-3 mb-[68px]">
             <div className={LABEL}>프로모션 코드</div>
             <input
               className={INPUT}
@@ -496,10 +504,12 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
           </div>
 
           {errorMsg && <div className="mt-2 text-[12px] text-red-600">{errorMsg}</div>}
+        </form>
 
-          {/* footer (정책/동의/제출) */}
-          <div className="mt-4 mb-2 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
+        {/* Sticky Footer */}
+        <div className={`px-4 py-3 border-t border-gray-100 bg-white sticky bottom-0 ${SAFE_BOTTOM}`}>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
               <button
                 type="button"
                 className="px-3 py-2 text-[12px] rounded-md border border-black bg-white hover:bg-gray-50 whitespace-nowrap"
@@ -519,16 +529,25 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
             </div>
 
             <button
-              type="submit"
+              onClick={(e) => (document.querySelector('form[aria-modal!="true"]') ? null : null)}
+              // 실제 제출 버튼
+              className={`hidden`}
+            />
+
+            <button
+              type="button"
               disabled={submitDisabled}
-              className={`rounded-xl px-5 py-3 text-white font-semibold ${
-                submitDisabled ? "bg-violet-300 cursor-not-allowed" : "bg-violet-600 hover:bg-violet-700"
-              }`}
+              onClick={(e) => {
+                // 폼 submit 트리거
+                const form = (e.currentTarget.closest('[role="dialog"]') as HTMLElement)?.querySelector("form");
+                (form as HTMLFormElement | null)?.requestSubmit();
+              }}
+              className={`rounded-xl px-5 py-3 text-white font-semibold ${submitDisabled ? "bg-violet-300 cursor-not-allowed" : "bg-violet-600 hover:bg-violet-700"}`}
             >
               {submitting ? "전송 중..." : "문의 접수"}
             </button>
           </div>
-        </form>
+        </div>
       </div>
 
       {/* 정책 모달 */}
@@ -547,6 +566,5 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
     </div>
   );
 
-  // 부모 레이어/오버플로우 간섭 제거를 위해 Portal로 렌더
   return createPortal(sheet, document.body);
 }
