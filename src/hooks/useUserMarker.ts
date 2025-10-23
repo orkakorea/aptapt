@@ -25,7 +25,7 @@ export default function useUserMarker({ kakao, map, autoCenterOnFirstFix = true,
        </svg>`;
     const url = "data:image/svg+xml;utf8," + encodeURIComponent(svg);
     return new kakao.maps.MarkerImage(url, new kakao.maps.Size(28, 28), {
-      offset: new kakao.maps.Point(14, 14), // 중심 정렬
+      offset: new kakao.maps.Point(14, 14),
     });
   };
 
@@ -63,7 +63,7 @@ export default function useUserMarker({ kakao, map, autoCenterOnFirstFix = true,
 
     if (circleRef.current) {
       circleRef.current.setPosition(pos);
-      circleRef.current.setRadius(Math.max(0, Math.min(Number(accuracy) || 0, 500))); // 최대 500m까지
+      circleRef.current.setRadius(Math.max(0, Math.min(Number(accuracy) || 0, 500)));
     }
 
     if (autoCenterOnFirstFix && !centeredOnceRef.current) {
@@ -74,7 +74,7 @@ export default function useUserMarker({ kakao, map, autoCenterOnFirstFix = true,
     }
   };
 
-  // 한 번만 가져오기(수동)
+  // 한 번만 요청(버튼에서 호출)
   const locateNow = () => {
     if (!navigator.geolocation) {
       setError("이 브라우저에서 위치 정보를 지원하지 않습니다.");
@@ -86,6 +86,10 @@ export default function useUserMarker({ kakao, map, autoCenterOnFirstFix = true,
         setHasFix(true);
         setError(null);
         updatePosition(latitude, longitude, accuracy);
+        try {
+          map?.setLevel?.(5);
+          map?.panTo?.(new kakao.maps.LatLng(latitude, longitude));
+        } catch {}
       },
       (err) => {
         setError(err.message || "위치 정보를 가져오지 못했습니다.");
@@ -98,7 +102,6 @@ export default function useUserMarker({ kakao, map, autoCenterOnFirstFix = true,
     if (!kakao?.maps || !map) return;
     if (!watch || !navigator.geolocation) return;
 
-    // watchPosition 시작
     const id = navigator.geolocation.watchPosition(
       (res) => {
         const { latitude, longitude, accuracy } = res.coords;
@@ -114,7 +117,6 @@ export default function useUserMarker({ kakao, map, autoCenterOnFirstFix = true,
     watchIdRef.current = id as unknown as number;
 
     return () => {
-      // 정리
       if (watchIdRef.current != null && navigator.geolocation.clearWatch) {
         try {
           navigator.geolocation.clearWatch(watchIdRef.current);
@@ -136,6 +138,6 @@ export default function useUserMarker({ kakao, map, autoCenterOnFirstFix = true,
   return {
     hasFix,
     error,
-    locateNow, // 필요하면 수동 호출 버튼도 붙일 수 있음
+    locateNow, // ✅ 버튼에서 호출
   };
 }
