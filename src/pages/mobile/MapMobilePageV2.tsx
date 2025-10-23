@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import BottomSheet from "@/components/mobile/BottomSheet";
 import DetailPanel from "@/components/mobile/DetailPanel";
 import CartPanel from "@/components/mobile/CartPanel";
-import QuotePanel, { type QuoteComputedItem } from "@/components/mobile/QuotePanel";
+import QuotePanel from "@/components/mobile/QuotePanel";
 
 import { useKakaoLoader } from "@/hooks/useKakaoLoader";
 import { useKakaoMap } from "@/hooks/useKakaoMap";
@@ -202,8 +202,11 @@ export default function MapMobilePageV2() {
 
   /** =========================
    * 할인/총액 계산
+   *  - 외부 QuotePanel 쪽 타입(ItemComputed)을 만족하도록
+   *    _monthly / _total은 "필수(required)"로 둡니다.
    * ========================= */
-  type ComputedItem = CartItem & { _monthly?: number; _discountRate?: number; _total?: number };
+  type ComputedItem = CartItem & { _monthly: number; _discountRate?: number; _total: number };
+
   const computedCart: ComputedItem[] = useMemo(() => {
     const cnt = new Map<string, number>();
     cart.forEach((c) => {
@@ -224,7 +227,7 @@ export default function MapMobilePageV2() {
     });
   }, [cart]);
 
-  const totalCost = useMemo(() => computedCart.reduce((s, c) => s + (c._total ?? 0), 0), [computedCart]);
+  const totalCost = useMemo(() => computedCart.reduce((s, c) => s + c._total, 0), [computedCart]);
 
   /** 장바구니 → 특정 단지로 이동 */
   const goToRowKey = useCallback(
@@ -437,7 +440,7 @@ export default function MapMobilePageV2() {
 
           {activeTab === "quote" && (
             <QuotePanel
-              items={computedCart as QuoteComputedItem[]}
+              items={computedCart}
               total={totalCost}
               brandColor={COLOR_PRIMARY}
               onGoTo={goToRowKey}
