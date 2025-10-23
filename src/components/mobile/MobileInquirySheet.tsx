@@ -1,5 +1,8 @@
 // src/components/mobile/MobileInquirySheet.tsx
+"use client";
+
 import React, { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { supabase } from "@/integrations/supabase/client";
 
 // ===== Types =====
@@ -11,7 +14,7 @@ export type Prefill = {
   apt_name?: string | null;
   product_code?: string | null;
   product_name?: string | null;
-  cart_snapshot?: any | null; // items[], months, cartTotal 등
+  cart_snapshot?: any | null; // items[], months, cartTotal 등(유연한 키 허용)
 };
 
 type Props = {
@@ -20,7 +23,7 @@ type Props = {
   prefill?: Prefill;
   sourcePage?: string;
   onClose: () => void;
-  onSubmitted?: (rowId: string) => void; // "확인" 눌렀을 때 호출
+  onSubmitted?: (rowId: string) => void; // 성공 모달에서 "확인" 클릭 시 호출
 };
 
 // ===== UI helpers =====
@@ -81,11 +84,11 @@ function pickCartTotal(snap: any): number | null {
   return null;
 }
 
-// ===== Success Modal (full-screen) =====
+// ===== Success Modal =====
 function SuccessModal({ open, mode, onClose }: { open: boolean; mode: InquiryKind; onClose: () => void }) {
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-[1600]">
+    <div className="fixed inset-0 z-[2000]">
       <div className="absolute inset-0 bg-black/45" />
       <div className="absolute inset-x-6 top-1/3 -translate-y-1/2 rounded-2xl bg-white shadow-2xl p-6 text-center">
         <div className="mx-auto mb-5 w-16 h-16 rounded-full bg-violet-100 flex items-center justify-center">
@@ -113,6 +116,46 @@ function SuccessModal({ open, mode, onClose }: { open: boolean; mode: InquiryKin
         >
           확인
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ===== 정책 모달 (간단) =====
+function PolicyModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[1900]">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="absolute inset-x-6 top-1/2 -translate-y-1/2 rounded-2xl bg-white shadow-2xl max-h-[70vh] overflow-auto">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div className="text-[15px] font-extrabold">개인정보 수집·이용 정책</div>
+          <button className="rounded-full p-2 hover:bg-gray-50" onClick={onClose} aria-label="close-policy">
+            <svg width="20" height="20" viewBox="0 0 24 24">
+              <path d="M6 6l12 12M18 6L6 18" stroke="#111" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+        <div className="px-5 py-4 text-[12px] text-gray-700 leading-6">
+          {/* 실제 약관 전문으로 교체하세요 */}
+          <p className="mb-2">
+            오르카 코리아는 문의 접수 및 상담을 위해 최소한의 개인정보를 수집·이용하며, 목적 달성 후 지체 없이
+            파기합니다. 수집 항목: 성명, 연락처, 이메일, 문의 내용 등. 보유·이용 기간: 문의 처리 완료 후 1년.
+          </p>
+          <p className="mb-2">
+            필요한 경우 매체 운영사 등 협력사와의 상담/집행을 위해 최소한의 정보가 공유될 수 있습니다. 법령에 따른
+            고지·동의 절차를 준수합니다.
+          </p>
+          <p>귀하는 동의를 거부할 권리가 있으며, 동의 거부 시 상담 제공이 제한될 수 있습니다.</p>
+        </div>
+        <div className="px-5 py-4 border-t border-gray-100 flex justify-end">
+          <button
+            className="rounded-xl px-5 py-2 text-white font-semibold bg-violet-600 hover:bg-violet-700"
+            onClick={onClose}
+          >
+            확인
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -166,7 +209,15 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
     }
   }, [open]);
 
-  if (!open) return null;
+  // 본문 스크롤 잠금 (모달 열릴 때)
+  useEffect(() => {
+    if (!open || typeof document === "undefined") return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
 
   // 연락처: 숫자만
   function handlePhoneChange(v: string) {
@@ -216,6 +267,7 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
     return { aptLabel, productLabel, monthsLabel, totalWon };
   }, [mode, prefill]);
 
+  // 제출
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (submitting) return;
@@ -253,7 +305,7 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
         memo: requestText || null,
         source_page: page,
         utm,
-        // SEAT 전용 필드
+        // SEAT 전용
         apt_id: mode === "SEAT" ? (prefill?.apt_id ?? null) : null,
         apt_name: mode === "SEAT" ? (prefill?.apt_name ?? null) : null,
         product_code: mode === "SEAT" ? (prefill?.product_code ?? null) : null,
@@ -277,8 +329,11 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
 
   const submitDisabled = submitting || !agreePrivacy;
 
-  return (
-    <div className="fixed inset-0 z-[1500]">
+  // 서버(SSR) 단계에서 document가 없으니, 포털 렌더는 클라이언트에서만
+  if (!open || typeof document === "undefined") return null;
+
+  const sheet = (
+    <div className="fixed inset-0 z-[1800]">
       {/* backdrop */}
       <div className="absolute inset-0 bg-black/40" onClick={() => !submitting && onClose()} />
 
@@ -476,46 +531,8 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
         </form>
       </div>
 
-      {/* 정책 안내 모달 (간단) */}
-      {policyOpen && (
-        <div className="fixed inset-0 z-[1550]">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setPolicyOpen(false)} />
-          <div className="absolute inset-x-6 top-1/2 -translate-y-1/2 rounded-2xl bg-white shadow-2xl max-h-[70vh] overflow-auto">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
-              <div className="text-[15px] font-extrabold">개인정보 수집·이용 정책</div>
-              <button
-                className="rounded-full p-2 hover:bg-gray-50"
-                onClick={() => setPolicyOpen(false)}
-                aria-label="close-policy"
-              >
-                <svg width="20" height="20" viewBox="0 0 24 24">
-                  <path d="M6 6l12 12M18 6L6 18" stroke="#111" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              </button>
-            </div>
-            <div className="px-5 py-4 text-[12px] text-gray-700 leading-6">
-              {/* 실제 약관 전문으로 교체하세요 */}
-              <p className="mb-2">
-                오르카 코리아는 문의 접수 및 상담을 위해 최소한의 개인정보를 수집·이용하며, 목적 달성 후 지체 없이
-                파기합니다. 수집 항목: 성명, 연락처, 이메일, 문의 내용 등. 보유·이용 기간: 문의 처리 완료 후 1년.
-              </p>
-              <p className="mb-2">
-                필요한 경우 매체 운영사 등 협력사와의 상담/집행을 위해 최소한의 정보가 공유될 수 있습니다. 법령에 따른
-                고지·동의 절차를 준수합니다.
-              </p>
-              <p>귀하는 동의를 거부할 권리가 있으며, 동의 거부 시 상담 제공이 제한될 수 있습니다.</p>
-            </div>
-            <div className="px-5 py-4 border-t border-gray-100 flex justify-end">
-              <button
-                className="rounded-xl px-5 py-2 text-white font-semibold bg-violet-600 hover:bg-violet-700"
-                onClick={() => setPolicyOpen(false)}
-              >
-                확인
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 정책 모달 */}
+      <PolicyModal open={policyOpen} onClose={() => setPolicyOpen(false)} />
 
       {/* 성공 모달 */}
       <SuccessModal
@@ -523,11 +540,13 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
         mode={mode}
         onClose={() => {
           setSuccessOpen(false);
-          // 성공 확인 시, 상위 콜백 → 시트 닫기
           onSubmitted?.("ok");
           onClose();
         }}
       />
     </div>
   );
+
+  // 부모 레이어/오버플로우 간섭 제거를 위해 Portal로 렌더
+  return createPortal(sheet, document.body);
 }
