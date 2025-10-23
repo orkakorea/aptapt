@@ -27,8 +27,8 @@ export default function MapMobilePageV2() {
     idleDebounceMs: 150,
   });
 
-  // 유저 마커 (최초 수신 시 자동 센터)
-  useUserMarker({ kakao, map, autoCenterOnFirstFix: true, watch: true });
+  // 유저 마커(필요 시 버튼으로 위치 요청)
+  const { locateNow } = useUserMarker({ kakao, map, autoCenterOnFirstFix: false, watch: false });
 
   /* 검색 */
   const [searchQ, setSearchQ] = useState("");
@@ -76,7 +76,6 @@ export default function MapMobilePageV2() {
     externalSelectedRowKeys: selectedRowKeys,
   });
 
-  // 초기 바운드 로딩(훅 내부에서도 수행하지만 안전하게 1회 더)
   useEffect(() => {
     if (map && kakao) {
       setTimeout(() => {
@@ -155,14 +154,14 @@ export default function MapMobilePageV2() {
   /* 카트 조작 */
   const isInCart = useCallback((rowKey?: string | null) => !!rowKey && cart.some((c) => c.rowKey === rowKey), [cart]);
 
-  // ✅ 담기 시 항상 1개월로 시작 (삭제 후 재담기 포함)
+  // 담기 시 항상 1개월 기본
   const addSelectedToCart = useCallback(() => {
     if (!selected) return;
     const next: CartItem = {
       rowKey: selected.rowKey,
       aptName: selected.name,
       productName: selected.productName,
-      months: 1, // 항상 1개월로 시작
+      months: 1,
       baseMonthly: selected.monthlyFee ?? 0,
       monthlyFeeY1: selected.monthlyFeeY1 ?? undefined,
     };
@@ -211,7 +210,6 @@ export default function MapMobilePageV2() {
   /* 장바구니 → 단지 상세로 정확히 이동 */
   const goToRowKey = useCallback(
     (rk: string) => {
-      // ✅ 선택 + 지도이동 + 상세열기까지 한 번에
       markers.selectByRowKey(rk);
       setActiveTab("detail");
       setSheetOpen(true);
@@ -264,6 +262,7 @@ export default function MapMobilePageV2() {
       {/* 우측 버튼 스택 */}
       <div className="fixed z-[35] right-3 top-[64px] pointer-events-none">
         <div className="flex flex-col gap-2 pointer-events-auto">
+          {/* 검색 */}
           <button
             onClick={runSearchAndBlur}
             className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow"
@@ -276,6 +275,7 @@ export default function MapMobilePageV2() {
             </svg>
           </button>
 
+          {/* 카트 */}
           <button
             onClick={() => {
               setActiveTab("cart");
@@ -297,6 +297,7 @@ export default function MapMobilePageV2() {
             )}
           </button>
 
+          {/* 전화 */}
           <a
             ref={phoneBtnRef}
             href="tel:1551-0810"
@@ -315,6 +316,28 @@ export default function MapMobilePageV2() {
               <path d="M6.62 10.79a15.05 15.05 0 006.59 6.59l2.2-2.2a1 1 0 011.01-.24c1.12.37 2.33.57 3.58.57a1 1 0 011 1V21a1 1 0 01-1 1C10.3 22 2 13.7 2 3a1 1 0 011-1h3.5a1 1 0 011 1c0 1.25.2 2.46.57 3.58a1 1 0 01-.25 1.01l-2.2 2.2z" />
             </svg>
           </a>
+
+          {/* ✅ 내 위치 버튼 (아이콘 path 미사용 → d 오류 방지) */}
+          <button
+            onClick={() => {
+              const el = document.activeElement as HTMLElement | null;
+              el?.blur?.();
+              locateNow();
+            }}
+            className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow"
+            style={{ backgroundColor: COLOR_PRIMARY }}
+            aria-label="내 위치로 이동"
+            title="내 위치로 이동"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <circle cx="12" cy="12" r="3" fill="currentColor" />
+              <circle cx="12" cy="12" r="7" stroke="currentColor" strokeWidth="2" />
+              <line x1="12" y1="2" x2="12" y2="5" stroke="currentColor" strokeWidth="2" />
+              <line x1="12" y1="19" x2="12" y2="22" stroke="currentColor" strokeWidth="2" />
+              <line x1="2" y1="12" x2="5" y2="12" stroke="currentColor" strokeWidth="2" />
+              <line x1="19" y1="12" x2="22" y2="12" stroke="currentColor" strokeWidth="2" />
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -360,8 +383,8 @@ export default function MapMobilePageV2() {
                 if (isInCart(selected.rowKey)) {
                   removeFromCart(selected.rowKey);
                 } else {
-                  addSelectedToCart(); // ✅ 담기 후 1개월 기본
-                  setSheetOpen(false); // 요청대로 담기 후 시트 닫기
+                  addSelectedToCart(); // 1개월 기본
+                  setSheetOpen(false); // 담기 후 시트 닫기
                 }
               }}
             />
@@ -375,7 +398,7 @@ export default function MapMobilePageV2() {
               onToggleApplyAll={setApplyAll}
               onUpdateMonths={updateMonths}
               onRemove={removeFromCart}
-              onGoTo={goToRowKey} // ✅ 정확히 해당 단지로 이동
+              onGoTo={goToRowKey}
             />
           )}
 
