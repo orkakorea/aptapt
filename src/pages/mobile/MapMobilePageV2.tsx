@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import BottomSheet from "@/components/mobile/BottomSheet";
 import DetailPanel from "@/components/mobile/DetailPanel";
 import CartPanel from "@/components/mobile/CartPanel";
+import QuotePanel from "@/components/mobile/QuotePanel";
 
 import { useKakaoLoader } from "@/hooks/useKakaoLoader";
 import { useKakaoMap } from "@/hooks/useKakaoMap";
@@ -449,21 +450,6 @@ function TabBtn({ active, onClick, label }: { active: boolean; onClick: () => vo
     >
       {label}
     </button>
-  );
-}
-
-function QuotePanel({ total }: { total: number }) {
-  return (
-    <div className="space-y-3">
-      <div className="rounded-2xl px-4 py-3 bg-[#EEE8FF]">
-        <div className="text-sm text-gray-600">총 비용</div>
-        <div className="text-[20px] font-extrabold" style={{ color: "#6F4BF2" }}>
-          {fmtWon(total)}
-        </div>
-        <div className="text-[11px] text-gray-500">(VAT별도)</div>
-      </div>
-      <div className="text-sm text-gray-600">※ 견적 상세는 추후 확장</div>
-    </div>
   );
 }
 
