@@ -112,7 +112,7 @@ export default function QuotePanel({
         <div className="min-w-[1200px]">
           {/* 상단 요약 (테두리 X, 같은 스크롤) */}
           <div className="px-3 py-2">
-            <div className="text-[24px] font-extrabold text-gray-800 whitespace-nowrap leading-tight">
+            <div className="text-[12px] font-extrabold text-gray-800 whitespace-nowrap leading-tight">
               총 {summary.count}개 단지 · 세대수 {withUnit(summary.households, "세대")} · 거주인원{" "}
               {withUnit(summary.residents, "명")} · 월송출 {withUnit(summary.monthlyImpressions, "회")} · 모니터수{" "}
               {withUnit(summary.monitors, "대")}
