@@ -3,6 +3,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { buildRowKeyFromRow, groupKeyFromRow } from "@/core/map/rowKey";
 import type { SelectedApt } from "@/core/types";
 
+/* =========================================================================
+ * 로컬 유틸
+ * ========================================================================= */
 type PlaceRow = {
   id?: number | string;
   lat?: number | null;
@@ -39,8 +42,8 @@ function imageForProduct(productName?: string): string {
 
 type MarkerState = "purple" | "yellow" | "clicked";
 
-/** 오버스캔 비율(현재 지도 바운드보다 넓게 로드해서 잦은 재요청/깜빡임 방지) */
-const OVERSCAN_RATIO = 0.25; // 25%
+/** 오버스캔 비율(조회 영역 확대) */
+const OVERSCAN_RATIO = 0.25;
 
 /** 바운드 유틸 */
 type Rect = { minLat: number; maxLat: number; minLng: number; maxLng: number };
@@ -75,7 +78,7 @@ function rectContains(outer: Rect, inner: Rect): boolean {
   );
 }
 
-/** 안정키: row.id 우선, 없으면 좌표5자리+그룹/상품/설치키 */
+/** 안정키: row.id 우선, 없으면 좌표 5자리 + 그룹/상품/설치로 고정 */
 function stableIdKeyFromRow(row: PlaceRow): string {
   if (row.id != null) return `id:${String(row.id)}`;
   const lat = Number(row.lat);
@@ -88,6 +91,9 @@ function stableIdKeyFromRow(row: PlaceRow): string {
   return `geo:${lat5},${lng5}|${gk}|${prod}|${loc}`;
 }
 
+/* =========================================================================
+ * 훅 본체
+ * ========================================================================= */
 export default function useMarkers({
   kakao,
   map,
@@ -101,19 +107,25 @@ export default function useMarkers({
   onSelect: (apt: SelectedApt) => void;
   externalSelectedRowKeys?: string[];
 }) {
-  /** ----------------------------------------------------------------
-   * 풀/인덱스 및 상태
-   *  - pool: 안정키(idKey) -> Marker (재사용)
-   *  - rowKeyIndex: rowKey -> Marker (선택/포커스용)
-   * ---------------------------------------------------------------- */
+  /** 풀/인덱스/상태 */
   const poolRef = useRef<Map<string, any>>(new Map()); // idKey -> Marker
   const rowKeyIndexRef = useRef<Map<string, any>>(new Map()); // rowKey -> Marker
-  const groupsRef = useRef<Map<string, any[]>>(new Map()); // groupKey -> Markers
+  const groupsRef = useRef<Map<string, any[]>>(new Map());
   const lastClickedRef = useRef<any | null>(null);
 
-  /** 현재 로드된(오버스캔) 영역 */
+  /** 선택(장바구니) 집합을 ref로 보관 → 렌더 없이 참조 */
+  const selectedSetRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    selectedSetRef.current = new Set(externalSelectedRowKeys);
+    // 선택 변경 시 색상 규칙만 재적용(이미지 변경은 상태 변화시에만 이루어짐)
+    poolRef.current.forEach((mk) => applyColorRule(mk));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalSelectedRowKeys.join("|")]); // 내용 기준 변경 감지
+
+  /** 오버스캔 로드 영역/요청 버전 관리 */
   const loadedRectRef = useRef<Rect | null>(null);
   const fetchInFlightRef = useRef(false);
+  const requestVersionRef = useRef(0);
 
   /** 마커 이미지 캐시 */
   const imgs = useMemo(() => {
@@ -134,7 +146,7 @@ export default function useMarkers({
     }
   }, [kakao]);
 
-  /** 상태 비교 후 다를 때만 이미지 교체 */
+  /** 상태 변화시에만 이미지 교체 */
   const setMarkerState = useCallback(
     (mk: any, next: MarkerState) => {
       if (!imgs || !mk) return;
@@ -147,11 +159,12 @@ export default function useMarkers({
     [imgs],
   );
 
-  /** 공통 컬러링 규칙: 선택 > 클릭 > 기본 */
+  /** 공통 컬러링 규칙 (선택 > 클릭 > 기본) */
   const applyColorRule = useCallback(
     (mk: any) => {
+      if (!mk) return;
       const rowKey = mk.__rowKey as string | undefined;
-      const isSelected = !!rowKey && externalSelectedRowKeys.includes(rowKey);
+      const isSelected = rowKey ? selectedSetRef.current.has(rowKey) : false;
       if (isSelected) {
         setMarkerState(mk, "yellow"); // 담긴 건 항상 노랑
         return;
@@ -162,15 +175,10 @@ export default function useMarkers({
       }
       setMarkerState(mk, "purple");
     },
-    [externalSelectedRowKeys, setMarkerState],
+    [setMarkerState],
   );
 
-  /** 외부 선택(장바구니) 변화 시 전체 마커에 재적용 */
-  useEffect(() => {
-    poolRef.current.forEach((mk) => applyColorRule(mk));
-  }, [externalSelectedRowKeys, applyColorRule]);
-
-  /** 행 -> 선택 객체 */
+  /** 행 -> 선택객체 */
   const toSelected = useCallback((rowKey: string, row: PlaceRow, lat: number, lng: number): SelectedApt => {
     const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
     const address = getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
@@ -207,7 +215,7 @@ export default function useMarkers({
     };
   }, []);
 
-  /** DIFF 반영 */
+  /** DIFF 반영 (추가/제거만, 재생성 금지) */
   const addOrUpdateFromRows = useCallback(
     (rows: PlaceRow[]) => {
       if (!kakao?.maps || !map || !imgs) return;
@@ -217,6 +225,7 @@ export default function useMarkers({
       const toAdd: any[] = [];
       const toRemove: any[] = [];
 
+      // 새 인덱스(전체 교체용)
       const nextRowKeyIndex = new Map<string, any>();
       const nextGroups = new Map<string, any[]>();
 
@@ -226,7 +235,7 @@ export default function useMarkers({
         const lng = Number(row.lng);
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
 
-        const idKey = stableIdKeyFromRow(row); // 풀 키 (안정)
+        const idKey = stableIdKeyFromRow(row); // 풀 키(안정)
         const rowKey = buildRowKeyFromRow(row); // 선택/표시 키
         nextIdKeys.add(idKey);
 
@@ -235,12 +244,12 @@ export default function useMarkers({
 
         let mk = poolRef.current.get(idKey);
         if (!mk) {
-          // 새 마커 생성 (최초 1회)
+          // 최초 생성(한 번만)
           try {
             mk = new maps.Marker({
               position: pos,
               title,
-              image: imgs.purple, // 기본은 보라, 컬러링 룰로 즉시 조정됨
+              image: imgs.purple, // 기본 보라
               clickable: true,
             });
             mk.__imgState = "purple";
@@ -252,7 +261,6 @@ export default function useMarkers({
           mk.__row = row;
 
           maps.event.addListener(mk, "click", () => {
-            // 클릭 → 선택 객체 전달
             const sel = toSelected(mk.__rowKey, mk.__row, lat, lng);
             onSelect(sel);
 
@@ -262,14 +270,14 @@ export default function useMarkers({
             }
             lastClickedRef.current = mk;
 
-            // 현재 클릭 상태 반영(선택이면 노랑, 아니면 클릭색)
+            // 현재 클릭 반영(선택이면 노랑, 아니면 클릭색)
             applyColorRule(mk);
           });
 
           poolRef.current.set(idKey, mk);
           toAdd.push(mk);
         } else {
-          // 기존 마커 재사용
+          // 재사용: 위치/타이틀 변동시에만 업데이트
           try {
             const oldPos = mk.getPosition?.();
             if (!oldPos || oldPos.getLat() !== lat || oldPos.getLng() !== lng) {
@@ -277,32 +285,29 @@ export default function useMarkers({
             }
             if (mk.getTitle?.() !== title) mk.setTitle?.(title);
           } catch {}
-
-          // 최신 데이터/키 보관
-          mk.__row = row;
           mk.__rowKey = rowKey;
+          mk.__row = row;
 
-          // 이동 중에도 컬러 규칙은 "변화시에만" 적용
+          // 색 상태는 규칙으로만(변화시에만 이미지 교체)
           applyColorRule(mk);
         }
 
-        // 인덱스/그룹
+        // 인덱스/그룹 집계
         nextRowKeyIndex.set(rowKey, mk);
         const gk = groupKeyFromRow(row);
         if (!nextGroups.has(gk)) nextGroups.set(gk, []);
         nextGroups.get(gk)!.push(mk);
       }
 
-      // 제거 대상: 현재 풀에 있는데 이번 결과에 없는 idKey
+      // 제거 대상 계산(이번 결과에 없는 idKey는 제거)
       poolRef.current.forEach((mk, idKey) => {
         if (!nextIdKeys.has(idKey)) {
           toRemove.push(mk);
           poolRef.current.delete(idKey);
-          // rowKeyIndexRef는 새로 교체되므로 별도 삭제 불필요
         }
       });
 
-      // Clusterer 업데이트 (추가/제거만, 전체 클리어 금지)
+      // 클러스터 업데이트(추가/제거만) — 전체 clear 금지!
       if (toRemove.length) {
         try {
           if (clusterer?.removeMarkers) clusterer.removeMarkers(toRemove);
@@ -320,33 +325,34 @@ export default function useMarkers({
       rowKeyIndexRef.current = nextRowKeyIndex;
       groupsRef.current = nextGroups;
 
-      // 마지막으로 전체 컬러 규칙 한번 더(추가분 포함)
+      // 방금 추가된 마커에도 컬러 규칙 한 번 더 적용
       toAdd.forEach((mk) => applyColorRule(mk));
     },
     [applyColorRule, clusterer, imgs, kakao, map, onSelect, toSelected],
   );
 
-  /** 바운드 내 데이터 요청 + DIFF 반영 (오버스캔) */
+  /** 바운드 내 데이터 요청 + DIFF 반영 (오버스캔 & 버전관리) */
   const refreshInBounds = useCallback(async () => {
     if (!kakao?.maps || !map) return;
-    if (fetchInFlightRef.current) return;
-
     const kbounds = map.getBounds?.();
     if (!kbounds) return;
 
     const viewRect = rectFromKakaoBounds(kbounds);
 
-    // 이미 넓게 로드된 영역 안이면 스킵
-    if (loadedRectRef.current && rectContains(loadedRectRef.current, viewRect)) {
-      return;
-    }
+    // 이미 더 넓은 영역을 로드했다면 스킵(깜빡임 방지)
+    if (loadedRectRef.current && rectContains(loadedRectRef.current, viewRect)) return;
 
-    // 새로 로드할 오버스캔 영역 계산
+    // 새로 로드할 오버스캔 영역
     const queryRect = expandRect(viewRect, OVERSCAN_RATIO);
+
+    // 요청 버전 증가
+    const myVersion = ++requestVersionRef.current;
+
+    // 중복 요청 방지
+    if (fetchInFlightRef.current) return;
     fetchInFlightRef.current = true;
     try {
       const { minLat, maxLat, minLng, maxLng } = queryRect;
-
       const { data, error } = await supabase
         .from("raw_places")
         .select("*")
@@ -358,35 +364,39 @@ export default function useMarkers({
         .lte("lng", maxLng)
         .limit(8000);
 
+      // 낡은 응답은 버림
+      if (myVersion !== requestVersionRef.current) return;
+
       if (error) {
         console.error("Supabase(raw_places) error:", error.message);
         return;
       }
 
       addOrUpdateFromRows((data ?? []) as PlaceRow[]);
-      loadedRectRef.current = queryRect; // 로드된 영역 갱신
+      loadedRectRef.current = queryRect;
     } finally {
       fetchInFlightRef.current = false;
     }
   }, [addOrUpdateFromRows, kakao, map]);
 
-  /** idle에서 갱신 (초기 1회 포함) */
+  /** idle에서만 갱신 (버튼 클릭 등 UI 렌더링이 마커에 영향 없게) */
   useEffect(() => {
     if (!kakao?.maps || !map) return;
     const { maps } = kakao;
 
     const h = maps.event.addListener(map, "idle", () => {
+      // idle 때에만 데이터 갱신 → 버튼 클릭/패널 열기 등에서 깜빡임 차단
       refreshInBounds();
     });
 
-    // 초기 호출
+    // 초기 1회
     refreshInBounds();
 
     return () => {
       try {
         maps.event.removeListener(h);
       } catch {}
-      // 언마운트 정리
+      // 정리
       const all: any[] = [];
       poolRef.current.forEach((mk) => all.push(mk));
       try {
@@ -420,7 +430,7 @@ export default function useMarkers({
       const sel = toSelected(rowKey, row, lat, lng);
       onSelect(sel);
 
-      // 클릭/색상 규칙 갱신
+      // 클릭 규칙 갱신(선택이면 노랑 유지)
       if (lastClickedRef.current && lastClickedRef.current !== mk) {
         applyColorRule(lastClickedRef.current);
       }
