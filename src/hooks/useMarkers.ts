@@ -46,8 +46,8 @@ type MarkerState = "purple" | "yellow" | "clicked";
 const OVERSCAN_RATIO = 0.2;
 
 /** 바운드가 비정상적으로 작은 경우 fetch 스킵(임시 레이아웃/relayout 구간 보호) */
-const MIN_LAT_SPAN = 0.0008; // 약 90m
-const MIN_LNG_SPAN = 0.0008; // 약 90m
+const MIN_LAT_SPAN = 0.0001; // 약 90m
+const MIN_LNG_SPAN = 0.0001; // 약 90m
 
 /* =========================================================================
  * 훅 본체
