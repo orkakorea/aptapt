@@ -204,18 +204,6 @@ export default function QuotePanel({
           <div className="text-[22px] font-extrabold" style={{ color: brandColor }}>
             {fmtWon(grand)} <span className="text-[12px] text-gray-500 font-normal">(VAT 포함)</span>
           </div>
-
-          {/* VAT 토글 (하단 설명 라인은 제거) */}
-          <div className="mt-3">
-            <button
-              type="button"
-              onClick={() => setShowVatIncluded((v) => !v)}
-              className="text-[12px] px-3 py-1 rounded-full border bg-white font-semibold"
-              title="VAT 포함/별도 보기 전환"
-            >
-              {showVatIncluded ? "VAT 별도 보기" : "VAT 포함 보기"}
-            </button>
-          </div>
         </div>
       </div>
 
