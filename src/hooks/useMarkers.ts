@@ -1,31 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { buildRowKeyFromRow, groupKeyFromRow } from "@/core/map/rowKey";
+import type { SelectedApt } from "@/core/types";
 
 type PlaceRow = {
   id?: number | string;
   lat?: number | null;
   lng?: number | null;
   [k: string]: any;
-};
-
-type SelectedApt = {
-  rowKey: string;
-  rowId?: string;
-  name: string;
-  productName?: string;
-  installLocation?: string;
-  households?: number;
-  residents?: number;
-  monitors?: number;
-  monthlyImpressions?: number;
-  costPerPlay?: number;
-  hours?: string;
-  monthlyFee?: number;
-  monthlyFeeY1?: number;
-  imageUrl?: string;
-  lat: number;
-  lng: number;
 };
 
 function getField(obj: any, keys: string[]) {
@@ -54,6 +36,8 @@ function imageForProduct(productName?: string): string {
   return "/placeholder.svg";
 }
 
+type MarkerState = "purple" | "yellow" | "clicked";
+
 export default function useMarkers({
   kakao,
   map,
@@ -67,7 +51,7 @@ export default function useMarkers({
   onSelect: (apt: SelectedApt) => void;
   externalSelectedRowKeys?: string[];
 }) {
-  const markerCacheRef = useRef<Map<string, any>>(new Map()); // key: unique per row
+  const markerCacheRef = useRef<Map<string, any>>(new Map()); // key: unique per row (xy|id|prod|loc)
   const keyIndexRef = useRef<Record<string, any[]>>({});
   const groupsRef = useRef<Map<string, any[]>>(new Map());
   const lastClickedRef = useRef<any | null>(null);
@@ -90,18 +74,34 @@ export default function useMarkers({
     }
   }, [kakao]);
 
-  // 선택 상태 반영(색상 전환)
+  /** 상태 비교 후 다를 때만 이미지 교체 → 깜빡임 제거 */
+  const setMarkerState = useCallback(
+    (mk: any, state: MarkerState) => {
+      if (!imgs) return;
+      if (mk.__imgState === state) return; // 같은 상태면 건드리지 않음
+      try {
+        mk.setImage(imgs[state]);
+        mk.__imgState = state;
+      } catch {}
+    },
+    [imgs],
+  );
+
+  // 외부 선택(장바구니) 변화 → 색상 반영 (clicked 유지)
   useEffect(() => {
     if (!imgs) return;
     Object.entries(keyIndexRef.current).forEach(([rowKey, mks]) => {
-      const selected = externalSelectedRowKeys.includes(rowKey);
+      const isSelected = externalSelectedRowKeys.includes(rowKey);
       mks.forEach((mk) => {
-        try {
-          mk.setImage(selected ? imgs.yellow : imgs.purple);
-        } catch {}
+        // 마지막 클릭 마커가 선택되지 않았다면 clicked 유지
+        if (lastClickedRef.current === mk && !isSelected) {
+          setMarkerState(mk, "clicked");
+        } else {
+          setMarkerState(mk, isSelected ? "yellow" : "purple");
+        }
       });
     });
-  }, [externalSelectedRowKeys, imgs]);
+  }, [externalSelectedRowKeys, imgs, setMarkerState]);
 
   const toSelected = useCallback((rowKey: string, row: PlaceRow, lat: number, lng: number): SelectedApt => {
     const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
@@ -118,11 +118,12 @@ export default function useMarkers({
     const hours = getField(row, ["운영시간", "hours"]) || "";
     const rawImage = getField(row, ["imageUrl", "이미지", "썸네일", "thumbnail"]) || undefined;
 
-    return {
+    // address 필드가 SelectedApt에 포함되어 있어야 함 (core/types.ts 참고)
+    const out: SelectedApt = {
       rowKey,
       rowId: row.id != null ? String(row.id) : undefined,
       name,
-      address,
+      address, // ← 여기 때문에 타입에 address?: string 추가 필요
       productName,
       installLocation,
       households,
@@ -137,6 +138,7 @@ export default function useMarkers({
       lat,
       lng,
     };
+    return out;
   }, []);
 
   const addMarkers = useCallback(
@@ -145,8 +147,7 @@ export default function useMarkers({
       const { maps } = kakao;
 
       const nowKeys = new Set<string>();
-      const newToAdd: any[] = [];
-      const newMarkers: any[] = [];
+      const toAdd: any[] = [];
       const groups = new Map<string, any[]>();
       keyIndexRef.current = {};
 
@@ -170,14 +171,16 @@ export default function useMarkers({
         let mk = markerCacheRef.current.get(key);
         const pos = new maps.LatLng(lat, lng);
         const title = mkTitle(row);
+        const isSelected = externalSelectedRowKeys.includes(rowKey);
 
         if (!mk) {
           try {
             mk = new maps.Marker({
               position: pos,
               title,
-              image: externalSelectedRowKeys.includes(rowKey) ? imgs.yellow : imgs.purple,
+              image: isSelected ? imgs.yellow : imgs.purple,
             });
+            mk.__imgState = isSelected ? "yellow" : "purple";
           } catch {
             return;
           }
@@ -187,25 +190,31 @@ export default function useMarkers({
           maps.event.addListener(mk, "click", () => {
             const sel = toSelected(rowKey, row, lat, lng);
             onSelect(sel);
-            try {
-              if (lastClickedRef.current && lastClickedRef.current !== mk) {
-                const prev = lastClickedRef.current;
-                const prevRowKey = buildRowKeyFromRow(prev.__row as PlaceRow);
-                prev.setImage(externalSelectedRowKeys.includes(prevRowKey) ? imgs.yellow : imgs.purple);
-              }
-              mk.setImage(imgs.clicked);
-              lastClickedRef.current = mk;
-            } catch {}
+
+            // 클릭 시: 선택되어 있으면 yellow, 아니면 clicked
+            const nowSelected = externalSelectedRowKeys.includes(rowKey);
+            if (lastClickedRef.current && lastClickedRef.current !== mk) {
+              // 이전 클릭 마커 복원
+              const prev = lastClickedRef.current;
+              const prevRowKey = buildRowKeyFromRow(prev.__row as PlaceRow);
+              const prevSelected = externalSelectedRowKeys.includes(prevRowKey);
+              setMarkerState(prev, prevSelected ? "yellow" : "purple");
+            }
+            setMarkerState(mk, nowSelected ? "yellow" : "clicked");
+            lastClickedRef.current = mk;
           });
 
           markerCacheRef.current.set(key, mk);
-          newToAdd.push(mk);
+          toAdd.push(mk);
         } else {
           try {
             mk.setPosition(pos);
             if (mk.getTitle?.() !== title) mk.setTitle?.(title);
-            const img = externalSelectedRowKeys.includes(rowKey) ? imgs.yellow : imgs.purple;
-            mk.setImage(img);
+
+            // 기존 마커 갱신 시에도 상태 비교 후 변경 (깜빡임 방지)
+            const keepClicked = lastClickedRef.current === mk && !isSelected;
+            const should: MarkerState = keepClicked ? "clicked" : isSelected ? "yellow" : "purple";
+            setMarkerState(mk, should);
           } catch {}
         }
 
@@ -215,17 +224,16 @@ export default function useMarkers({
         const gk = groupKeyFromRow(row);
         if (!groups.has(gk)) groups.set(gk, []);
         groups.get(gk)!.push(mk);
-
-        newMarkers.push(mk);
       });
 
-      if (newToAdd.length) {
+      if (toAdd.length) {
         try {
-          if (clusterer) clusterer.addMarkers(newToAdd);
-          else newToAdd.forEach((m) => m.setMap(map));
+          if (clusterer) clusterer.addMarkers(toAdd);
+          else toAdd.forEach((m) => m.setMap(map));
         } catch {}
       }
 
+      // 캐시에 없는 마커 제거
       const toRemove: any[] = [];
       markerCacheRef.current.forEach((mk, key) => {
         if (!nowKeys.has(key)) {
@@ -242,7 +250,7 @@ export default function useMarkers({
 
       groupsRef.current = groups;
     },
-    [clusterer, externalSelectedRowKeys, imgs, kakao, map, onSelect, toSelected],
+    [clusterer, externalSelectedRowKeys, imgs, kakao, map, onSelect, setMarkerState, toSelected],
   );
 
   const refreshInBounds = useCallback(async () => {
@@ -271,14 +279,12 @@ export default function useMarkers({
     addMarkers((data ?? []) as PlaceRow[]);
   }, [addMarkers, kakao, map]);
 
-  // idle 이벤트에서 갱신
   useEffect(() => {
     if (!kakao?.maps || !map) return;
     const { maps } = kakao;
     const h = maps.event.addListener(map, "idle", () => {
       refreshInBounds();
     });
-    // 최초 1회
     refreshInBounds();
     return () => {
       try {
@@ -302,17 +308,19 @@ export default function useMarkers({
       } catch {}
       const sel = toSelected(rowKey, row, lat, lng);
       onSelect(sel);
-      try {
-        if (lastClickedRef.current && lastClickedRef.current !== mk) {
-          const prev = lastClickedRef.current;
-          const prevRowKey = buildRowKeyFromRow(prev.__row as PlaceRow);
-          prev.setImage(externalSelectedRowKeys.includes(prevRowKey) ? imgs?.yellow : imgs?.purple);
-        }
-        mk.setImage(imgs?.clicked);
-        lastClickedRef.current = mk;
-      } catch {}
+
+      // 클릭 상태 갱신
+      const isSelected = externalSelectedRowKeys.includes(rowKey);
+      if (lastClickedRef.current && lastClickedRef.current !== mk) {
+        const prev = lastClickedRef.current;
+        const prevRowKey = buildRowKeyFromRow(prev.__row as PlaceRow);
+        const prevSelected = externalSelectedRowKeys.includes(prevRowKey);
+        setMarkerState(prev, prevSelected ? "yellow" : "purple");
+      }
+      setMarkerState(mk, isSelected ? "yellow" : "clicked");
+      lastClickedRef.current = mk;
     },
-    [externalSelectedRowKeys, kakao, map, onSelect, toSelected, imgs],
+    [externalSelectedRowKeys, kakao, map, onSelect, setMarkerState, toSelected],
   );
 
   return { refreshInBounds, selectByRowKey };
