@@ -51,11 +51,18 @@ export default function useMarkers({
   onSelect: (apt: SelectedApt) => void;
   externalSelectedRowKeys?: string[];
 }) {
-  const markerCacheRef = useRef<Map<string, any>>(new Map()); // key: unique per row (xy|id|prod|loc)
-  const keyIndexRef = useRef<Record<string, any[]>>({});
-  const groupsRef = useRef<Map<string, any[]>>(new Map());
+  /** ----------------------------------------------------------------
+   * 풀/인덱스 (rowKey 단일 마커 보장) + 상태 참조
+   * ---------------------------------------------------------------- */
+  const poolRef = useRef<Map<string, any>>(new Map()); // rowKey -> Marker
+  const keyIndexRef = useRef<Record<string, any[]>>({}); // rowKey -> [Marker] (호환성 유지)
+  const groupsRef = useRef<Map<string, any[]>>(new Map()); // groupKey -> Markers
   const lastClickedRef = useRef<any | null>(null);
+  const fetchInFlightRef = useRef<boolean>(false); // 중복 fetch 가드
 
+  /** ----------------------------------------------------------------
+   * 마커 이미지 캐시
+   * ---------------------------------------------------------------- */
   const imgs = useMemo(() => {
     if (!kakao?.maps) return null;
     const { maps } = kakao;
@@ -77,7 +84,7 @@ export default function useMarkers({
   /** 상태 비교 후 다를 때만 이미지 교체 → 깜빡임 제거 */
   const setMarkerState = useCallback(
     (mk: any, state: MarkerState) => {
-      if (!imgs) return;
+      if (!imgs || !mk) return;
       if (mk.__imgState === state) return; // 같은 상태면 건드리지 않음
       try {
         mk.setImage(imgs[state]);
@@ -87,22 +94,20 @@ export default function useMarkers({
     [imgs],
   );
 
-  // 외부 선택(장바구니) 변화 → 색상 반영 (clicked 유지)
+  /** 외부 선택(장바구니) 변화 → 색상 반영 (clicked 유지) */
   useEffect(() => {
     if (!imgs) return;
-    Object.entries(keyIndexRef.current).forEach(([rowKey, mks]) => {
+    poolRef.current.forEach((mk, rowKey) => {
       const isSelected = externalSelectedRowKeys.includes(rowKey);
-      mks.forEach((mk) => {
-        // 마지막 클릭 마커가 선택되지 않았다면 clicked 유지
-        if (lastClickedRef.current === mk && !isSelected) {
-          setMarkerState(mk, "clicked");
-        } else {
-          setMarkerState(mk, isSelected ? "yellow" : "purple");
-        }
-      });
+      if (lastClickedRef.current === mk && !isSelected) {
+        setMarkerState(mk, "clicked");
+      } else {
+        setMarkerState(mk, isSelected ? "yellow" : "purple");
+      }
     });
   }, [externalSelectedRowKeys, imgs, setMarkerState]);
 
+  /** 행 → SelectedApt 변환 */
   const toSelected = useCallback((rowKey: string, row: PlaceRow, lat: number, lng: number): SelectedApt => {
     const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
     const address = getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
@@ -118,12 +123,11 @@ export default function useMarkers({
     const hours = getField(row, ["운영시간", "hours"]) || "";
     const rawImage = getField(row, ["imageUrl", "이미지", "썸네일", "thumbnail"]) || undefined;
 
-    // address 필드가 SelectedApt에 포함되어 있어야 함 (core/types.ts 참고)
     const out: SelectedApt = {
       rowKey,
       rowId: row.id != null ? String(row.id) : undefined,
       name,
-      address, // ← 여기 때문에 타입에 address?: string 추가 필요
+      address,
       productName,
       installLocation,
       households,
@@ -141,180 +145,222 @@ export default function useMarkers({
     return out;
   }, []);
 
-  const addMarkers = useCallback(
+  /** ----------------------------------------------------------------
+   * REFRESH: DIFF 업데이트 (추가/제거만, 재생성 금지)
+   * ---------------------------------------------------------------- */
+  const addOrUpdateFromRows = useCallback(
     (rows: PlaceRow[]) => {
       if (!kakao?.maps || !map || !imgs) return;
       const { maps } = kakao;
 
-      const nowKeys = new Set<string>();
+      const nextKeys = new Set<string>();
       const toAdd: any[] = [];
-      const groups = new Map<string, any[]>();
-      keyIndexRef.current = {};
+      const toRemove: any[] = [];
 
-      const mkTitle = (row: PlaceRow) => String(getField(row, ["단지명", "name", "아파트명"]) || "");
+      // 인덱스/그룹 임시 집계
+      const nextKeyIndex: Record<string, any[]> = {};
+      const nextGroups = new Map<string, any[]>();
 
       rows.forEach((row) => {
         if (row.lat == null || row.lng == null) return;
-
         const lat = Number(row.lat);
         const lng = Number(row.lng);
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
-        const idPart = row.id != null ? String(row.id) : "";
-        const prod = String(getField(row, ["상품명", "productName"]) || "");
-        const loc = String(getField(row, ["설치위치", "installLocation"]) || "");
-        const key = `${lat.toFixed(7)},${lng.toFixed(7)}|${idPart}|${prod}|${loc}`;
+        // rowKey 기준으로 유일 마커 보장
         const rowKey = buildRowKeyFromRow(row);
+        if (!rowKey) return;
+        nextKeys.add(rowKey);
 
-        nowKeys.add(key);
-
-        let mk = markerCacheRef.current.get(key);
         const pos = new maps.LatLng(lat, lng);
-        const title = mkTitle(row);
+        const title = String(getField(row, ["단지명", "name", "아파트명"]) || "");
         const isSelected = externalSelectedRowKeys.includes(rowKey);
 
+        let mk = poolRef.current.get(rowKey);
         if (!mk) {
+          // 새 마커 (최초만 생성)
           try {
             mk = new maps.Marker({
               position: pos,
               title,
               image: isSelected ? imgs.yellow : imgs.purple,
+              clickable: true,
             });
             mk.__imgState = isSelected ? "yellow" : "purple";
           } catch {
             return;
           }
-          mk.__key = key;
-          mk.__row = row;
+          mk.__row = row; // 최신 원본 데이터 보관
 
+          // 클릭 이벤트: 선택/강조
           maps.event.addListener(mk, "click", () => {
             const sel = toSelected(rowKey, row, lat, lng);
             onSelect(sel);
 
-            // 클릭 시: 선택되어 있으면 yellow, 아니면 clicked
-            const nowSelected = externalSelectedRowKeys.includes(rowKey);
+            // 이전 클릭 복원
             if (lastClickedRef.current && lastClickedRef.current !== mk) {
-              // 이전 클릭 마커 복원
               const prev = lastClickedRef.current;
-              const prevRowKey = buildRowKeyFromRow(prev.__row as PlaceRow);
+              // prev가 선택된 상태인지 확인
+              const prevRowKey = (prev.__row && buildRowKeyFromRow(prev.__row as PlaceRow)) || "";
               const prevSelected = externalSelectedRowKeys.includes(prevRowKey);
               setMarkerState(prev, prevSelected ? "yellow" : "purple");
             }
+
+            const nowSelected = externalSelectedRowKeys.includes(rowKey);
             setMarkerState(mk, nowSelected ? "yellow" : "clicked");
             lastClickedRef.current = mk;
           });
 
-          markerCacheRef.current.set(key, mk);
+          poolRef.current.set(rowKey, mk);
           toAdd.push(mk);
         } else {
+          // 기존 마커 재사용 (깜빡임 방지)
           try {
-            mk.setPosition(pos);
+            // 위치/타이틀 변동 시에만 업데이트
+            const oldPos = mk.getPosition?.();
+            if (!oldPos || oldPos.getLat() !== lat || oldPos.getLng() !== lng) {
+              mk.setPosition(pos);
+            }
             if (mk.getTitle?.() !== title) mk.setTitle?.(title);
 
-            // 기존 마커 갱신 시에도 상태 비교 후 변경 (깜빡임 방지)
+            // 상태 반영도 "변화시에만"
             const keepClicked = lastClickedRef.current === mk && !isSelected;
             const should: MarkerState = keepClicked ? "clicked" : isSelected ? "yellow" : "purple";
             setMarkerState(mk, should);
+
+            // 최신 행 보관
+            mk.__row = row;
           } catch {}
         }
 
-        if (!keyIndexRef.current[rowKey]) keyIndexRef.current[rowKey] = [];
-        keyIndexRef.current[rowKey].push(mk);
+        // 인덱스/그룹 집계
+        if (!nextKeyIndex[rowKey]) nextKeyIndex[rowKey] = [];
+        nextKeyIndex[rowKey].push(mk);
 
         const gk = groupKeyFromRow(row);
-        if (!groups.has(gk)) groups.set(gk, []);
-        groups.get(gk)!.push(mk);
+        if (!nextGroups.has(gk)) nextGroups.set(gk, []);
+        nextGroups.get(gk)!.push(mk);
       });
 
+      // 제거 대상: 풀에는 있는데 이번에 안 보이는 키
+      poolRef.current.forEach((mk, rowKey) => {
+        if (!nextKeys.has(rowKey)) {
+          toRemove.push(mk);
+          poolRef.current.delete(rowKey);
+        }
+      });
+
+      // Clusterer 업데이트 (추가/제거만)
+      if (toRemove.length) {
+        try {
+          if (clusterer?.removeMarkers) clusterer.removeMarkers(toRemove);
+          else toRemove.forEach((m) => m.setMap(null));
+        } catch {}
+      }
       if (toAdd.length) {
         try {
-          if (clusterer) clusterer.addMarkers(toAdd);
+          if (clusterer?.addMarkers) clusterer.addMarkers(toAdd);
           else toAdd.forEach((m) => m.setMap(map));
         } catch {}
       }
 
-      // 캐시에 없는 마커 제거
-      const toRemove: any[] = [];
-      markerCacheRef.current.forEach((mk, key) => {
-        if (!nowKeys.has(key)) {
-          toRemove.push(mk);
-          markerCacheRef.current.delete(key);
-        }
-      });
-      if (toRemove.length) {
-        try {
-          if (clusterer) clusterer.removeMarkers(toRemove);
-          else toRemove.forEach((m) => m.setMap(null));
-        } catch {}
-      }
-
-      groupsRef.current = groups;
+      // 참조 갱신
+      keyIndexRef.current = nextKeyIndex;
+      groupsRef.current = nextGroups;
     },
     [clusterer, externalSelectedRowKeys, imgs, kakao, map, onSelect, setMarkerState, toSelected],
   );
 
+  /** 바운드 기반 조회 후 DIFF 반영 */
   const refreshInBounds = useCallback(async () => {
     if (!kakao?.maps || !map) return;
+    if (fetchInFlightRef.current) return; // 중복 호출 방지
     const bounds = map.getBounds?.();
     if (!bounds) return;
 
-    const sw = bounds.getSouthWest();
-    const ne = bounds.getNorthEast();
+    fetchInFlightRef.current = true;
+    try {
+      const sw = bounds.getSouthWest();
+      const ne = bounds.getNorthEast();
 
-    const { data, error } = await supabase
-      .from("raw_places")
-      .select("*")
-      .not("lat", "is", null)
-      .not("lng", "is", null)
-      .gte("lat", sw.getLat())
-      .lte("lat", ne.getLat())
-      .gte("lng", sw.getLng())
-      .lte("lng", ne.getLng())
-      .limit(5000);
+      const { data, error } = await supabase
+        .from("raw_places")
+        .select("*")
+        .not("lat", "is", null)
+        .not("lng", "is", null)
+        .gte("lat", sw.getLat())
+        .lte("lat", ne.getLat())
+        .gte("lng", sw.getLng())
+        .lte("lng", ne.getLng())
+        .limit(5000);
 
-    if (error) {
-      console.error("Supabase(raw_places) error:", error.message);
-      return;
+      if (error) {
+        console.error("Supabase(raw_places) error:", error.message);
+        return;
+      }
+      addOrUpdateFromRows((data ?? []) as PlaceRow[]);
+    } finally {
+      fetchInFlightRef.current = false;
     }
-    addMarkers((data ?? []) as PlaceRow[]);
-  }, [addMarkers, kakao, map]);
+  }, [addOrUpdateFromRows, kakao, map]);
 
+  /** idle 이벤트로 갱신 (초기 1회 포함) */
   useEffect(() => {
     if (!kakao?.maps || !map) return;
     const { maps } = kakao;
-    const h = maps.event.addListener(map, "idle", () => {
+
+    const handler = maps.event.addListener(map, "idle", () => {
+      // 연속 idle 방지: fetchInFlightRef로 자체 조절
       refreshInBounds();
     });
+
+    // 초기 로딩
     refreshInBounds();
+
     return () => {
       try {
-        maps.event.removeListener(h);
+        maps.event.removeListener(handler);
       } catch {}
+      // 언마운트 시 풀을 안전 정리
+      const all: any[] = [];
+      poolRef.current.forEach((mk) => all.push(mk));
+      try {
+        if (clusterer?.removeMarkers) clusterer.removeMarkers(all);
+        else all.forEach((m) => m.setMap(null));
+      } catch {}
+      poolRef.current.clear();
+      keyIndexRef.current = {};
+      groupsRef.current.clear();
+      lastClickedRef.current = null;
     };
-  }, [kakao, map, refreshInBounds]);
+  }, [kakao, map, refreshInBounds, clusterer]);
 
+  /** 외부에서 rowKey로 선택(지도로 포커스) */
   const selectByRowKey = useCallback(
     (rowKey: string) => {
-      const arr = keyIndexRef.current[rowKey];
-      if (!arr?.length || !kakao?.maps || !map) return;
-      const mk = arr[0];
+      const mk = poolRef.current.get(rowKey);
+      if (!mk || !kakao?.maps || !map) return;
+
       const row = mk.__row as PlaceRow;
       const lat = Number(row.lat);
       const lng = Number(row.lng);
+
       try {
         const pos = new kakao.maps.LatLng(lat, lng);
         map.setLevel?.(4);
         map.panTo?.(pos);
       } catch {}
+
       const sel = toSelected(rowKey, row, lat, lng);
       onSelect(sel);
 
-      // 클릭 상태 갱신
+      // 클릭 상태 갱신 (외부 선택 + 클릭 유지 규칙 반영)
       const isSelected = externalSelectedRowKeys.includes(rowKey);
       if (lastClickedRef.current && lastClickedRef.current !== mk) {
         const prev = lastClickedRef.current;
-        const prevRowKey = buildRowKeyFromRow(prev.__row as PlaceRow);
-        const prevSelected = externalSelectedRowKeys.includes(prevRowKey);
+        const prevRow = prev.__row as PlaceRow;
+        const prevKey = buildRowKeyFromRow(prevRow);
+        const prevSelected = externalSelectedRowKeys.includes(prevKey);
         setMarkerState(prev, prevSelected ? "yellow" : "purple");
       }
       setMarkerState(mk, isSelected ? "yellow" : "clicked");
