@@ -13,7 +13,7 @@ export type Prefill = {
   apt_name?: string | null;
   product_code?: string | null;
   product_name?: string | null;
-  cart_snapshot?: any | null; // { items: [{apt_name,product_name,months,...}], months, cartTotal... } 등 유연 키 허용
+  cart_snapshot?: any | null;
 };
 
 type Props = {
@@ -31,7 +31,9 @@ const INPUT =
 const LABEL = "text-[12px] font-semibold text-gray-700 mb-1";
 const READ = "text-[12px] text-gray-500";
 const SAFE_BOTTOM = "pb-[env(safe-area-inset-bottom)]";
+const CAMPAIGN_OPTIONS: CampaignType[] = ["기업", "공공", "병원", "소상공인", "광고대행사"];
 
+// ------------------ 유틸 ------------------
 function getUTM() {
   if (typeof window === "undefined") return null;
   const p = new URLSearchParams(window.location.search);
@@ -54,7 +56,6 @@ function fmtWon(n: number | null | undefined) {
   if (n == null || isNaN(Number(n))) return "-";
   return `${Number(n).toLocaleString("ko-KR")}원`;
 }
-/** cart_snapshot에서 총액 유연 추출 */
 function pickCartTotal(snap: any): number | null {
   if (!snap) return null;
   const candidates = [
@@ -82,9 +83,7 @@ function pickCartTotal(snap: any): number | null {
   return null;
 }
 
-// ——————————————————————————————————————————
-// 경량 정책/성공 모달 (재사용)
-// ——————————————————————————————————————————
+// ------------------ 경량 정책/성공 모달 ------------------
 function PolicyModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   if (!open) return null;
   return (
@@ -102,7 +101,6 @@ function PolicyModal({ open, onClose }: { open: boolean; onClose: () => void }) 
           </button>
         </div>
         <div className="px-5 py-4 text-[12px] text-gray-700 leading-6">
-          {/* 실제 약관 전문으로 교체하세요 */}
           <p className="mb-2">
             오르카 코리아는 문의 접수 및 상담을 위해 최소한의 개인정보를 수집·이용하며, 목적 달성 후 지체 없이
             파기합니다. 수집 항목: 성명, 연락처, 이메일, 문의 내용 등. 보유·이용 기간: 문의 처리 완료 후 1년.
@@ -164,24 +162,23 @@ function SuccessModal({ open, mode, onClose }: { open: boolean; mode: InquiryKin
   );
 }
 
-// ——————————————————————————————————————————
-// 본체: 2-Page Bottom Sheet Wizard
-// ——————————————————————————————————————————
+// ------------------ 본체: 2-Page Bottom Sheet ------------------
 export default function MobileInquirySheet({ open, mode, prefill, sourcePage, onClose, onSubmitted }: Props) {
-  // Step: 1(입력) / 2(검토/제출)
   const [step, setStep] = useState<1 | 2>(1);
 
-  // 공통 입력값
+  // 입력값
   const [brand, setBrand] = useState("");
   const [campaignType, setCampaignType] = useState<CampaignType | "">("");
   const [managerName, setManagerName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [hopeDate, setHopeDate] = useState<string>("");
+
+  // Step2 값
   const [requestText, setRequestText] = useState("");
   const [promoCode, setPromoCode] = useState("");
-
   const [agreePrivacy, setAgreePrivacy] = useState(false);
+
   const [submitting, setSubmitting] = useState(false);
   const [policyOpen, setPolicyOpen] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -213,7 +210,7 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
     }
   }, [open]);
 
-  // 백그라운드 스크롤 잠금
+  // 바디 스크롤 잠금
   useEffect(() => {
     if (!open || typeof document === "undefined") return;
     const prev = document.body.style.overflow;
@@ -223,7 +220,7 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
     };
   }, [open]);
 
-  // 연락처: 숫자만
+  // 연락처 숫자만
   function handlePhoneChange(v: string) {
     const digits = v.replace(/\D/g, "");
     setPhone(digits);
@@ -271,9 +268,8 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
     return { aptLabel, productLabel, monthsLabel, totalWon };
   }, [mode, prefill]);
 
-  // Step 전환 유효성
-  const canGoNext =
-    required(brand) && required(campaignType) && required(managerName) && required(phone) && agreePrivacy;
+  // Step1 완료 조건(동의 필요 없음)
+  const canGoNext = required(brand) && required(campaignType) && required(managerName) && required(phone);
 
   // 제출
   async function handleSubmit(e: React.FormEvent) {
@@ -281,7 +277,11 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
     if (submitting) return;
     setErrorMsg(null);
 
-    // 2페이지에서만 실제 제출
+    if (!agreePrivacy) {
+      setErrorMsg("개인정보 수집·이용 동의를 체크해 주세요.");
+      return;
+    }
+
     try {
       setSubmitting(true);
       const utm = getUTM();
@@ -319,7 +319,6 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
       const { error } = await (supabase as any).from("inquiries").insert(payload);
       if (error) throw error;
 
-      // 성공 → 성공 모달
       setSuccessOpen(true);
     } catch (err: any) {
       setErrorMsg(err?.message || "제출 중 오류가 발생했습니다.");
@@ -356,11 +355,7 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
                 {mode === "SEAT" ? "구좌(T.O) 문의" : "시·군·구 / 패키지 문의"}
               </div>
               <div className="text-[11px] text-gray-500 mt-0.5 truncate">
-                {step === 1
-                  ? "브랜드/담당자 등 기본 정보를 입력해 주세요."
-                  : mode === "SEAT"
-                    ? "담은 단지/상품 정보를 확인 후 제출합니다."
-                    : "입력 내용을 확인 후 제출합니다."}
+                {step === 1 ? "브랜드/담당자 등 기본 정보를 입력해 주세요." : "요청사항과 개인정보 동의 후 제출합니다."}
               </div>
             </div>
             <button
@@ -385,13 +380,13 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
 
         {/* Scrollable Body */}
         <div className="px-4 pt-3 overflow-y-auto" style={{ maxHeight: "calc(86vh - 52px - 72px)" }}>
-          {/* STEP 1: 입력 */}
+          {/* STEP 1: 기본 입력 (요청/동의 없음) */}
           {step === 1 && (
             <form
               onSubmit={(e) => {
                 e.preventDefault();
                 if (canGoNext) setStep(2);
-                else setErrorMsg("필수 항목을 입력하고 개인정보 동의를 체크해 주세요.");
+                else setErrorMsg("브랜드/캠페인유형/담당자/연락처를 입력해 주세요.");
               }}
             >
               <div className="grid grid-cols-2 gap-3">
@@ -411,20 +406,28 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
                   <div className={LABEL}>
                     캠페인유형 <span className="text-red-500">*</span>
                   </div>
-                  <select
-                    className={`${INPUT} bg-white`}
-                    value={campaignType}
-                    onChange={(e) => setCampaignType(e.target.value as CampaignType)}
-                  >
-                    <option value="" disabled>
-                      선택하세요
-                    </option>
-                    <option value="기업">기업</option>
-                    <option value="공공">공공</option>
-                    <option value="병원">병원</option>
-                    <option value="소상공인">소상공인</option>
-                    <option value="광고대행사">광고대행사</option>
-                  </select>
+                  {/* 네모칸(칩) 선택형 */}
+                  <div className="grid grid-cols-3 gap-2">
+                    {CAMPAIGN_OPTIONS.map((opt) => {
+                      const active = campaignType === opt;
+                      return (
+                        <button
+                          type="button"
+                          key={opt}
+                          role="radio"
+                          aria-checked={active}
+                          onClick={() => setCampaignType(opt)}
+                          className={`px-3 py-2 rounded-xl border text-[13px] ${
+                            active
+                              ? "border-violet-500 bg-violet-50 text-violet-700 font-bold"
+                              : "border-gray-200 bg-white text-gray-700"
+                          }`}
+                        >
+                          {opt}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 <div>
@@ -468,31 +471,11 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
                 </div>
               </div>
 
-              <div className="mt-3">
-                <div className={LABEL}>요청사항</div>
-                <textarea
-                  className={`${INPUT} h-24 resize-none`}
-                  placeholder="관심 상품/예산/지역/기간 등을 적어주세요."
-                  value={requestText}
-                  onChange={(e) => setRequestText(e.target.value)}
-                />
-              </div>
-
-              <div className="mt-3 mb-4">
-                <div className={LABEL}>프로모션 코드</div>
-                <input
-                  className={INPUT}
-                  placeholder="예: ORCA2025"
-                  value={promoCode}
-                  onChange={(e) => setPromoCode(e.target.value)}
-                />
-              </div>
-
-              {errorMsg && <div className="mt-2 text-[12px] text-red-600">{errorMsg}</div>}
+              {errorMsg && <div className="mt-3 text-[12px] text-red-600">{errorMsg}</div>}
             </form>
           )}
 
-          {/* STEP 2: 검토/제출 */}
+          {/* STEP 2: 요약 + 요청/프로모션/동의 + 제출 */}
           {step === 2 && (
             <form onSubmit={handleSubmit}>
               {/* SEAT 요약 */}
@@ -522,70 +505,35 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
                 </div>
               )}
 
-              {/* 내가 입력한 정보 요약 */}
-              <div className="rounded-2xl border border-gray-100 bg-white p-3 mb-3">
-                <div className="text-[12px] font-semibold mb-2">연락/캠페인 정보</div>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[12px]">
-                  <div>
-                    <div className={READ}>브랜드명</div>
-                    <div className="font-medium">{brand}</div>
-                  </div>
-                  <div>
-                    <div className={READ}>캠페인유형</div>
-                    <div className="font-medium">{campaignType}</div>
-                  </div>
-                  <div>
-                    <div className={READ}>담당자명</div>
-                    <div className="font-medium">{managerName}</div>
-                  </div>
-                  <div>
-                    <div className={READ}>연락처</div>
-                    <div className="font-medium">{phone}</div>
-                  </div>
-                  {email && (
-                    <div>
-                      <div className={READ}>이메일</div>
-                      <div className="font-medium">{email}</div>
-                    </div>
-                  )}
-                  {hopeDate && (
-                    <div>
-                      <div className={READ}>희망일</div>
-                      <div className="font-medium">{hopeDate}</div>
-                    </div>
-                  )}
-                </div>
-                {requestText && (
-                  <div className="mt-2">
-                    <div className={READ}>요청사항</div>
-                    <div className="text-[12px]">{requestText}</div>
-                  </div>
-                )}
-                {promoCode && (
-                  <div className="mt-2">
-                    <div className={READ}>프로모션 코드</div>
-                    <div className="text-[12px]">{promoCode}</div>
-                  </div>
-                )}
+              {/* 요청사항 / 프로모션 코드 */}
+              <div className="mb-3">
+                <div className={LABEL}>요청사항</div>
+                <textarea
+                  className={`${INPUT} h-24 resize-none`}
+                  placeholder="관심 상품/예산/지역/기간 등을 적어주세요."
+                  value={requestText}
+                  onChange={(e) => setRequestText(e.target.value)}
+                />
               </div>
 
-              {errorMsg && <div className="mt-2 text-[12px] text-red-600">{errorMsg}</div>}
-            </form>
-          )}
-        </div>
+              <div className="mb-3">
+                <div className={LABEL}>프로모션 코드</div>
+                <input
+                  className={INPUT}
+                  placeholder="예: ORCA2025"
+                  value={promoCode}
+                  onChange={(e) => setPromoCode(e.target.value)}
+                />
+              </div>
 
-        {/* Sticky Footer (양 페이지 공통) */}
-        <div className={`px-4 py-3 border-t border-gray-100 bg-white sticky bottom-0 ${SAFE_BOTTOM}`}>
-          <div className="flex items-center justify-between gap-3">
-            {/* 좌측: 정책버튼 + 동의 체크 (Step1에서 보이고, Step2에서는 회색 텍스트로 상태 표시) */}
-            {step === 1 ? (
-              <div className="flex items-center gap-3 flex-wrap">
+              {/* 정책 버튼 + 동의 체크 */}
+              <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
                 <button
                   type="button"
                   className="px-3 py-2 text-[12px] rounded-md border border-black bg-white hover:bg-gray-50 whitespace-nowrap"
                   onClick={() => setPolicyOpen(true)}
                 >
-                  개인정보 수집·이용 정책
+                  개인정보 수집·이용 정책 자세히보기
                 </button>
                 <label className="flex items-center gap-2 text-[12px] text-gray-700 whitespace-nowrap">
                   <input
@@ -594,55 +542,56 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
                     checked={agreePrivacy}
                     onChange={(e) => setAgreePrivacy(e.target.checked)}
                   />
-                  동의 <span className="text-red-500">*</span>
+                  개인정보 수집·이용 동의 <span className="text-red-500">*</span>
                 </label>
               </div>
-            ) : (
-              <div className="text-[12px] text-gray-600">개인정보 수집·이용 동의 완료</div>
-            )}
 
-            {/* 우측 CTA */}
-            <div className="flex items-center gap-2">
-              {step === 2 && (
-                <button
-                  type="button"
-                  className="rounded-xl px-4 py-3 font-semibold border bg-white"
-                  onClick={() => setStep(1)}
-                >
-                  이전
-                </button>
-              )}
-              {step === 1 ? (
-                <button
-                  type="button"
-                  disabled={!canGoNext}
-                  onClick={() => {
-                    if (canGoNext) setStep(2);
-                  }}
-                  className={`rounded-xl px-5 py-3 text-white font-semibold ${
-                    !canGoNext ? "bg-violet-300 cursor-not-allowed" : "bg-violet-600 hover:bg-violet-700"
-                  }`}
-                >
-                  다음
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    // step2의 form 찾아서 submit
-                    const container = document.querySelector('[role="dialog"]');
-                    const forms = container?.querySelectorAll("form");
-                    const lastForm = forms?.[forms.length - 1] as HTMLFormElement | undefined;
-                    lastForm?.requestSubmit();
-                  }}
-                  className={`rounded-xl px-5 py-3 text-white font-semibold ${
-                    submitting ? "bg-violet-400 cursor-wait" : "bg-violet-600 hover:bg-violet-700"
-                  }`}
-                >
-                  {submitting ? "전송 중..." : "문의 접수"}
-                </button>
-              )}
-            </div>
+              {errorMsg && <div className="mt-2 text-[12px] text-red-600">{errorMsg}</div>}
+            </form>
+          )}
+        </div>
+
+        {/* Sticky Footer */}
+        <div className={`px-4 py-3 border-t border-gray-100 bg-white sticky bottom-0 ${SAFE_BOTTOM}`}>
+          <div className="flex items-center justify-end gap-2">
+            {step === 2 && (
+              <button
+                type="button"
+                className="rounded-xl px-4 py-3 font-semibold border bg-white"
+                onClick={() => setStep(1)}
+              >
+                이전
+              </button>
+            )}
+            {step === 1 ? (
+              <button
+                type="button"
+                disabled={!canGoNext}
+                onClick={() => {
+                  if (canGoNext) setStep(2);
+                }}
+                className={`rounded-xl px-5 py-3 text-white font-semibold ${
+                  !canGoNext ? "bg-violet-300 cursor-not-allowed" : "bg-violet-600 hover:bg-violet-700"
+                }`}
+              >
+                다음
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  const container = document.querySelector('[role="dialog"]');
+                  const forms = container?.querySelectorAll("form");
+                  const lastForm = forms?.[forms.length - 1] as HTMLFormElement | undefined;
+                  lastForm?.requestSubmit();
+                }}
+                className={`rounded-xl px-5 py-3 text-white font-semibold ${
+                  submitting ? "bg-violet-400 cursor-wait" : "bg-violet-600 hover:bg-violet-700"
+                }`}
+              >
+                {submitting ? "전송 중..." : "문의 접수"}
+              </button>
+            )}
           </div>
         </div>
       </div>
