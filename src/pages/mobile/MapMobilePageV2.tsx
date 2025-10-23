@@ -3,7 +3,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import BottomSheet from "@/components/mobile/BottomSheet";
 import DetailPanel from "@/components/mobile/DetailPanel";
 import CartPanel from "@/components/mobile/CartPanel";
-import QuotePanel from "@/components/mobile/QuotePanel";
 import QuotePanel, { type QuoteComputedItem } from "@/components/mobile/QuotePanel";
 
 import { useKakaoLoader } from "@/hooks/useKakaoLoader";
@@ -13,14 +12,17 @@ import useMarkers from "@/hooks/useMarkers";
 import useUserMarker from "@/hooks/useUserMarker";
 
 import type { SelectedApt, CartItem } from "@/core/types";
-import { fmtWon } from "@/core/utils";
 import { calcMonthlyWithPolicy, normPolicyKey } from "@/core/pricing";
 
 const COLOR_PRIMARY = "#6F4BF2";
 
-export default function MapMobilePageV2() {
-  const mapRef = useRef<HTMLDivElement | null>(null);
+type ActiveTab = "detail" | "cart" | "quote";
 
+export default function MapMobilePageV2() {
+  /** =========================
+   * Kakao 지도
+   * ========================= */
+  const mapRef = useRef<HTMLDivElement | null>(null);
   const { kakao, error: kakaoError } = useKakaoLoader();
   const { map, clusterer } = useKakaoMap(mapRef, {
     kakao,
@@ -29,24 +31,30 @@ export default function MapMobilePageV2() {
     idleDebounceMs: 150,
   });
 
-  // 내 위치(버튼으로 단발 요청)
+  /** 내 위치(버튼 클릭 시 단발 요청) */
   const { locateNow } = useUserMarker({ kakao, map, autoCenterOnFirstFix: false, watch: false });
 
-  /* 검색 */
+  /** =========================
+   * 검색
+   * ========================= */
   const [searchQ, setSearchQ] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchAreaRef = useRef<HTMLDivElement>(null);
   const search = usePlaceSearch({ kakao, map, defaultLevel: 4, smoothPan: true });
 
-  /* 선택/카트 */
+  /** =========================
+   * 선택/카트
+   * ========================= */
   const [selected, setSelected] = useState<SelectedApt | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const selectedRowKeys = useMemo(() => cart.map((c) => c.rowKey), [cart]);
 
-  /* 시트 상태 */
+  /** =========================
+   * 바텀시트 상태
+   * ========================= */
   const [sheetOpen, setSheetOpen] = useState(false);
   const sheetOpenRef = useRef(false);
-  const [activeTab, setActiveTab] = useState<"detail" | "cart" | "quote">("detail");
+  const [activeTab, setActiveTab] = useState<ActiveTab>("detail");
 
   const phoneBtnRef = useRef<HTMLAnchorElement>(null);
   const [sheetMaxH, setSheetMaxH] = useState<number>(() => Math.max(320, Math.floor(window.innerHeight * 0.75)));
@@ -64,7 +72,9 @@ export default function MapMobilePageV2() {
     if (sheetOpen) recalcSheetMax();
   }, [sheetOpen, recalcSheetMax]);
 
-  /* 마커 */
+  /** =========================
+   * 마커
+   * ========================= */
   const markers = useMarkers({
     kakao,
     map,
@@ -89,14 +99,16 @@ export default function MapMobilePageV2() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, kakao]);
 
-  /* 리사이즈 */
+  /** 리사이즈 */
   useEffect(() => {
     const onResize = () => recalcSheetMax();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, [recalcSheetMax]);
 
-  /* 뒤로가기 & 전화 예외 */
+  /** =========================
+   * 뒤로가기 & beforeunload 가드 (전화 클릭 예외)
+   * ========================= */
   const [exitAsk, setExitAsk] = useState(false);
   const popHandlerRef = useRef<(e: PopStateEvent) => void>();
   const allowUnloadRef = useRef(false);
@@ -129,7 +141,7 @@ export default function MapMobilePageV2() {
     };
   }, []);
 
-  /* 외부 클릭 시 검색 blur */
+  /** 시트 외부 클릭 시 검색창 blur */
   useEffect(() => {
     const blurActive = () => {
       const el = document.activeElement as HTMLElement | null;
@@ -144,7 +156,7 @@ export default function MapMobilePageV2() {
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
   }, []);
 
-  /* 검색 실행 + blur */
+  /** 검색 실행 + blur */
   const runSearchAndBlur = useCallback(async () => {
     try {
       searchInputRef.current?.blur();
@@ -153,7 +165,9 @@ export default function MapMobilePageV2() {
     } catch {}
   }, [searchQ, search]);
 
-  /* 카트 조작 */
+  /** =========================
+   * 카트 조작
+   * ========================= */
   const isInCart = useCallback((rowKey?: string | null) => !!rowKey && cart.some((c) => c.rowKey === rowKey), [cart]);
 
   // 담기 시 항상 1개월 기본
@@ -186,8 +200,11 @@ export default function MapMobilePageV2() {
     [applyAll],
   );
 
-  /* 할인/총액 계산 */
-  const computedCart = useMemo(() => {
+  /** =========================
+   * 할인/총액 계산
+   * ========================= */
+  type ComputedItem = CartItem & { _monthly?: number; _discountRate?: number; _total?: number };
+  const computedCart: ComputedItem[] = useMemo(() => {
     const cnt = new Map<string, number>();
     cart.forEach((c) => {
       const k = normPolicyKey(c.productName);
@@ -209,7 +226,7 @@ export default function MapMobilePageV2() {
 
   const totalCost = useMemo(() => computedCart.reduce((s, c) => s + (c._total ?? 0), 0), [computedCart]);
 
-  /* 장바구니 → 단지 상세로 정확히 이동 */
+  /** 장바구니 → 특정 단지로 이동 */
   const goToRowKey = useCallback(
     (rk: string) => {
       markers.selectByRowKey(rk);
@@ -220,12 +237,15 @@ export default function MapMobilePageV2() {
     [markers, recalcSheetMax],
   );
 
-  // 바텀시트 스크롤 초기화용 키
+  // 바텀시트 스크롤 초기화 키
   const resetScrollKey = `${sheetOpen ? 1 : 0}-${activeTab}-${selected?.rowKey ?? ""}`;
 
-  // Kakao 준비 여부 (버튼 가드용)
+  // Kakao 준비 여부 (버튼 가드)
   const kakaoReady = !!(kakao && map);
 
+  /** =========================
+   * 렌더
+   * ========================= */
   return (
     <div className="w-screen h-[100dvh] bg-white">
       {/* 상단바 */}
@@ -267,7 +287,7 @@ export default function MapMobilePageV2() {
       {/* 우측 버튼 스택 */}
       <div className="fixed z-[35] right-3 top-[64px] pointer-events-none">
         <div className="flex flex-col gap-2 pointer-events-auto">
-          {/* 검색 (circle + line) */}
+          {/* 검색 */}
           <button
             onClick={runSearchAndBlur}
             className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow"
@@ -281,7 +301,7 @@ export default function MapMobilePageV2() {
             </svg>
           </button>
 
-          {/* 카트 (rect + wheels + handle) */}
+          {/* 카트 */}
           <button
             onClick={() => {
               setActiveTab("cart");
@@ -306,7 +326,7 @@ export default function MapMobilePageV2() {
             )}
           </button>
 
-          {/* 전화 (rounded phone outline) - path 없이 */}
+          {/* 전화 */}
           <a
             ref={phoneBtnRef}
             href="tel:1551-0810"
@@ -328,7 +348,7 @@ export default function MapMobilePageV2() {
             </svg>
           </a>
 
-          {/* 내 위치 (circle + lines) */}
+          {/* 내 위치 */}
           <button
             onClick={() => {
               const el = document.activeElement as HTMLElement | null;
@@ -376,7 +396,6 @@ export default function MapMobilePageV2() {
                 title="닫기"
                 className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center"
               >
-                {/* X 아이콘: 교차선 2개 (path 없음) */}
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
                   <line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" strokeWidth="2" />
                   <line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" strokeWidth="2" />
@@ -398,6 +417,7 @@ export default function MapMobilePageV2() {
                   removeFromCart(selected.rowKey);
                 } else {
                   addSelectedToCart(); // 1개월 기본
+                  setSheetOpen(false); // 담기 후 시트 닫기
                 }
               }}
             />
@@ -417,12 +437,12 @@ export default function MapMobilePageV2() {
 
           {activeTab === "quote" && (
             <QuotePanel
-              items={computedCart as QuoteComputedItem[]} // 필수 props
-              total={totalCost} // 공급가(VAT 별도)
-              brandColor={COLOR_PRIMARY} // 선택
-              onGoTo={goToRowKey} // 단지명 클릭→지도 포커싱(선택)
+              items={computedCart as QuoteComputedItem[]}
+              total={totalCost}
+              brandColor={COLOR_PRIMARY}
+              onGoTo={goToRowKey}
               onInquiry={() => {
-                // 문의 흐름: 원하는 액션으로 바꿔도 됨
+                // 견적 기반 문의 흐름: 필요 시 원하는 로직으로 교체
                 setActiveTab("cart");
                 setSheetOpen(true);
               }}
@@ -454,6 +474,9 @@ export default function MapMobilePageV2() {
   );
 }
 
+/** =========================
+ * 소형 버튼
+ * ========================= */
 function TabBtn({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
   return (
     <button
@@ -466,6 +489,9 @@ function TabBtn({ active, onClick, label }: { active: boolean; onClick: () => vo
   );
 }
 
+/** =========================
+ * 종료 확인 모달
+ * ========================= */
 function ConfirmExitModal({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
   return (
     <div className="fixed inset-0 z-[90]">
