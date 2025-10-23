@@ -14,13 +14,11 @@ import type { SelectedApt, CartItem } from "@/core/types";
 import { fmtWon } from "@/core/utils";
 import { calcMonthlyWithPolicy, normPolicyKey } from "@/core/pricing";
 
-/* ===== 색상/상수 ===== */
 const COLOR_PRIMARY = "#6F4BF2";
 
 export default function MapMobilePageV2() {
   const mapRef = useRef<HTMLDivElement | null>(null);
 
-  /* Kakao SDK & Map */
   const { kakao, error: kakaoError } = useKakaoLoader();
   const { map, clusterer } = useKakaoMap(mapRef, {
     kakao,
@@ -28,6 +26,9 @@ export default function MapMobilePageV2() {
     level: 6,
     idleDebounceMs: 150,
   });
+
+  // 유저 마커 (최초 수신 시 자동 센터)
+  useUserMarker({ kakao, map, autoCenterOnFirstFix: true, watch: true });
 
   /* 검색 */
   const [searchQ, setSearchQ] = useState("");
@@ -40,12 +41,11 @@ export default function MapMobilePageV2() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const selectedRowKeys = useMemo(() => cart.map((c) => c.rowKey), [cart]);
 
-  /* 바텀시트 상태 */
+  /* 시트 상태 */
   const [sheetOpen, setSheetOpen] = useState(false);
   const sheetOpenRef = useRef(false);
   const [activeTab, setActiveTab] = useState<"detail" | "cart" | "quote">("detail");
 
-  /* 전화 버튼 기준 시트 최대 높이 */
   const phoneBtnRef = useRef<HTMLAnchorElement>(null);
   const [sheetMaxH, setSheetMaxH] = useState<number>(() => Math.max(320, Math.floor(window.innerHeight * 0.75)));
 
@@ -76,10 +76,7 @@ export default function MapMobilePageV2() {
     externalSelectedRowKeys: selectedRowKeys,
   });
 
-  /* 유저 위치 마커 (최초 수신 시 자동 센터) */
-  useUserMarker({ kakao, map, autoCenterOnFirstFix: true, watch: true });
-
-  /* 첫 로딩 시 바운드 로딩 */
+  // 초기 바운드 로딩(훅 내부에서도 수행하지만 안전하게 1회 더)
   useEffect(() => {
     if (map && kakao) {
       setTimeout(() => {
@@ -91,14 +88,14 @@ export default function MapMobilePageV2() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, kakao]);
 
-  /* 리사이즈 시 높이 재계산 */
+  /* 리사이즈 */
   useEffect(() => {
     const onResize = () => recalcSheetMax();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, [recalcSheetMax]);
 
-  /* 뒤로가기 가드(+전화 예외 & 시트 먼저 닫기) */
+  /* 뒤로가기 & 전화 예외 */
   const [exitAsk, setExitAsk] = useState(false);
   const popHandlerRef = useRef<(e: PopStateEvent) => void>();
   const allowUnloadRef = useRef(false);
@@ -131,7 +128,7 @@ export default function MapMobilePageV2() {
     };
   }, []);
 
-  /* 외부 탭 시 검색창 blur */
+  /* 외부 클릭 시 검색 blur */
   useEffect(() => {
     const blurActive = () => {
       const el = document.activeElement as HTMLElement | null;
@@ -155,46 +152,31 @@ export default function MapMobilePageV2() {
     } catch {}
   }, [searchQ, search]);
 
-  /* =========================
-   *  기간 기억하기 (기본값)
-   * ========================= */
-  const [preferredMonths, setPreferredMonths] = useState<number>(() => {
-    const raw = localStorage.getItem("m2_preferred_months");
-    const n = raw ? Number(raw) : 1;
-    return n >= 1 && n <= 12 ? n : 1;
-  });
-  useEffect(() => {
-    localStorage.setItem("m2_preferred_months", String(preferredMonths));
-  }, [preferredMonths]);
-
   /* 카트 조작 */
   const isInCart = useCallback((rowKey?: string | null) => !!rowKey && cart.some((c) => c.rowKey === rowKey), [cart]);
 
+  // ✅ 담기 시 항상 1개월로 시작 (삭제 후 재담기 포함)
   const addSelectedToCart = useCallback(() => {
     if (!selected) return;
-    // 새로 담길 때 기본 기간은 preferredMonths 사용
     const next: CartItem = {
       rowKey: selected.rowKey,
       aptName: selected.name,
       productName: selected.productName,
-      months: preferredMonths,
+      months: 1, // 항상 1개월로 시작
       baseMonthly: selected.monthlyFee ?? 0,
       monthlyFeeY1: selected.monthlyFeeY1 ?? undefined,
     };
     setCart((prev) => [next, ...prev.filter((c) => c.rowKey !== next.rowKey)]);
-  }, [selected, preferredMonths]);
+  }, [selected]);
 
   const removeFromCart = useCallback((rowKey: string) => {
     setCart((prev) => prev.filter((c) => c.rowKey !== rowKey));
   }, []);
 
-  /* 광고기간 일괄적용 스위치 */
   const [applyAll, setApplyAll] = useState(true);
 
   const updateMonths = useCallback(
     (rowKey: string, months: number) => {
-      // 드롭다운에서 바꾼 값은 사용자가 원하는 기본값으로 기억
-      setPreferredMonths(months);
       setCart((prev) => {
         if (applyAll) return prev.map((c) => ({ ...c, months }));
         return prev.map((c) => (c.rowKey === rowKey ? { ...c, months } : c));
@@ -226,10 +208,11 @@ export default function MapMobilePageV2() {
 
   const totalCost = useMemo(() => computedCart.reduce((s, c) => s + (c._total ?? 0), 0), [computedCart]);
 
-  /* 특정 아이템 포커스 */
+  /* 장바구니 → 단지 상세로 정확히 이동 */
   const goToRowKey = useCallback(
     (rk: string) => {
-      markers.focusRowKey(rk);
+      // ✅ 선택 + 지도이동 + 상세열기까지 한 번에
+      markers.selectByRowKey(rk);
       setActiveTab("detail");
       setSheetOpen(true);
       recalcSheetMax();
@@ -237,7 +220,7 @@ export default function MapMobilePageV2() {
     [markers, recalcSheetMax],
   );
 
-  // ✅ 바텀시트가 항상 맨 위에서 시작하도록 신호 키
+  // 바텀시트 스크롤 초기화용 키
   const resetScrollKey = `${sheetOpen ? 1 : 0}-${activeTab}-${selected?.rowKey ?? ""}`;
 
   return (
@@ -258,7 +241,7 @@ export default function MapMobilePageV2() {
       {/* 지도 */}
       <div ref={mapRef} className="fixed top-[56px] left-0 right-0 bottom-0 z-[10]" aria-label="map" />
 
-      {/* 검색창 (좌측) */}
+      {/* 검색창 */}
       <div ref={searchAreaRef} className="fixed z-[35] left-3 right-[76px] top-[64px] pointer-events-none">
         <form
           onSubmit={async (e) => {
@@ -278,10 +261,9 @@ export default function MapMobilePageV2() {
         </form>
       </div>
 
-      {/* 오른쪽 상단 버튼 스택: 검색 → 카트 → 전화 */}
+      {/* 우측 버튼 스택 */}
       <div className="fixed z-[35] right-3 top-[64px] pointer-events-none">
         <div className="flex flex-col gap-2 pointer-events-auto">
-          {/* 검색 */}
           <button
             onClick={runSearchAndBlur}
             className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow"
@@ -294,7 +276,6 @@ export default function MapMobilePageV2() {
             </svg>
           </button>
 
-          {/* 카트 */}
           <button
             onClick={() => {
               setActiveTab("cart");
@@ -316,7 +297,6 @@ export default function MapMobilePageV2() {
             )}
           </button>
 
-          {/* 전화 (beforeunload 예외) */}
           <a
             ref={phoneBtnRef}
             href="tel:1551-0810"
@@ -338,7 +318,7 @@ export default function MapMobilePageV2() {
         </div>
       </div>
 
-      {/* 지도 클릭 시 닫힘(투명 레이어) */}
+      {/* 시트 외부 클릭 닫힘 */}
       {sheetOpen && <div className="fixed inset-0 z-[50] bg-black/0" onClick={() => setSheetOpen(false)} />}
 
       {/* 바텀시트 */}
@@ -346,9 +326,9 @@ export default function MapMobilePageV2() {
         open={sheetOpen}
         maxHeightPx={sheetMaxH}
         onClose={() => setSheetOpen(false)}
-        resetScrollKey={resetScrollKey} // ✅ 바뀔 때마다 스크롤 맨 위
+        resetScrollKey={`${sheetOpen ? 1 : 0}-${activeTab}-${selected?.rowKey ?? ""}`}
       >
-        {/* 탭 헤더 — 항상 고정(불투명) */}
+        {/* 탭 헤더 */}
         <div className="sticky top-0 z-20 px-4 pt-1 pb-2 bg-white border-b">
           <div className="flex items-center gap-2">
             <TabBtn active={activeTab === "detail"} onClick={() => setActiveTab("detail")} label="단지상세" />
@@ -369,7 +349,7 @@ export default function MapMobilePageV2() {
           </div>
         </div>
 
-        {/* 본문(스크롤은 BottomSheet에서 담당) */}
+        {/* 본문 */}
         <div className="px-4 pb-4">
           {activeTab === "detail" && (
             <DetailPanel
@@ -380,9 +360,8 @@ export default function MapMobilePageV2() {
                 if (isInCart(selected.rowKey)) {
                   removeFromCart(selected.rowKey);
                 } else {
-                  // ✅ 담기 → 시트 닫기 (그리고 다음에 열리면 항상 맨 위)
-                  addSelectedToCart();
-                  setSheetOpen(false);
+                  addSelectedToCart(); // ✅ 담기 후 1개월 기본
+                  setSheetOpen(false); // 요청대로 담기 후 시트 닫기
                 }
               }}
             />
@@ -396,7 +375,7 @@ export default function MapMobilePageV2() {
               onToggleApplyAll={setApplyAll}
               onUpdateMonths={updateMonths}
               onRemove={removeFromCart}
-              onGoTo={goToRowKey} // ✅ 클릭 시 단지상세 이동
+              onGoTo={goToRowKey} // ✅ 정확히 해당 단지로 이동
             />
           )}
 
@@ -426,8 +405,6 @@ export default function MapMobilePageV2() {
     </div>
   );
 }
-
-/* ===== 작은 컴포넌트들 ===== */
 
 function TabBtn({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
   return (
