@@ -176,9 +176,9 @@ export default function MapMobilePageV2() {
     const next: CartItem = {
       rowKey: selected.rowKey,
       aptName: selected.name,
-      productName: selected.productName ?? "기본상품", // 필수 대응
+      productName: selected.productName,
       months: 1,
-      baseMonthly: selected.monthlyFee ?? 0, // 필수 대응
+      baseMonthly: selected.monthlyFee ?? 0,
       monthlyFeeY1: selected.monthlyFeeY1 ?? undefined,
     };
     setCart((prev) => [next, ...prev.filter((c) => c.rowKey !== next.rowKey)]);
@@ -202,16 +202,10 @@ export default function MapMobilePageV2() {
 
   /** =========================
    * 할인/총액 계산
-   *  - QuotePanel 타입(QuoteComputedItem)에 맞춰 productName/baseMonthly를 필수로 보장
-   *  - _discountRate도 필수로 유지
+   *  - 외부 QuotePanel 쪽 타입(ItemComputed)을 만족하도록
+   *    _monthly / _total은 "필수(required)"로 둡니다.
    * ========================= */
-  type ComputedItem = Omit<CartItem, "productName" | "baseMonthly"> & {
-    productName: string;
-    baseMonthly: number;
-    _monthly: number;
-    _discountRate: number;
-    _total: number;
-  };
+  type ComputedItem = CartItem & { _monthly: number; _discountRate?: number; _total: number };
 
   const computedCart: ComputedItem[] = useMemo(() => {
     const cnt = new Map<string, number>();
@@ -219,24 +213,17 @@ export default function MapMobilePageV2() {
       const k = normPolicyKey(c.productName);
       cnt.set(k, (cnt.get(k) ?? 0) + 1);
     });
-
     return cart.map((c) => {
       const k = normPolicyKey(c.productName);
       const same = cnt.get(k) ?? 1;
-
-      const baseMonthlyNum = c.baseMonthly ?? 0;
-      const name = c.productName ?? "기본상품";
-
-      const { monthly, rate } = calcMonthlyWithPolicy(name, c.months, baseMonthlyNum, c.monthlyFeeY1, same);
-
-      return {
-        ...c,
-        productName: name, // 필수 string 확정
-        baseMonthly: baseMonthlyNum, // 필수 number 확정
-        _monthly: monthly,
-        _discountRate: rate,
-        _total: monthly * c.months,
-      };
+      const { monthly, rate } = calcMonthlyWithPolicy(
+        c.productName,
+        c.months,
+        c.baseMonthly ?? 0,
+        c.monthlyFeeY1,
+        same,
+      );
+      return { ...c, _monthly: monthly, _discountRate: rate, _total: monthly * c.months };
     });
   }, [cart]);
 
@@ -433,7 +420,6 @@ export default function MapMobilePageV2() {
                   removeFromCart(selected.rowKey);
                 } else {
                   addSelectedToCart(); // 1개월 기본
-                  setSheetOpen(false); // 담기 후 시트 닫기
                 }
               }}
             />
