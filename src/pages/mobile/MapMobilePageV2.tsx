@@ -27,7 +27,7 @@ export default function MapMobilePageV2() {
     idleDebounceMs: 150,
   });
 
-  // 유저 마커(필요 시 버튼으로 위치 요청)
+  // 내 위치(버튼으로 단발 요청)
   const { locateNow } = useUserMarker({ kakao, map, autoCenterOnFirstFix: false, watch: false });
 
   /* 검색 */
@@ -221,6 +221,9 @@ export default function MapMobilePageV2() {
   // 바텀시트 스크롤 초기화용 키
   const resetScrollKey = `${sheetOpen ? 1 : 0}-${activeTab}-${selected?.rowKey ?? ""}`;
 
+  // Kakao 준비 여부 (버튼 가드용)
+  const kakaoReady = !!(kakao && map);
+
   return (
     <div className="w-screen h-[100dvh] bg-white">
       {/* 상단바 */}
@@ -262,7 +265,7 @@ export default function MapMobilePageV2() {
       {/* 우측 버튼 스택 */}
       <div className="fixed z-[35] right-3 top-[64px] pointer-events-none">
         <div className="flex flex-col gap-2 pointer-events-auto">
-          {/* 검색 */}
+          {/* 검색 (circle + line) */}
           <button
             onClick={runSearchAndBlur}
             className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow"
@@ -270,12 +273,13 @@ export default function MapMobilePageV2() {
             aria-label="검색"
             title="검색"
           >
-            <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-              <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79L20 21.49 21.49 20l-5.99-6zM9.5 14C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <circle cx="10" cy="10" r="6" stroke="currentColor" strokeWidth="2" />
+              <line x1="14.5" y1="14.5" x2="20" y2="20" stroke="currentColor" strokeWidth="2" />
             </svg>
           </button>
 
-          {/* 카트 */}
+          {/* 카트 (rect + wheels + handle) */}
           <button
             onClick={() => {
               setActiveTab("cart");
@@ -287,8 +291,11 @@ export default function MapMobilePageV2() {
             aria-label="카트"
             title="카트"
           >
-            <svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-              <path d="M7 4h-2l-1 2h2l3.6 7.59-1.35 2.45c-.16.28-.25.61-.25.96 0 1.1.9 2 2 2h9v-2h-8.42c-.14 0-.25-.11-.25-.25l.03-.12.9-1.63h5.74c.75 0 1.41-.41 1.75-1.03L23 6H6.21l-.94-2zM7 20c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm10 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-2-2z" />
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <rect x="5" y="7" width="12" height="8" rx="1.5" stroke="currentColor" strokeWidth="2" />
+              <circle cx="9" cy="18" r="1.5" fill="currentColor" />
+              <circle cx="15" cy="18" r="1.5" fill="currentColor" />
+              <line x1="3" y1="5" x2="6" y2="7" stroke="currentColor" strokeWidth="2" />
             </svg>
             {cart.length > 0 && (
               <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-[#FF3B30] text-[10px] font-bold flex items-center justify-center">
@@ -297,7 +304,7 @@ export default function MapMobilePageV2() {
             )}
           </button>
 
-          {/* 전화 */}
+          {/* 전화 (rounded phone outline) - path 없이 */}
           <a
             ref={phoneBtnRef}
             href="tel:1551-0810"
@@ -312,19 +319,22 @@ export default function MapMobilePageV2() {
             aria-label="전화 연결"
             title="전화 연결"
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-              <path d="M6.62 10.79a15.05 15.05 0 006.59 6.59l2.2-2.2a1 1 0 011.01-.24c1.12.37 2.33.57 3.58.57a1 1 0 011 1V21a1 1 0 01-1 1C10.3 22 2 13.7 2 3a1 1 0 011-1h3.5a1 1 0 011 1c0 1.25.2 2.46.57 3.58a1 1 0 01-.25 1.01l-2.2 2.2z" />
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <rect x="5" y="3" width="14" height="18" rx="3" stroke="currentColor" strokeWidth="2" />
+              <rect x="9" y="6" width="6" height="1.5" rx="0.75" fill="currentColor" />
+              <circle cx="12" cy="18" r="1.2" fill="currentColor" />
             </svg>
           </a>
 
-          {/* ✅ 내 위치 버튼 (아이콘 path 미사용 → d 오류 방지) */}
+          {/* 내 위치 (circle + lines) */}
           <button
             onClick={() => {
               const el = document.activeElement as HTMLElement | null;
               el?.blur?.();
-              locateNow();
+              if (kakaoReady) locateNow();
             }}
-            className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow"
+            disabled={!kakaoReady}
+            className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow disabled:opacity-50"
             style={{ backgroundColor: COLOR_PRIMARY }}
             aria-label="내 위치로 이동"
             title="내 위치로 이동"
@@ -349,7 +359,7 @@ export default function MapMobilePageV2() {
         open={sheetOpen}
         maxHeightPx={sheetMaxH}
         onClose={() => setSheetOpen(false)}
-        resetScrollKey={`${sheetOpen ? 1 : 0}-${activeTab}-${selected?.rowKey ?? ""}`}
+        resetScrollKey={resetScrollKey}
       >
         {/* 탭 헤더 */}
         <div className="sticky top-0 z-20 px-4 pt-1 pb-2 bg-white border-b">
@@ -364,8 +374,10 @@ export default function MapMobilePageV2() {
                 title="닫기"
                 className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-                  <path d="M18.3 5.71a1 1 0 00-1.41 0L12 10.59 7.11 5.7A1 1 0 105.7 7.11L10.59 12l-4.9 4.89a1 1 0 101.41 1.42L12 13.41l4.89 4.9a1 1 0 001.42-1.42L13.41 12l4.9-4.89a1 1 0 000-1.4z" />
+                {/* X 아이콘: 교차선 2개 (path 없음) */}
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
+                  <line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" strokeWidth="2" />
+                  <line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" strokeWidth="2" />
                 </svg>
               </button>
             </div>
@@ -469,7 +481,7 @@ function ConfirmExitModal({ onConfirm, onCancel }: { onConfirm: () => void; onCa
           <button
             onClick={onConfirm}
             className="px-4 py-2 rounded-xl text-white font-semibold"
-            style={{ backgroundColor: "#6F4BF2" }}
+            style={{ backgroundColor: COLOR_PRIMARY }}
           >
             예
           </button>
