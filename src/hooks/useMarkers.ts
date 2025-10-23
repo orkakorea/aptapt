@@ -45,6 +45,10 @@ type MarkerState = "purple" | "yellow" | "clicked";
 /** 오버스캔 비율(조회 영역 확대) — 너무 크지 않게 */
 const OVERSCAN_RATIO = 0.2;
 
+/** 바운드가 비정상적으로 작은 경우 fetch 스킵(임시 레이아웃/relayout 구간 보호) */
+const MIN_LAT_SPAN = 0.0008; // 약 90m
+const MIN_LNG_SPAN = 0.0008; // 약 90m
+
 /* =========================================================================
  * 훅 본체
  * ========================================================================= */
@@ -72,9 +76,10 @@ export default function useMarkers({
     selectedSetRef.current = new Set(externalSelectedRowKeys);
   }, [externalSelectedRowKeys.join("|")]);
 
-  /** 중복 요청/늦은 응답 가드 */
+  /** 중복 요청/늦은 응답/빈결과 스트릭 가드 */
   const fetchInFlightRef = useRef(false);
   const requestVersionRef = useRef(0);
+  const emptyStreakRef = useRef(0); // 연속 0건 응답 횟수 (2회 이상이면 정리 허용)
 
   /** 마커 이미지 캐시 */
   const imgs = useMemo(() => {
@@ -183,6 +188,11 @@ export default function useMarkers({
       if (!kakao?.maps || !map || !imgs) return;
       const { maps } = kakao;
 
+      // ⚠️ 빈 배열 보호: 기존 마커가 있고 rows가 0이면 "일시적 공백"일 가능성 → 적용 스킵
+      if ((rows?.length ?? 0) === 0 && poolRef.current.size > 0) {
+        return; // 전체 사라짐 방지
+      }
+
       const nextIdKeys = new Set<string>();
       const toAdd: any[] = [];
       const toRemove: any[] = [];
@@ -210,7 +220,7 @@ export default function useMarkers({
             mk = new maps.Marker({
               position: pos,
               title,
-              image: imgs.purple, // 기본은 보라
+              image: imgs.purple, // 기본은 보라 (선택/클릭 규칙으로 즉시 보정)
               clickable: true,
             });
             mk.__imgState = "purple";
@@ -287,7 +297,7 @@ export default function useMarkers({
     [clusterer, colorByRule, imgs, kakao, map, onSelect, toSelected],
   );
 
-  /** 바운드 내 데이터 요청 + DIFF 반영 (항상 fetch) */
+  /** 바운드 내 데이터 요청 + DIFF 반영 */
   const refreshInBounds = useCallback(async () => {
     if (!kakao?.maps || !map) return;
     const kbounds = map.getBounds?.();
@@ -295,6 +305,11 @@ export default function useMarkers({
 
     const sw = kbounds.getSouthWest();
     const ne = kbounds.getNorthEast();
+
+    // ❗ 비정상적으로 작은 바운드(레이아웃 전환/relayout 중)면 스킵 → 집단 깜빡임 방지
+    const latSpan = Math.abs(ne.getLat() - sw.getLat());
+    const lngSpan = Math.abs(ne.getLng() - sw.getLng());
+    if (latSpan < MIN_LAT_SPAN || lngSpan < MIN_LNG_SPAN) return;
 
     // 오버스캔 적용
     const latPad = (ne.getLat() - sw.getLat()) * OVERSCAN_RATIO;
@@ -310,7 +325,6 @@ export default function useMarkers({
     const myVersion = ++requestVersionRef.current;
 
     try {
-      // 안전하게 전체 컬럼 SELECT (특수문자/공백 컬럼 보호)
       const { data, error } = await supabase
         .from("raw_places")
         .select("*")
@@ -330,7 +344,19 @@ export default function useMarkers({
         return;
       }
 
-      applyRows((data ?? []) as PlaceRow[]);
+      const rows = (data ?? []) as PlaceRow[];
+
+      // ❗ 일시적 0건 보호: 1회는 무시, 2회 연속이면 진짜로 비어있다고 판단
+      if (rows.length === 0) {
+        emptyStreakRef.current += 1;
+        if (emptyStreakRef.current < 2 && poolRef.current.size > 0) {
+          return; // 첫 0건 응답은 무시 → 전마커 보존(깜빡임 방지)
+        }
+      } else {
+        emptyStreakRef.current = 0; // 정상 응답이면 리셋
+      }
+
+      applyRows(rows);
     } finally {
       fetchInFlightRef.current = false;
     }
