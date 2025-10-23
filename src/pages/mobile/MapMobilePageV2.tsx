@@ -415,7 +415,19 @@ export default function MapMobilePageV2() {
             />
           )}
 
-          {activeTab === "quote" && <QuotePanel total={totalCost} />}
+          {activeTab === "quote" && (
+            <QuotePanel
+              items={computedCart as QuoteComputedItem[]} // 필수 props
+              total={totalCost} // 공급가(VAT 별도)
+              brandColor={COLOR_PRIMARY} // 선택
+              onGoTo={goToRowKey} // 단지명 클릭→지도 포커싱(선택)
+              onInquiry={() => {
+                // 문의 흐름: 원하는 액션으로 바꿔도 됨
+                setActiveTab("cart");
+                setSheetOpen(true);
+              }}
+            />
+          )}
         </div>
       </BottomSheet>
 
