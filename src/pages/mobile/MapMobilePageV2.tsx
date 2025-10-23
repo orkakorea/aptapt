@@ -8,6 +8,7 @@ import { useKakaoLoader } from "@/hooks/useKakaoLoader";
 import { useKakaoMap } from "@/hooks/useKakaoMap";
 import usePlaceSearch from "@/hooks/usePlaceSearch";
 import useMarkers from "@/hooks/useMarkers";
+import useUserMarker from "@/hooks/useUserMarker";
 
 import type { SelectedApt, CartItem } from "@/core/types";
 import { fmtWon } from "@/core/utils";
@@ -74,6 +75,9 @@ export default function MapMobilePageV2() {
     },
     externalSelectedRowKeys: selectedRowKeys,
   });
+
+  /* 유저 위치 마커 (최초 수신 시 자동 센터) */
+  useUserMarker({ kakao, map, autoCenterOnFirstFix: true, watch: true });
 
   /* 첫 로딩 시 바운드 로딩 */
   useEffect(() => {
