@@ -1,3 +1,4 @@
+// src/components/mobile/QuotePanel.tsx
 import React, { useMemo, useState } from "react";
 import { fmtWon } from "@/core/utils";
 
@@ -18,7 +19,7 @@ export type QuoteComputedItem = {
   monitors?: number; // 모니터 수량
 
   baseMonthly: number; // 월광고료(운영사 기준, FMK=4주)
-  listPrice?: number; // 기준금액(표시용. 없으면 baseMonthly로 대체 또는 "—")
+  listPrice?: number; // 기준금액(표시용. 없으면 baseMonthly로 대체 또는 "-")
 
   // 할인/적용가(부모에서 계산해 전달)
   discPeriodRate?: number; // 기간할인률(0~1)
@@ -53,11 +54,11 @@ const COLOR_PRIMARY_DEFAULT = "#6F4BF2";
 /* % 표시 */
 function fmtRate(r?: number) {
   if (r === undefined || r === null) return dash;
-  if (!Number.isFinite(r) || r <= 0) return dash;
+  if (r <= 0) return dash;
   return `${Math.round(r * 100)}%`;
 }
 
-/* 단위 있는 숫자 (0은 유효값으로 표기) */
+/* 단위 있는 숫자 */
 function withUnit(n?: number, unit?: string) {
   if (n === undefined || n === null || Number.isNaN(n)) return dash;
   return unit ? `${nf.format(n)}${unit}` : nf.format(n);
@@ -103,90 +104,91 @@ export default function QuotePanel({
 
   return (
     <div className="space-y-4">
-      {/* 상단 요약 */}
-      <div className="rounded-2xl border px-4 py-3 bg-white">
-        <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div className="text-[12px] sm:text-[13px] text-gray-700 leading-relaxed">
-            <b>총 {summary.count}개 단지</b> · <b>세대수 {withUnit(summary.households, "세대")}</b> ·{" "}
-            <b>거주인원 {withUnit(summary.residents, "명")}</b> ·{" "}
-            <b>월송출 {withUnit(summary.monthlyImpressions, "회")}</b> ·{" "}
-            <b>모니터수 {withUnit(summary.monitors, "대")}</b>
+      {/* ===========================================================
+       * 요약 + 테이블을 하나의 가로 스크롤 컨테이너로 묶기
+       *  - 요약은 테두리 제거, 1행 고정(줄바꿈 없음), 200% 확대
+       * =========================================================== */}
+      <div className="overflow-x-auto">
+        <div className="min-w-[1200px]">
+          {/* 상단 요약 (테두리 X, 같은 스크롤) */}
+          <div className="px-3 py-2">
+            <div className="text-[24px] font-extrabold text-gray-800 whitespace-nowrap leading-tight">
+              총 {summary.count}개 단지 · 세대수 {withUnit(summary.households, "세대")} · 거주인원{" "}
+              {withUnit(summary.residents, "명")} · 월송출 {withUnit(summary.monthlyImpressions, "회")} · 모니터수{" "}
+              {withUnit(summary.monitors, "대")}
+            </div>
           </div>
-          <div className="text-[11px] text-gray-500">(단위 · 원 / VAT별도)</div>
-        </div>
-      </div>
 
-      {/* 상세 테이블 */}
-      <div className="rounded-2xl border overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-[1200px] w-full text-[12px]">
-            <thead className="bg-gray-50 sticky top-0 z-10">
-              <tr className="text-gray-700">
-                <Th>단지명</Th>
-                <Th className="w-[90px] text-center">광고기간</Th>
-                <Th className="w-[140px]">상품명</Th>
-                <Th className="w-[90px] text-right">세대수</Th>
-                <Th className="w-[100px] text-right">거주인원</Th>
-                <Th className="w-[110px] text-right">월송출횟수</Th>
-                <Th className="w-[100px] text-right">모니터 수량</Th>
-                <Th className="w-[140px] text-right">월광고료(FMK=4주)</Th>
-                <Th className="w-[120px] text-right">기준금액</Th>
-                <Th className="w-[100px] text-right">기간할인</Th>
-                <Th className="w-[120px] text-right">사전보상할인</Th>
-                <Th className="w-[130px] text-right">총광고료</Th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {items.map((it) => {
-                const monthly = it._monthly ?? it.baseMonthly ?? 0;
-                const months = it.months ?? 1;
-                const subtotal = it._total ?? monthly * months;
-                const listPrice = typeof it.listPrice === "number" ? it.listPrice : (it.baseMonthly ?? undefined);
+          {/* 상세 테이블 (이 컨테이너만 테두리 유지) */}
+          <div className="rounded-2xl border overflow-hidden">
+            <table className="min-w-[1200px] w-full text-[12px]">
+              <thead className="bg-gray-50 sticky top-0 z-10">
+                <tr className="text-gray-700">
+                  <Th>단지명</Th>
+                  <Th className="w-[90px] text-center">광고기간</Th>
+                  <Th className="w-[140px]">상품명</Th>
+                  <Th className="w-[90px] text-right">세대수</Th>
+                  <Th className="w-[100px] text-right">거주인원</Th>
+                  <Th className="w-[110px] text-right">월송출횟수</Th>
+                  <Th className="w-[100px] text-right">모니터 수량</Th>
+                  <Th className="w-[140px] text-right">월광고료(FMK=4주)</Th>
+                  <Th className="w-[120px] text-right">기준금액</Th>
+                  <Th className="w-[100px] text-right">기간할인</Th>
+                  <Th className="w-[120px] text-right">사전보상할인</Th>
+                  <Th className="w-[130px] text-right">총광고료</Th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {items.map((it) => {
+                  const monthly = it._monthly ?? it.baseMonthly ?? 0;
+                  const subtotal = it._total ?? monthly * (it.months ?? 1);
+                  const listPrice = typeof it.listPrice === "number" ? it.listPrice : (it.baseMonthly ?? undefined);
 
-                return (
-                  <tr key={it.rowKey} className="bg-white">
-                    <Td>
-                      {onGoTo ? (
-                        <button
-                          type="button"
-                          onClick={() => onGoTo(it.rowKey)}
-                          className="underline underline-offset-2 hover:opacity-80"
-                          title="지도에서 보기"
-                        >
-                          {it.aptName}
-                        </button>
-                      ) : (
-                        it.aptName
-                      )}
-                    </Td>
-                    <Td className="text-center">{months}개월</Td>
-                    <Td>{it.productName}</Td>
-                    <Td className="text-right">{withUnit(it.households, "세대")}</Td>
-                    <Td className="text-right">{withUnit(it.residents, "명")}</Td>
-                    <Td className="text-right">{withUnit(it.monthlyImpressions, "회")}</Td>
-                    <Td className="text-right">{withUnit(it.monitors, "대")}</Td>
-                    <Td className="text-right">{fmtWon(it.baseMonthly ?? 0)}</Td>
-                    <Td className="text-right">{typeof listPrice === "number" ? fmtWon(listPrice) : dash}</Td>
-                    <Td className="text-right">{fmtRate(it.discPeriodRate)}</Td>
-                    <Td className="text-right">{fmtRate(it.discPrecompRate)}</Td>
-                    <Td className="text-right font-semibold" style={{ color: brandColor }}>
-                      {fmtWon(subtotal)}
-                    </Td>
-                  </tr>
-                );
-              })}
+                  return (
+                    <tr key={it.rowKey} className="bg-white">
+                      <Td>
+                        {onGoTo ? (
+                          <button
+                            type="button"
+                            onClick={() => onGoTo(it.rowKey)}
+                            className="underline underline-offset-2 hover:opacity-80"
+                            title="지도에서 보기"
+                          >
+                            {it.aptName}
+                          </button>
+                        ) : (
+                          it.aptName
+                        )}
+                      </Td>
+                      <Td className="text-center">{it.months}개월</Td>
+                      <Td>{it.productName}</Td>
+                      <Td className="text-right">{withUnit(it.households, "세대")}</Td>
+                      <Td className="text-right">{withUnit(it.residents, "명")}</Td>
+                      <Td className="text-right">{withUnit(it.monthlyImpressions, "회")}</Td>
+                      <Td className="text-right">{withUnit(it.monitors, "대")}</Td>
+                      <Td className="text-right">{fmtWon(it.baseMonthly ?? 0)}</Td>
+                      <Td className="text-right">{typeof listPrice === "number" ? fmtWon(listPrice) : dash}</Td>
+                      <Td className="text-right">{fmtRate(it.discPeriodRate)}</Td>
+                      <Td className="text-right">{fmtRate(it.discPrecompRate)}</Td>
+                      <Td className="text-right font-semibold" style={{ color: brandColor }}>
+                        {fmtWon(subtotal)}
+                      </Td>
+                    </tr>
+                  );
+                })}
 
-              {/* TOTAL 행 (공급가 총합) */}
-              <tr className="bg-gray-50">
-                <Td colSpan={11} className="text-right font-semibold">
-                  TOTAL
-                </Td>
-                <Td className="text-right font-extrabold" style={{ color: brandColor }}>
-                  {fmtWon(supply)}
-                </Td>
-              </tr>
-            </tbody>
-          </table>
+                {/* TOTAL 행 */}
+                <tr className="bg-gray-50">
+                  <Td colSpan={11} className="text-right font-semibold">
+                    TOTAL
+                  </Td>
+                  <Td className="text-right font-extrabold" style={{ color: brandColor }}>
+                    {fmtWon(supply)}
+                  </Td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -203,7 +205,7 @@ export default function QuotePanel({
             {fmtWon(grand)} <span className="text-[12px] text-gray-500 font-normal">(VAT 포함)</span>
           </div>
 
-          {/* VAT 토글 (표 상단 총액 안내만 전환, 행 단위는 VAT별도 유지) */}
+          {/* VAT 토글 (하단 설명 라인은 제거) */}
           <div className="mt-3">
             <button
               type="button"
@@ -213,25 +215,13 @@ export default function QuotePanel({
             >
               {showVatIncluded ? "VAT 별도 보기" : "VAT 포함 보기"}
             </button>
-            <div className="mt-2 text-[12px] text-gray-600">
-              {showVatIncluded ? (
-                <>
-                  총액(포함): <b className="ml-1">{fmtWon(grand)}</b>
-                </>
-              ) : (
-                <>
-                  공급가(별도): <b className="ml-1">{fmtWon(supply)}</b>
-                </>
-              )}
-            </div>
           </div>
         </div>
       </div>
 
-      {/* 안내문구 */}
+      {/* 안내문구 (문구 교체) */}
       <div className="text-[11px] text-gray-500 leading-relaxed">
-        ※ 실제 청구 시점의 운영사 정책 및 사전보상/기간 할인 규칙에 따라 단가가 달라질 수 있습니다. 본 견적은 참고용으로
-        제공됩니다.
+        ※ 계약 시점의 운영사 정책에 따라 단가가 변경 될 수 있습니다.
       </div>
 
       {/* 하단 CTA */}
