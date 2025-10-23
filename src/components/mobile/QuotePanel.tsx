@@ -18,7 +18,7 @@ export type QuoteComputedItem = {
   monitors?: number; // 모니터 수량
 
   baseMonthly: number; // 월광고료(운영사 기준, FMK=4주)
-  listPrice?: number; // 기준금액(표시용. 없으면 baseMonthly로 대체 또는 "-")
+  listPrice?: number; // 기준금액(표시용. 없으면 baseMonthly로 대체 또는 "—")
 
   // 할인/적용가(부모에서 계산해 전달)
   discPeriodRate?: number; // 기간할인률(0~1)
@@ -53,11 +53,11 @@ const COLOR_PRIMARY_DEFAULT = "#6F4BF2";
 /* % 표시 */
 function fmtRate(r?: number) {
   if (r === undefined || r === null) return dash;
-  if (r <= 0) return dash;
+  if (!Number.isFinite(r) || r <= 0) return dash;
   return `${Math.round(r * 100)}%`;
 }
 
-/* 단위 있는 숫자 */
+/* 단위 있는 숫자 (0은 유효값으로 표기) */
 function withUnit(n?: number, unit?: string) {
   if (n === undefined || n === null || Number.isNaN(n)) return dash;
   return unit ? `${nf.format(n)}${unit}` : nf.format(n);
@@ -139,7 +139,8 @@ export default function QuotePanel({
             <tbody className="divide-y">
               {items.map((it) => {
                 const monthly = it._monthly ?? it.baseMonthly ?? 0;
-                const subtotal = it._total ?? monthly * (it.months ?? 1);
+                const months = it.months ?? 1;
+                const subtotal = it._total ?? monthly * months;
                 const listPrice = typeof it.listPrice === "number" ? it.listPrice : (it.baseMonthly ?? undefined);
 
                 return (
@@ -158,7 +159,7 @@ export default function QuotePanel({
                         it.aptName
                       )}
                     </Td>
-                    <Td className="text-center">{it.months}개월</Td>
+                    <Td className="text-center">{months}개월</Td>
                     <Td>{it.productName}</Td>
                     <Td className="text-right">{withUnit(it.households, "세대")}</Td>
                     <Td className="text-right">{withUnit(it.residents, "명")}</Td>
@@ -175,7 +176,7 @@ export default function QuotePanel({
                 );
               })}
 
-              {/* TOTAL 행 */}
+              {/* TOTAL 행 (공급가 총합) */}
               <tr className="bg-gray-50">
                 <Td colSpan={11} className="text-right font-semibold">
                   TOTAL
@@ -202,7 +203,7 @@ export default function QuotePanel({
             {fmtWon(grand)} <span className="text-[12px] text-gray-500 font-normal">(VAT 포함)</span>
           </div>
 
-          {/* VAT 토글 */}
+          {/* VAT 토글 (표 상단 총액 안내만 전환, 행 단위는 VAT별도 유지) */}
           <div className="mt-3">
             <button
               type="button"
@@ -229,7 +230,8 @@ export default function QuotePanel({
 
       {/* 안내문구 */}
       <div className="text-[11px] text-gray-500 leading-relaxed">
-        ※ 실제 청구 시점의 운영사 정책 및 사전보상/기간 할인 규칙에 따라 단가가 달라질 수 있습니다.
+        ※ 실제 청구 시점의 운영사 정책 및 사전보상/기간 할인 규칙에 따라 단가가 달라질 수 있습니다. 본 견적은 참고용으로
+        제공됩니다.
       </div>
 
       {/* 하단 CTA */}
