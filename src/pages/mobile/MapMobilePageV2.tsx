@@ -176,7 +176,7 @@ export default function MapMobilePageV2() {
     const next: CartItem = {
       rowKey: selected.rowKey,
       aptName: selected.name,
-      productName: selected.productName ?? "기본상품",
+      productName: selected.productName,
       months: 1,
       baseMonthly: selected.monthlyFee ?? 0,
       monthlyFeeY1: selected.monthlyFeeY1 ?? undefined,
@@ -202,15 +202,17 @@ export default function MapMobilePageV2() {
 
   /** =========================
    * 할인/총액 계산
-   *  - QuotePanel이 요구하는 타입에 맞춰 productName을 필수 string으로 강제
-   *  - _discountRate도 필수
+   *  - 외부 QuotePanel 쪽 타입(ItemComputed)을 만족하도록
+   *    _monthly / _total은 "필수(required)"로 둡니다.
    * ========================= */
-  type ComputedItem = Omit<CartItem, "productName"> & {
-    productName: string;
-    _monthly: number;
-    _discountRate: number;
-    _total: number;
-  };
+  type ComputedItem = Omit<CartItem, "productName" | "baseMonthly"> & {
+  productName: string;
+  baseMonthly: number;
+  _monthly: number;
+  _discountRate: number;
+  _total: number;
+};
+
 
   const computedCart: ComputedItem[] = useMemo(() => {
     const cnt = new Map<string, number>();
@@ -218,25 +220,26 @@ export default function MapMobilePageV2() {
       const k = normPolicyKey(c.productName);
       cnt.set(k, (cnt.get(k) ?? 0) + 1);
     });
-    return cart.map((c) => {
-      const k = normPolicyKey(c.productName);
-      const same = cnt.get(k) ?? 1;
-      const { monthly, rate } = calcMonthlyWithPolicy(
-        c.productName,
-        c.months,
-        c.baseMonthly ?? 0,
-        c.monthlyFeeY1,
-        same,
-      );
-      return {
-        ...c,
-        productName: c.productName ?? "기본상품", // 필수 string 보장
-        _monthly: monthly,
-        _discountRate: rate,
-        _total: monthly * c.months,
-      };
-    });
-  }, [cart]);
+return cart.map((c) => {
+  const k = normPolicyKey(c.productName);
+  const same = cnt.get(k) ?? 1;
+  const { monthly, rate } = calcMonthlyWithPolicy(
+    c.productName,
+    c.months,
+    c.baseMonthly ?? 0,
+    c.monthlyFeeY1,
+    same,
+  );
+  return {
+    ...c,
+    productName: c.productName ?? "기본상품",
+    baseMonthly: c.baseMonthly ?? 0,
+    _monthly: monthly,
+    _discountRate: rate,
+    _total: monthly * c.months,
+  };
+});
+
 
   const totalCost = useMemo(() => computedCart.reduce((s, c) => s + c._total, 0), [computedCart]);
 
