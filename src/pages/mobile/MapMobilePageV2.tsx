@@ -176,7 +176,7 @@ export default function MapMobilePageV2() {
     const next: CartItem = {
       rowKey: selected.rowKey,
       aptName: selected.name,
-      productName: selected.productName,
+      productName: selected.productName ?? "기본상품",
       months: 1,
       baseMonthly: selected.monthlyFee ?? 0,
       monthlyFeeY1: selected.monthlyFeeY1 ?? undefined,
@@ -202,9 +202,15 @@ export default function MapMobilePageV2() {
 
   /** =========================
    * 할인/총액 계산
-   *  - 외부 패널들이 요구하는 구조에 맞춰 _discountRate를 필수로 둡니다.
+   *  - QuotePanel이 요구하는 타입에 맞춰 productName을 필수 string으로 강제
+   *  - _discountRate도 필수
    * ========================= */
-  type ComputedItem = CartItem & { _monthly: number; _discountRate: number; _total: number };
+  type ComputedItem = Omit<CartItem, "productName"> & {
+    productName: string;
+    _monthly: number;
+    _discountRate: number;
+    _total: number;
+  };
 
   const computedCart: ComputedItem[] = useMemo(() => {
     const cnt = new Map<string, number>();
@@ -222,7 +228,13 @@ export default function MapMobilePageV2() {
         c.monthlyFeeY1,
         same,
       );
-      return { ...c, _monthly: monthly, _discountRate: rate, _total: monthly * c.months };
+      return {
+        ...c,
+        productName: c.productName ?? "기본상품", // 필수 string 보장
+        _monthly: monthly,
+        _discountRate: rate,
+        _total: monthly * c.months,
+      };
     });
   }, [cart]);
 
