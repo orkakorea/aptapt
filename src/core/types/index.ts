@@ -71,6 +71,13 @@ export type CartItem = {
   months: number; // 계약 개월(1~12)
   baseMonthly?: number; // 월 광고료(정가)
   monthlyFeeY1?: number; // 12개월 전용 월가(있으면)
+
+  // ▼ 견적 표시에 필요한 수치(옵션, 담을 때 SelectedApt에서 복사)
+  households?: number; // 세대수
+  residents?: number; // 거주인원
+  monthlyImpressions?: number; // 월송출횟수
+  monitors?: number; // 모니터 수량
+  costPerPlay?: number; // (보조산출용) 1회 송출 비용
 };
 
 /* =========================
