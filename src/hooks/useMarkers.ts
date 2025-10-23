@@ -42,13 +42,12 @@ function imageForProduct(productName?: string): string {
 
 type MarkerState = "purple" | "yellow" | "clicked";
 
-/** 오버스캔 비율(조회 영역 확대) */
+/** 오버스캔 비율(조회 영역 확대) — 너무 크지 않게 */
 const OVERSCAN_RATIO = 0.2;
-/** 바운드가 너무 작을 때 fetch 스킵(임시 레이아웃/relayout 보호) */
-const MIN_LAT_SPAN = 0.001;
-const MIN_LNG_SPAN = 0.001;
-/** 액션 직후 제거 일시정지 시간(ms) */
-const REMOVAL_PAUSE_MS = 1200;
+
+/** 바운드가 비정상적으로 작은 경우 fetch 스킵(임시 레이아웃/relayout 구간 보호) */
+const MIN_LAT_SPAN = 0.0001; // 약 90m
+const MIN_LNG_SPAN = 0.0001; // 약 90m
 
 /* =========================================================================
  * 훅 본체
@@ -71,28 +70,16 @@ export default function useMarkers({
   const rowKeyIndexRef = useRef<Map<string, any>>(new Map()); // rowKey -> Marker
   const lastClickedRef = useRef<any | null>(null);
 
-  /** 선택 집합 → 렌더 영향 없이 참조 */
+  /** 선택 집합을 ref로 보관 → 렌더 영향 없이 참조 */
   const selectedSetRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     selectedSetRef.current = new Set(externalSelectedRowKeys);
-    // 선택(담기/해제 등) 직후에는 잠깐 제거 금지 → 집단 깜빡임 방지
-    pauseRemoval(REMOVAL_PAUSE_MS);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [externalSelectedRowKeys.join("|")]);
 
-  /** 요청 가드/이전 결과 해시/액션 후 제거 잠금 */
+  /** 중복 요청/늦은 응답/빈결과 스트릭 가드 */
   const fetchInFlightRef = useRef(false);
   const requestVersionRef = useRef(0);
-  const prevIdKeysHashRef = useRef<string>(""); // 이전 결과의 idKey 집합 해시
-  const removalPauseUntilRef = useRef<number>(0);
-  const emptyStreakRef = useRef(0); // 연속 0건 응답(2회 이상이면 진짜 비움 허용)
-
-  function pauseRemoval(ms: number) {
-    removalPauseUntilRef.current = Math.max(removalPauseUntilRef.current, Date.now() + ms);
-  }
-  function removalPaused() {
-    return Date.now() < removalPauseUntilRef.current;
-  }
+  const emptyStreakRef = useRef(0); // 연속 0건 응답 횟수 (2회 이상이면 정리 허용)
 
   /** 마커 이미지 캐시 */
   const imgs = useMemo(() => {
@@ -195,37 +182,16 @@ export default function useMarkers({
     return `geo:${lat5},${lng5}|${gk}|${prod}|${loc}`;
   }
 
-  /** rows -> idKey 집합 해시 (순서 무관) */
-  function hashIdKeys(rows: PlaceRow[]): string {
-    const keys: string[] = [];
-    for (const r of rows) {
-      if (r.lat == null || r.lng == null) continue;
-      keys.push(stableIdKeyFromRow(r));
-    }
-    keys.sort();
-    // 간단 해시: 길이|첫/중/끝 조합
-    const n = keys.length;
-    return `${n}|${keys[0] ?? ""}|${keys[Math.floor(n / 2)] ?? ""}|${keys[n - 1] ?? ""}`;
-  }
-
-  /** DIFF 반영 (동일 집합이면 완전 NO-OP) */
+  /** DIFF 반영 (오직 새 fetch 결과 기준으로만 추가/제거) */
   const applyRows = useCallback(
     (rows: PlaceRow[]) => {
       if (!kakao?.maps || !map || !imgs) return;
       const { maps } = kakao;
 
-      // ⚠️ 빈 배열 보호: 기존 마커가 있고 rows가 0이면 일시적 공백일 가능성 → 적용 스킵
+      // ⚠️ 빈 배열 보호: 기존 마커가 있고 rows가 0이면 "일시적 공백"일 가능성 → 적용 스킵
       if ((rows?.length ?? 0) === 0 && poolRef.current.size > 0) {
         return; // 전체 사라짐 방지
       }
-
-      // 동일 집합이면 완전 NO-OP (클러스터러 재계산조차 막음)
-      const nextHash = hashIdKeys(rows);
-      if (nextHash === prevIdKeysHashRef.current) {
-        // 그래도 행 데이터 최신화/색 규칙은 현상 유지
-        return;
-      }
-      prevIdKeysHashRef.current = nextHash;
 
       const nextIdKeys = new Set<string>();
       const toAdd: any[] = [];
@@ -300,7 +266,7 @@ export default function useMarkers({
         nextRowKeyIndex.set(rowKey, mk);
       }
 
-      // 먼저 추가 반영 → 화면 공백 방지
+      // 먼저 추가를 반영 → 화면 공백 방지
       if (toAdd.length) {
         try {
           if (clusterer?.addMarkers) clusterer.addMarkers(toAdd);
@@ -310,21 +276,19 @@ export default function useMarkers({
         toAdd.forEach((mk) => colorByRule(mk));
       }
 
-      // 제거 대상: 이번 결과에 없는 idKey만 제거
-      if (!removalPaused()) {
-        poolRef.current.forEach((mk, idKey) => {
-          if (!nextIdKeys.has(idKey)) {
-            toRemove.push(mk);
-            poolRef.current.delete(idKey);
-          }
-        });
-
-        if (toRemove.length) {
-          try {
-            if (clusterer?.removeMarkers) clusterer.removeMarkers(toRemove);
-            else toRemove.forEach((m) => m.setMap(null));
-          } catch {}
+      // 제거 대상: 이번 결과에 없는 idKey만 제거 (오직 새 데이터 기준)
+      poolRef.current.forEach((mk, idKey) => {
+        if (!nextIdKeys.has(idKey)) {
+          toRemove.push(mk);
+          poolRef.current.delete(idKey);
         }
+      });
+
+      if (toRemove.length) {
+        try {
+          if (clusterer?.removeMarkers) clusterer.removeMarkers(toRemove);
+          else toRemove.forEach((m) => m.setMap(null));
+        } catch {}
       }
 
       // 인덱스 교체
@@ -342,7 +306,7 @@ export default function useMarkers({
     const sw = kbounds.getSouthWest();
     const ne = kbounds.getNorthEast();
 
-    // ❗ 너무 작은 바운드(레이아웃 전환/relayout 중)면 스킵 → 집단 깜빡임 방지
+    // ❗ 비정상적으로 작은 바운드(레이아웃 전환/relayout 중)면 스킵 → 집단 깜빡임 방지
     const latSpan = Math.abs(ne.getLat() - sw.getLat());
     const lngSpan = Math.abs(ne.getLng() - sw.getLng());
     if (latSpan < MIN_LAT_SPAN || lngSpan < MIN_LNG_SPAN) return;
@@ -382,14 +346,14 @@ export default function useMarkers({
 
       const rows = (data ?? []) as PlaceRow[];
 
-      // ❗ 일시적 0건 보호: 1회는 무시(풀이 비어있지 않다면)
+      // ❗ 일시적 0건 보호: 1회는 무시, 2회 연속이면 진짜로 비어있다고 판단
       if (rows.length === 0) {
         emptyStreakRef.current += 1;
         if (emptyStreakRef.current < 2 && poolRef.current.size > 0) {
-          return; // 첫 0건 응답 무시 → 전마커 보존(깜빡임 방지)
+          return; // 첫 0건 응답은 무시 → 전마커 보존(깜빡임 방지)
         }
       } else {
-        emptyStreakRef.current = 0;
+        emptyStreakRef.current = 0; // 정상 응답이면 리셋
       }
 
       applyRows(rows);
@@ -452,9 +416,6 @@ export default function useMarkers({
       }
       lastClickedRef.current = mk;
       colorByRule(mk);
-
-      // 외부 포커싱 액션 직후에는 잠깐 제거 금지
-      pauseRemoval(REMOVAL_PAUSE_MS);
     },
     [colorByRule, kakao, map, onSelect, toSelected],
   );
