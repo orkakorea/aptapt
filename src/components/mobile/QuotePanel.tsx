@@ -112,7 +112,7 @@ export default function QuotePanel({
         <div className="min-w-[1200px]">
           {/* 상단 요약 (테두리 X, 같은 스크롤) */}
           <div className="px-3 py-2">
-            <div className="text-[24px] font-extrabold text-gray-800 whitespace-nowrap leading-tight">
+            <div className="text-[12px] font-extrabold text-gray-800 whitespace-nowrap leading-tight">
               총 {summary.count}개 단지 · 세대수 {withUnit(summary.households, "세대")} · 거주인원{" "}
               {withUnit(summary.residents, "명")} · 월송출 {withUnit(summary.monthlyImpressions, "회")} · 모니터수{" "}
               {withUnit(summary.monitors, "대")}
@@ -204,20 +204,6 @@ export default function QuotePanel({
           <div className="text-[22px] font-extrabold" style={{ color: brandColor }}>
             {fmtWon(grand)} <span className="text-[12px] text-gray-500 font-normal">(VAT 포함)</span>
           </div>
-
-          {/* VAT 토글 (하단 설명 라인은 제거) */}
-          <div className="mt-3">
-            <button
-              type="button"
-              onClick={() => setShowVatIncluded((v) => !v)}
-              className="text-[12px] px-3 py-1 rounded-full border bg-white font-semibold"
-              title="VAT 포함/별도 보기 전환"
-            >
-              {showVatIncluded ? "VAT 별도 보기" : "VAT 포함 보기"}
-            </button>
-          </div>
-        </div>
-      </div>
 
       {/* 안내문구 (문구 교체) */}
       <div className="text-[11px] text-gray-500 leading-relaxed">
