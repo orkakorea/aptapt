@@ -12,6 +12,8 @@ export type InquiryPrefill = {
   product_name?: string | null;
   cart_snapshot?: any | null; // { months?, cartTotal?, items?: [{apt_name, product_name, months, item_total_won|total_won}] }
 };
+// ➕ 호환용 별칭(기존 코드가 { Prefill }를 import해도 동작)
+export type Prefill = InquiryPrefill;
 
 export default function MobileInquirySheet({
   open,
