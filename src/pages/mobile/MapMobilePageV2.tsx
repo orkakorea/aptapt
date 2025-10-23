@@ -4,6 +4,8 @@ import BottomSheet from "@/components/mobile/BottomSheet";
 import DetailPanel from "@/components/mobile/DetailPanel";
 import CartPanel from "@/components/mobile/CartPanel";
 import QuotePanel from "@/components/mobile/QuotePanel";
+import type { ItemComputed } from "@/components/mobile/CartPanel";
+import type { QuoteComputedItem } from "@/components/mobile/QuotePanel";
 
 import { useKakaoLoader } from "@/hooks/useKakaoLoader";
 import { useKakaoMap } from "@/hooks/useKakaoMap";
@@ -17,11 +19,13 @@ import { calcMonthlyWithPolicy, normPolicyKey } from "@/core/pricing";
 const COLOR_PRIMARY = "#6F4BF2";
 
 type ActiveTab = "detail" | "cart" | "quote";
+// CartPanel 과 QuotePanel 이 요구하는 필수 필드를 모두 만족하는 통합 타입
+type UnifiedItem = ItemComputed & QuoteComputedItem;
 
 export default function MapMobilePageV2() {
-  /** =========================
+  /* =========================================================
    * Kakao 지도
-   * ========================= */
+   * ========================================================= */
   const mapRef = useRef<HTMLDivElement | null>(null);
   const { kakao, error: kakaoError } = useKakaoLoader();
   const { map, clusterer } = useKakaoMap(mapRef, {
@@ -31,27 +35,27 @@ export default function MapMobilePageV2() {
     idleDebounceMs: 150,
   });
 
-  /** 내 위치(버튼 클릭 시 단발 요청) */
+  // 내 위치(버튼으로 단발 요청)
   const { locateNow } = useUserMarker({ kakao, map, autoCenterOnFirstFix: false, watch: false });
 
-  /** =========================
+  /* =========================================================
    * 검색
-   * ========================= */
+   * ========================================================= */
   const [searchQ, setSearchQ] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchAreaRef = useRef<HTMLDivElement>(null);
   const search = usePlaceSearch({ kakao, map, defaultLevel: 4, smoothPan: true });
 
-  /** =========================
+  /* =========================================================
    * 선택/카트
-   * ========================= */
+   * ========================================================= */
   const [selected, setSelected] = useState<SelectedApt | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const selectedRowKeys = useMemo(() => cart.map((c) => c.rowKey), [cart]);
 
-  /** =========================
+  /* =========================================================
    * 바텀시트 상태
-   * ========================= */
+   * ========================================================= */
   const [sheetOpen, setSheetOpen] = useState(false);
   const sheetOpenRef = useRef(false);
   const [activeTab, setActiveTab] = useState<ActiveTab>("detail");
@@ -72,9 +76,9 @@ export default function MapMobilePageV2() {
     if (sheetOpen) recalcSheetMax();
   }, [sheetOpen, recalcSheetMax]);
 
-  /** =========================
+  /* =========================================================
    * 마커
-   * ========================= */
+   * ========================================================= */
   const markers = useMarkers({
     kakao,
     map,
@@ -99,16 +103,16 @@ export default function MapMobilePageV2() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, kakao]);
 
-  /** 리사이즈 */
+  /* 리사이즈 */
   useEffect(() => {
     const onResize = () => recalcSheetMax();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, [recalcSheetMax]);
 
-  /** =========================
+  /* =========================================================
    * 뒤로가기 & beforeunload 가드 (전화 클릭 예외)
-   * ========================= */
+   * ========================================================= */
   const [exitAsk, setExitAsk] = useState(false);
   const popHandlerRef = useRef<(e: PopStateEvent) => void>();
   const allowUnloadRef = useRef(false);
@@ -141,7 +145,7 @@ export default function MapMobilePageV2() {
     };
   }, []);
 
-  /** 시트 외부 클릭 시 검색창 blur */
+  /* 외부 클릭 시 검색 blur */
   useEffect(() => {
     const blurActive = () => {
       const el = document.activeElement as HTMLElement | null;
@@ -156,7 +160,7 @@ export default function MapMobilePageV2() {
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
   }, []);
 
-  /** 검색 실행 + blur */
+  /* 검색 실행 + blur */
   const runSearchAndBlur = useCallback(async () => {
     try {
       searchInputRef.current?.blur();
@@ -165,9 +169,9 @@ export default function MapMobilePageV2() {
     } catch {}
   }, [searchQ, search]);
 
-  /** =========================
+  /* =========================================================
    * 카트 조작
-   * ========================= */
+   * ========================================================= */
   const isInCart = useCallback((rowKey?: string | null) => !!rowKey && cart.some((c) => c.rowKey === rowKey), [cart]);
 
   // 담기 시 항상 1개월 기본
@@ -200,36 +204,48 @@ export default function MapMobilePageV2() {
     [applyAll],
   );
 
-  /** =========================
+  /* =========================================================
    * 할인/총액 계산
-   *  - 외부 QuotePanel 쪽 타입(ItemComputed)을 만족하도록
-   *    _monthly / _total은 "필수(required)"로 둡니다.
-   * ========================= */
-  type ComputedItem = CartItem & { _monthly: number; _discountRate?: number; _total: number };
-
-  const computedCart: ComputedItem[] = useMemo(() => {
+   *  - CartPanel(ItemComputed) & QuotePanel(QuoteComputedItem) 둘 다 만족
+   * ========================================================= */
+  const computedCart: UnifiedItem[] = useMemo(() => {
     const cnt = new Map<string, number>();
     cart.forEach((c) => {
       const k = normPolicyKey(c.productName);
       cnt.set(k, (cnt.get(k) ?? 0) + 1);
     });
+
     return cart.map((c) => {
       const k = normPolicyKey(c.productName);
       const same = cnt.get(k) ?? 1;
       const { monthly, rate } = calcMonthlyWithPolicy(
         c.productName,
-        c.months,
+        c.months ?? 1,
         c.baseMonthly ?? 0,
         c.monthlyFeeY1,
         same,
       );
-      return { ...c, _monthly: monthly, _discountRate: rate, _total: monthly * c.months };
+
+      const months = c.months ?? 1;
+      const item: UnifiedItem = {
+        // 원본 카트 필드들
+        ...c,
+        // 필수 보정(없어도 항상 값이 있도록)
+        productName: c.productName ?? "",
+        baseMonthly: c.baseMonthly ?? 0,
+        months,
+        // 계산 필드(둘 컴포넌트가 모두 요구)
+        _monthly: monthly,
+        _discountRate: rate ?? 0,
+        _total: monthly * months,
+      };
+      return item;
     });
   }, [cart]);
 
   const totalCost = useMemo(() => computedCart.reduce((s, c) => s + c._total, 0), [computedCart]);
 
-  /** 장바구니 → 특정 단지로 이동 */
+  /* 장바구니 → 특정 단지로 이동 */
   const goToRowKey = useCallback(
     (rk: string) => {
       markers.selectByRowKey(rk);
@@ -246,9 +262,9 @@ export default function MapMobilePageV2() {
   // Kakao 준비 여부 (버튼 가드)
   const kakaoReady = !!(kakao && map);
 
-  /** =========================
+  /* =========================================================
    * 렌더
-   * ========================= */
+   * ========================================================= */
   return (
     <div className="w-screen h-[100dvh] bg-white">
       {/* 상단바 */}
@@ -428,7 +444,7 @@ export default function MapMobilePageV2() {
 
           {activeTab === "cart" && (
             <CartPanel
-              cart={computedCart}
+              cart={computedCart} // UnifiedItem[] 은 ItemComputed[] 요구를 만족
               totalCost={totalCost}
               applyAll={applyAll}
               onToggleApplyAll={setApplyAll}
@@ -440,7 +456,7 @@ export default function MapMobilePageV2() {
 
           {activeTab === "quote" && (
             <QuotePanel
-              items={computedCart}
+              items={computedCart} // UnifiedItem[] 은 QuoteComputedItem[] 요구를 만족
               total={totalCost}
               brandColor={COLOR_PRIMARY}
               onGoTo={goToRowKey}
@@ -477,7 +493,7 @@ export default function MapMobilePageV2() {
   );
 }
 
-/** =========================
+/* =========================
  * 소형 버튼
  * ========================= */
 function TabBtn({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
@@ -492,7 +508,7 @@ function TabBtn({ active, onClick, label }: { active: boolean; onClick: () => vo
   );
 }
 
-/** =========================
+/* =========================
  * 종료 확인 모달
  * ========================= */
 function ConfirmExitModal({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
