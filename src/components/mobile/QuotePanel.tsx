@@ -229,8 +229,7 @@ export default function QuotePanel({
 
       {/* 안내문구 */}
       <div className="text-[11px] text-gray-500 leading-relaxed">
-        ※ 실제 청구 시점의 운영사 정책 및 사전보상/기간 할인 규칙에 따라 단가가 달라질 수 있습니다. 본 견적은 참고용으로
-        제공됩니다.
+        ※ 실제 청구 시점의 운영사 정책 및 사전보상/기간 할인 규칙에 따라 단가가 달라질 수 있습니다.
       </div>
 
       {/* 하단 CTA */}
