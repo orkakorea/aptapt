@@ -5,7 +5,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "@/integrations/supabase/client";
 
-// ===== Types =====
 export type InquiryKind = "SEAT" | "PACKAGE";
 export type CampaignType = "기업" | "공공" | "병원" | "소상공인" | "광고대행사";
 
@@ -14,19 +13,18 @@ export type Prefill = {
   apt_name?: string | null;
   product_code?: string | null;
   product_name?: string | null;
-  cart_snapshot?: any | null; // items[], months, cartTotal 등(유연 키 허용)
+  cart_snapshot?: any | null; // { items: [{apt_name,product_name,months,...}], months, cartTotal... } 등 유연 키 허용
 };
 
 type Props = {
   open: boolean;
-  mode: InquiryKind; // "SEAT" | "PACKAGE"
+  mode: InquiryKind;
   prefill?: Prefill;
   sourcePage?: string;
   onClose: () => void;
-  onSubmitted?: (rowId: string) => void; // 성공 모달에서 "확인" 클릭 시 호출
+  onSubmitted?: (rowId: string) => void;
 };
 
-// ===== UI helpers =====
 const COLOR_PRIMARY = "#6F4BF2";
 const INPUT =
   "w-full rounded-xl border border-gray-200 px-4 py-3 outline-none focus:ring-2 focus:ring-violet-400 text-[13px]";
@@ -34,7 +32,6 @@ const LABEL = "text-[12px] font-semibold text-gray-700 mb-1";
 const READ = "text-[12px] text-gray-500";
 const SAFE_BOTTOM = "pb-[env(safe-area-inset-bottom)]";
 
-// ===== utils =====
 function getUTM() {
   if (typeof window === "undefined") return null;
   const p = new URLSearchParams(window.location.search);
@@ -85,7 +82,9 @@ function pickCartTotal(snap: any): number | null {
   return null;
 }
 
-// ===== 정책 모달 (모바일 경량) =====
+// ——————————————————————————————————————————
+// 경량 정책/성공 모달 (재사용)
+// ——————————————————————————————————————————
 function PolicyModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   if (!open) return null;
   return (
@@ -127,7 +126,6 @@ function PolicyModal({ open, onClose }: { open: boolean; onClose: () => void }) 
   );
 }
 
-// ===== 성공 모달 (모바일 경량) =====
 function SuccessModal({ open, mode, onClose }: { open: boolean; mode: InquiryKind; onClose: () => void }) {
   if (!open) return null;
   return (
@@ -166,8 +164,13 @@ function SuccessModal({ open, mode, onClose }: { open: boolean; mode: InquiryKin
   );
 }
 
-// ===== Main: MobileInquirySheet (Bottom Sheet 스타일) =====
+// ——————————————————————————————————————————
+// 본체: 2-Page Bottom Sheet Wizard
+// ——————————————————————————————————————————
 export default function MobileInquirySheet({ open, mode, prefill, sourcePage, onClose, onSubmitted }: Props) {
+  // Step: 1(입력) / 2(검토/제출)
+  const [step, setStep] = useState<1 | 2>(1);
+
   // 공통 입력값
   const [brand, setBrand] = useState("");
   const [campaignType, setCampaignType] = useState<CampaignType | "">("");
@@ -179,13 +182,9 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
   const [promoCode, setPromoCode] = useState("");
 
   const [agreePrivacy, setAgreePrivacy] = useState(false);
-
-  // 상태
   const [submitting, setSubmitting] = useState(false);
   const [policyOpen, setPolicyOpen] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-
-  // 성공 모달
   const [successOpen, setSuccessOpen] = useState(false);
 
   const page = useMemo(() => {
@@ -194,9 +193,10 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
     return "/m";
   }, [sourcePage]);
 
-  // 초기화 (open 변경 시)
+  // 초기화
   useEffect(() => {
     if (!open) {
+      setStep(1);
       setBrand("");
       setCampaignType("");
       setManagerName("");
@@ -206,7 +206,6 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
       setRequestText("");
       setPromoCode("");
       setAgreePrivacy(false);
-
       setSubmitting(false);
       setErrorMsg(null);
       setPolicyOpen(false);
@@ -214,7 +213,7 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
     }
   }, [open]);
 
-  // 본문 스크롤 잠금
+  // 백그라운드 스크롤 잠금
   useEffect(() => {
     if (!open || typeof document === "undefined") return;
     const prev = document.body.style.overflow;
@@ -230,7 +229,7 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
     setPhone(digits);
   }
 
-  // ——— SEAT 요약(문의 내용) ———
+  // SEAT 요약
   const seatSummary = useMemo(() => {
     if (mode !== "SEAT") return null;
     const snap = prefill?.cart_snapshot || null;
@@ -272,20 +271,17 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
     return { aptLabel, productLabel, monthsLabel, totalWon };
   }, [mode, prefill]);
 
+  // Step 전환 유효성
+  const canGoNext =
+    required(brand) && required(campaignType) && required(managerName) && required(phone) && agreePrivacy;
+
   // 제출
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (submitting) return;
-
     setErrorMsg(null);
 
-    // 검증
-    if (!required(brand)) return setErrorMsg("브랜드명을 입력해 주세요.");
-    if (!required(campaignType)) return setErrorMsg("캠페인유형을 선택해 주세요.");
-    if (!required(managerName)) return setErrorMsg("담당자명을 입력해 주세요.");
-    if (!required(phone)) return setErrorMsg("연락처를 입력해 주세요.");
-    if (!agreePrivacy) return setErrorMsg("개인정보 수집·이용 동의를 체크해 주세요.");
-
+    // 2페이지에서만 실제 제출
     try {
       setSubmitting(true);
       const utm = getUTM();
@@ -332,9 +328,9 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
     }
   }
 
-  const submitDisabled = submitting || !agreePrivacy;
-
   if (!open || typeof document === "undefined") return null;
+
+  const progressWidth = step === 1 ? "50%" : "100%";
 
   const sheet = (
     <div className="fixed inset-0 z-[1800]" role="dialog" aria-modal="true">
@@ -352,200 +348,301 @@ export default function MobileInquirySheet({ open, mode, prefill, sourcePage, on
           <div className="w-10 h-1.5 rounded-full bg-gray-300" />
         </div>
 
-        {/* Header */}
-        <div className="px-4 pb-3 border-b border-gray-100 flex items-center justify-between">
-          <div className="min-w-0">
-            <div className="text-[15px] font-extrabold truncate">
-              {mode === "SEAT" ? "구좌(T.O) 문의" : "시·군·구 / 패키지 문의"}
+        {/* Header + Progress */}
+        <div className="px-4 pb-3 border-b border-gray-100">
+          <div className="flex items-center justify-between">
+            <div className="min-w-0">
+              <div className="text-[15px] font-extrabold truncate">
+                {mode === "SEAT" ? "구좌(T.O) 문의" : "시·군·구 / 패키지 문의"}
+              </div>
+              <div className="text-[11px] text-gray-500 mt-0.5 truncate">
+                {step === 1
+                  ? "브랜드/담당자 등 기본 정보를 입력해 주세요."
+                  : mode === "SEAT"
+                    ? "담은 단지/상품 정보를 확인 후 제출합니다."
+                    : "입력 내용을 확인 후 제출합니다."}
+              </div>
             </div>
-            <div className="text-[11px] text-gray-500 mt-0.5 truncate">
-              {mode === "SEAT"
-                ? "선택하신 단지/상품 정보를 포함해 접수됩니다."
-                : "브랜드·캠페인유형·희망일 등을 알려주시면 빠르게 제안드립니다."}
-            </div>
+            <button
+              className="rounded-full p-2 hover:bg-gray-50"
+              onClick={() => !submitting && onClose()}
+              aria-label="close"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24">
+                <path d="M6 6l12 12M18 6L6 18" stroke="#111" strokeWidth="2" strokeLinecap="round" />
+              </svg>
+            </button>
           </div>
-          <button
-            className="rounded-full p-2 hover:bg-gray-50"
-            onClick={() => !submitting && onClose()}
-            aria-label="close"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24">
-              <path d="M6 6l12 12M18 6L6 18" stroke="#111" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-          </button>
+
+          {/* Violet progress: 50% → 100% */}
+          <div className="mt-3 h-1.5 w-full bg-violet-200 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-violet-600 rounded-full transition-[width] duration-300 ease-out"
+              style={{ width: progressWidth }}
+            />
+          </div>
         </div>
 
         {/* Scrollable Body */}
-        <form
-          onSubmit={handleSubmit}
-          className="px-4 pt-3 overflow-y-auto"
-          style={{ maxHeight: "calc(86vh - 52px - 56px)" }} // (전체−헤더−푸터)
-        >
-          {/* SEAT: 문의 내용 요약 */}
-          {mode === "SEAT" && seatSummary && (
-            <div className="rounded-2xl border border-gray-100 bg-gray-50 p-3 mb-3">
-              <div className="text-[12px] font-semibold mb-2">문의 내용</div>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[12px]">
+        <div className="px-4 pt-3 overflow-y-auto" style={{ maxHeight: "calc(86vh - 52px - 72px)" }}>
+          {/* STEP 1: 입력 */}
+          {step === 1 && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (canGoNext) setStep(2);
+                else setErrorMsg("필수 항목을 입력하고 개인정보 동의를 체크해 주세요.");
+              }}
+            >
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <div className={READ}>단지명</div>
-                  <div className="font-medium">{seatSummary.aptLabel}</div>
-                </div>
-                <div>
-                  <div className={READ}>상품명</div>
-                  <div className="font-medium">{seatSummary.productLabel}</div>
-                </div>
-                <div>
-                  <div className={READ}>광고기간</div>
-                  <div className="font-medium">{seatSummary.monthsLabel}</div>
-                </div>
-                <div>
-                  <div className={READ}>예상 총광고료</div>
-                  <div className="font-medium">
-                    {fmtWon(seatSummary.totalWon)} <span className="text-gray-500">(VAT별도)</span>
+                  <div className={LABEL}>
+                    브랜드명 <span className="text-red-500">*</span>
                   </div>
+                  <input
+                    className={INPUT}
+                    placeholder="오르카 코리아"
+                    value={brand}
+                    onChange={(e) => setBrand(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <div className={LABEL}>
+                    캠페인유형 <span className="text-red-500">*</span>
+                  </div>
+                  <select
+                    className={`${INPUT} bg-white`}
+                    value={campaignType}
+                    onChange={(e) => setCampaignType(e.target.value as CampaignType)}
+                  >
+                    <option value="" disabled>
+                      선택하세요
+                    </option>
+                    <option value="기업">기업</option>
+                    <option value="공공">공공</option>
+                    <option value="병원">병원</option>
+                    <option value="소상공인">소상공인</option>
+                    <option value="광고대행사">광고대행사</option>
+                  </select>
+                </div>
+
+                <div>
+                  <div className={LABEL}>
+                    담당자명 <span className="text-red-500">*</span>
+                  </div>
+                  <input
+                    className={INPUT}
+                    placeholder="박우주"
+                    value={managerName}
+                    onChange={(e) => setManagerName(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <div className={LABEL}>
+                    연락처 <span className="text-red-500">*</span>
+                  </div>
+                  <input
+                    className={INPUT}
+                    inputMode="numeric"
+                    placeholder="01012345678"
+                    value={phone}
+                    onChange={(e) => handlePhoneChange(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <div className={LABEL}>이메일</div>
+                  <input
+                    className={INPUT}
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <div className={LABEL}>광고 송출 예정(희망)일</div>
+                  <input type="date" className={INPUT} value={hopeDate} onChange={(e) => setHopeDate(e.target.value)} />
                 </div>
               </div>
-            </div>
+
+              <div className="mt-3">
+                <div className={LABEL}>요청사항</div>
+                <textarea
+                  className={`${INPUT} h-24 resize-none`}
+                  placeholder="관심 상품/예산/지역/기간 등을 적어주세요."
+                  value={requestText}
+                  onChange={(e) => setRequestText(e.target.value)}
+                />
+              </div>
+
+              <div className="mt-3 mb-4">
+                <div className={LABEL}>프로모션 코드</div>
+                <input
+                  className={INPUT}
+                  placeholder="예: ORCA2025"
+                  value={promoCode}
+                  onChange={(e) => setPromoCode(e.target.value)}
+                />
+              </div>
+
+              {errorMsg && <div className="mt-2 text-[12px] text-red-600">{errorMsg}</div>}
+            </form>
           )}
 
-          {/* 입력 필드 */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <div className={LABEL}>
-                브랜드명 <span className="text-red-500">*</span>
+          {/* STEP 2: 검토/제출 */}
+          {step === 2 && (
+            <form onSubmit={handleSubmit}>
+              {/* SEAT 요약 */}
+              {mode === "SEAT" && seatSummary && (
+                <div className="rounded-2xl border border-gray-100 bg-gray-50 p-3 mb-3">
+                  <div className="text-[12px] font-semibold mb-2">문의 내용</div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[12px]">
+                    <div>
+                      <div className={READ}>단지명</div>
+                      <div className="font-medium">{seatSummary.aptLabel}</div>
+                    </div>
+                    <div>
+                      <div className={READ}>상품명</div>
+                      <div className="font-medium">{seatSummary.productLabel}</div>
+                    </div>
+                    <div>
+                      <div className={READ}>광고기간</div>
+                      <div className="font-medium">{seatSummary.monthsLabel}</div>
+                    </div>
+                    <div>
+                      <div className={READ}>예상 총광고료</div>
+                      <div className="font-medium">
+                        {fmtWon(seatSummary.totalWon)} <span className="text-gray-500">(VAT별도)</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 내가 입력한 정보 요약 */}
+              <div className="rounded-2xl border border-gray-100 bg-white p-3 mb-3">
+                <div className="text-[12px] font-semibold mb-2">연락/캠페인 정보</div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-[12px]">
+                  <div>
+                    <div className={READ}>브랜드명</div>
+                    <div className="font-medium">{brand}</div>
+                  </div>
+                  <div>
+                    <div className={READ}>캠페인유형</div>
+                    <div className="font-medium">{campaignType}</div>
+                  </div>
+                  <div>
+                    <div className={READ}>담당자명</div>
+                    <div className="font-medium">{managerName}</div>
+                  </div>
+                  <div>
+                    <div className={READ}>연락처</div>
+                    <div className="font-medium">{phone}</div>
+                  </div>
+                  {email && (
+                    <div>
+                      <div className={READ}>이메일</div>
+                      <div className="font-medium">{email}</div>
+                    </div>
+                  )}
+                  {hopeDate && (
+                    <div>
+                      <div className={READ}>희망일</div>
+                      <div className="font-medium">{hopeDate}</div>
+                    </div>
+                  )}
+                </div>
+                {requestText && (
+                  <div className="mt-2">
+                    <div className={READ}>요청사항</div>
+                    <div className="text-[12px]">{requestText}</div>
+                  </div>
+                )}
+                {promoCode && (
+                  <div className="mt-2">
+                    <div className={READ}>프로모션 코드</div>
+                    <div className="text-[12px]">{promoCode}</div>
+                  </div>
+                )}
               </div>
-              <input
-                className={INPUT}
-                placeholder="오르카 코리아"
-                value={brand}
-                onChange={(e) => setBrand(e.target.value)}
-              />
-            </div>
 
-            <div>
-              <div className={LABEL}>
-                캠페인유형 <span className="text-red-500">*</span>
-              </div>
-              <select
-                className={`${INPUT} bg-white`}
-                value={campaignType}
-                onChange={(e) => setCampaignType(e.target.value as CampaignType)}
-              >
-                <option value="" disabled>
-                  선택하세요
-                </option>
-                <option value="기업">기업</option>
-                <option value="공공">공공</option>
-                <option value="병원">병원</option>
-                <option value="소상공인">소상공인</option>
-                <option value="광고대행사">광고대행사</option>
-              </select>
-            </div>
+              {errorMsg && <div className="mt-2 text-[12px] text-red-600">{errorMsg}</div>}
+            </form>
+          )}
+        </div>
 
-            <div>
-              <div className={LABEL}>
-                담당자명 <span className="text-red-500">*</span>
-              </div>
-              <input
-                className={INPUT}
-                placeholder="박우주"
-                value={managerName}
-                onChange={(e) => setManagerName(e.target.value)}
-              />
-            </div>
-
-            <div>
-              <div className={LABEL}>
-                연락처 <span className="text-red-500">*</span>
-              </div>
-              <input
-                className={INPUT}
-                inputMode="numeric"
-                placeholder="01012345678"
-                value={phone}
-                onChange={(e) => handlePhoneChange(e.target.value)}
-              />
-            </div>
-
-            <div>
-              <div className={LABEL}>이메일</div>
-              <input
-                className={INPUT}
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
-
-            <div>
-              <div className={LABEL}>광고 송출 예정(희망)일</div>
-              <input type="date" className={INPUT} value={hopeDate} onChange={(e) => setHopeDate(e.target.value)} />
-            </div>
-          </div>
-
-          <div className="mt-3">
-            <div className={LABEL}>요청사항</div>
-            <textarea
-              className={`${INPUT} h-24 resize-none`}
-              placeholder="관심 상품/예산/지역/기간 등을 적어주세요."
-              value={requestText}
-              onChange={(e) => setRequestText(e.target.value)}
-            />
-          </div>
-
-          <div className="mt-3 mb-[68px]">
-            <div className={LABEL}>프로모션 코드</div>
-            <input
-              className={INPUT}
-              placeholder="예: ORCA2025"
-              value={promoCode}
-              onChange={(e) => setPromoCode(e.target.value)}
-            />
-          </div>
-
-          {errorMsg && <div className="mt-2 text-[12px] text-red-600">{errorMsg}</div>}
-        </form>
-
-        {/* Sticky Footer */}
+        {/* Sticky Footer (양 페이지 공통) */}
         <div className={`px-4 py-3 border-t border-gray-100 bg-white sticky bottom-0 ${SAFE_BOTTOM}`}>
           <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                className="px-3 py-2 text-[12px] rounded-md border border-black bg-white hover:bg-gray-50 whitespace-nowrap"
-                onClick={() => setPolicyOpen(true)}
-              >
-                개인정보 수집·이용 정책
-              </button>
-              <label className="flex items-center gap-2 text-[12px] text-gray-700 whitespace-nowrap">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-gray-300"
-                  checked={agreePrivacy}
-                  onChange={(e) => setAgreePrivacy(e.target.checked)}
-                />
-                동의 <span className="text-red-500">*</span>
-              </label>
+            {/* 좌측: 정책버튼 + 동의 체크 (Step1에서 보이고, Step2에서는 회색 텍스트로 상태 표시) */}
+            {step === 1 ? (
+              <div className="flex items-center gap-3 flex-wrap">
+                <button
+                  type="button"
+                  className="px-3 py-2 text-[12px] rounded-md border border-black bg-white hover:bg-gray-50 whitespace-nowrap"
+                  onClick={() => setPolicyOpen(true)}
+                >
+                  개인정보 수집·이용 정책
+                </button>
+                <label className="flex items-center gap-2 text-[12px] text-gray-700 whitespace-nowrap">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-gray-300"
+                    checked={agreePrivacy}
+                    onChange={(e) => setAgreePrivacy(e.target.checked)}
+                  />
+                  동의 <span className="text-red-500">*</span>
+                </label>
+              </div>
+            ) : (
+              <div className="text-[12px] text-gray-600">개인정보 수집·이용 동의 완료</div>
+            )}
+
+            {/* 우측 CTA */}
+            <div className="flex items-center gap-2">
+              {step === 2 && (
+                <button
+                  type="button"
+                  className="rounded-xl px-4 py-3 font-semibold border bg-white"
+                  onClick={() => setStep(1)}
+                >
+                  이전
+                </button>
+              )}
+              {step === 1 ? (
+                <button
+                  type="button"
+                  disabled={!canGoNext}
+                  onClick={() => {
+                    if (canGoNext) setStep(2);
+                  }}
+                  className={`rounded-xl px-5 py-3 text-white font-semibold ${
+                    !canGoNext ? "bg-violet-300 cursor-not-allowed" : "bg-violet-600 hover:bg-violet-700"
+                  }`}
+                >
+                  다음
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    // step2의 form 찾아서 submit
+                    const container = document.querySelector('[role="dialog"]');
+                    const forms = container?.querySelectorAll("form");
+                    const lastForm = forms?.[forms.length - 1] as HTMLFormElement | undefined;
+                    lastForm?.requestSubmit();
+                  }}
+                  className={`rounded-xl px-5 py-3 text-white font-semibold ${
+                    submitting ? "bg-violet-400 cursor-wait" : "bg-violet-600 hover:bg-violet-700"
+                  }`}
+                >
+                  {submitting ? "전송 중..." : "문의 접수"}
+                </button>
+              )}
             </div>
-
-            <button
-              onClick={(e) => (document.querySelector('form[aria-modal!="true"]') ? null : null)}
-              // 실제 제출 버튼
-              className={`hidden`}
-            />
-
-            <button
-              type="button"
-              disabled={submitDisabled}
-              onClick={(e) => {
-                // 폼 submit 트리거
-                const form = (e.currentTarget.closest('[role="dialog"]') as HTMLElement)?.querySelector("form");
-                (form as HTMLFormElement | null)?.requestSubmit();
-              }}
-              className={`rounded-xl px-5 py-3 text-white font-semibold ${submitDisabled ? "bg-violet-300 cursor-not-allowed" : "bg-violet-600 hover:bg-violet-700"}`}
-            >
-              {submitting ? "전송 중..." : "문의 접수"}
-            </button>
           </div>
         </div>
       </div>
