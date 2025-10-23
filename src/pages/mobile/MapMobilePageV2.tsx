@@ -1,9 +1,11 @@
+// src/pages/mobile/MapMobilePageV2.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import BottomSheet from "@/components/mobile/BottomSheet";
 import DetailPanel from "@/components/mobile/DetailPanel";
 import CartPanel from "@/components/mobile/CartPanel";
 import QuotePanel from "@/components/mobile/QuotePanel";
+import MobileInquirySheet, { type Prefill, type InquiryKind } from "@/components/mobile/MobileInquirySheet";
 
 import { useKakaoLoader } from "@/hooks/useKakaoLoader";
 import { useKakaoMap } from "@/hooks/useKakaoMap";
@@ -48,6 +50,13 @@ export default function MapMobilePageV2() {
   const [selected, setSelected] = useState<SelectedApt | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const selectedRowKeys = useMemo(() => cart.map((c) => c.rowKey), [cart]);
+
+  /** =========================
+   * 문의 시트
+   * ========================= */
+  const [inqOpen, setInqOpen] = useState(false);
+  const [inqMode, setInqMode] = useState<InquiryKind>("SEAT");
+  const [inqPrefill, setInqPrefill] = useState<Prefill | undefined>(undefined);
 
   /** =========================
    * 바텀시트 상태
@@ -170,7 +179,7 @@ export default function MapMobilePageV2() {
    * ========================= */
   const isInCart = useCallback((rowKey?: string | null) => !!rowKey && cart.some((c) => c.rowKey === rowKey), [cart]);
 
-  // 담기 시 항상 1개월 기본 + 현장 수치 복사
+  // 담기 시 항상 1개월 기본 (시트 닫지 않음)
   const addSelectedToCart = useCallback(() => {
     if (!selected) return;
     const next: CartItem = {
@@ -180,13 +189,6 @@ export default function MapMobilePageV2() {
       months: 1,
       baseMonthly: selected.monthlyFee ?? 0,
       monthlyFeeY1: selected.monthlyFeeY1 ?? undefined,
-
-      // 현장 수치 복사(옵션)
-      households: selected.households,
-      residents: selected.residents,
-      monthlyImpressions: selected.monthlyImpressions,
-      monitors: selected.monitors,
-      costPerPlay: selected.costPerPlay,
     };
     setCart((prev) => [next, ...prev.filter((c) => c.rowKey !== next.rowKey)]);
   }, [selected]);
@@ -211,7 +213,6 @@ export default function MapMobilePageV2() {
    * 할인/총액 계산
    *  - productName/baseMonthly/_discountRate 필수 보장
    *  - discPeriodRate/discPrecompRate(표시용) 포함
-   *  - monthlyImpressions 보조 산출
    * ========================= */
   type ComputedItem = Omit<CartItem, "productName" | "baseMonthly"> & {
     productName: string;
@@ -245,16 +246,10 @@ export default function MapMobilePageV2() {
       const discPeriodRate = rateFromRanges(rules?.period, c.months);
       const discPrecompRate = rateFromRanges(rules?.precomp, same);
 
-      // 월송출 보조 산출
-      const monthlyImpressions =
-        c.monthlyImpressions ??
-        (base > 0 && (c.costPerPlay ?? 0) > 0 ? Math.floor(base / (c.costPerPlay as number)) : undefined);
-
       return {
         ...c,
         productName: name,
         baseMonthly: base,
-        monthlyImpressions,
         _monthly: monthly,
         _discountRate: rate,
         _total: monthly * c.months,
@@ -284,6 +279,26 @@ export default function MapMobilePageV2() {
   const kakaoReady = !!(kakao && map);
 
   /** =========================
+   * 카트 → 문의 prefill 스냅샷
+   * ========================= */
+  const buildCartSnapshot = useCallback((items: typeof computedCart, total: number) => {
+    const monthsMax = items.reduce((m, it) => Math.max(m, Number(it.months || 0)), 0);
+    return {
+      months: monthsMax || undefined,
+      cartTotal: total, // pickCartTotal에서 우선 읽는 후보
+      items: items.map((it) => ({
+        apt_name: it.aptName,
+        product_name: it.productName ?? undefined,
+        product_code: normPolicyKey(it.productName), // "ELEVATOR TV" 등
+        months: it.months,
+        // 합계 이름은 유연하게 받으므로 두 필드 모두 채움
+        item_total_won: it._total,
+        total_won: it._total,
+      })),
+    };
+  }, []);
+
+  /** =========================
    * 렌더
    * ========================= */
   return (
@@ -294,7 +309,13 @@ export default function MapMobilePageV2() {
           <div className="font-extrabold text-[15px]">응답하라 입주민이여</div>
           <button
             className="px-3 py-1 rounded-full border text-sm font-semibold"
-            onClick={() => console.log("패키지 문의 클릭")}
+            onClick={() => {
+              // 바텀시트가 열려 있으면 닫고 문의 시트만 띄움
+              setSheetOpen(false);
+              setInqMode("PACKAGE");
+              setInqPrefill(undefined);
+              setInqOpen(true);
+            }}
           >
             패키지 문의
           </button>
@@ -482,9 +503,23 @@ export default function MapMobilePageV2() {
               brandColor={COLOR_PRIMARY}
               onGoTo={goToRowKey}
               onInquiry={() => {
-                // 견적 기반 문의 흐름: 필요 시 원하는 로직으로 교체
-                setActiveTab("cart");
-                setSheetOpen(true);
+                if (!computedCart.length) {
+                  setActiveTab("cart");
+                  setSheetOpen(true);
+                  return;
+                }
+                const first = computedCart[0];
+                setInqMode("SEAT");
+                setInqPrefill({
+                  apt_id: null,
+                  apt_name: first?.aptName ?? null,
+                  product_code: first?.productName ? normPolicyKey(first.productName) : null,
+                  product_name: first?.productName ?? null,
+                  cart_snapshot: buildCartSnapshot(computedCart, totalCost),
+                });
+
+                setSheetOpen(false);
+                setInqOpen(true);
               }}
             />
           )}
@@ -510,6 +545,18 @@ export default function MapMobilePageV2() {
           }}
         />
       )}
+
+      {/* 모바일 문의 시트 */}
+      <MobileInquirySheet
+        open={inqOpen}
+        mode={inqMode}
+        prefill={inqPrefill}
+        sourcePage="/mobile/v2"
+        onClose={() => setInqOpen(false)}
+        onSubmitted={() => {
+          setInqOpen(false);
+        }}
+      />
     </div>
   );
 }
