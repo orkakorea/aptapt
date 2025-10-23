@@ -1,37 +1,4 @@
 // src/components/mobile/MobileInquirySheet.tsx
-"use client";
-
-import React, { useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
-import { supabase } from "@/integrations/supabase/client";
-
-// ... (기존 코드 전부 동일)
-
-export default function MobileInquirySheet(props: Props) {
-  const { open } = props;
-
-  // ★ 모달 열릴 때 본문 스크롤 잠금(선택)
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [open]);
-
-  if (!open) return null;
-
-  const sheet = (
-    <div className="fixed inset-0 z-[1600]">
-      {/* ... 기존 JSX 그대로 (backdrop, bottom sheet, policy modal, success modal 등) ... */}
-    </div>
-  );
-
-  // ★ 부모와 분리: 레이어/오버플로우 간섭 제거
-  return createPortal(sheet, document.body);
-}
-
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
