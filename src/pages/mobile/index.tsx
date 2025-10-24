@@ -1,3 +1,4 @@
+// src/pages/mobile/index.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
@@ -44,7 +45,7 @@ export default function MapMobilePageV2() {
   const searchAreaRef = useRef<HTMLDivElement>(null);
   const search = usePlaceSearch({ kakao, map, defaultLevel: 4, smoothPan: true });
 
-  /** ✅ (2) b) 초기 검색어 적용 — /mobile?q=... 로 진입하면 자동 실행 */
+  /** ✅ 초기 검색어 적용 — /mobile?q=... 로 진입하면 자동 실행 */
   const [searchParams] = useSearchParams();
   const initialQ = (searchParams.get("q") || "").trim();
   useEffect(() => {
@@ -59,7 +60,7 @@ export default function MapMobilePageV2() {
     } catch {}
     (async () => {
       try {
-        await search.run(initialQ); // runSearchAndBlur는 내부 state를 읽으므로 여기선 직접 실행
+        await search.run(initialQ);
       } catch {}
     })();
   }, [kakao, map, initialQ, search]);
@@ -305,13 +306,12 @@ export default function MapMobilePageV2() {
     const monthsMax = items.reduce((m, it) => Math.max(m, Number(it.months || 0)), 0);
     return {
       months: monthsMax || undefined,
-      cartTotal: total, // pickCartTotal에서 우선 읽는 후보
+      cartTotal: total,
       items: items.map((it) => ({
         apt_name: it.aptName,
         product_name: it.productName ?? undefined,
-        product_code: normPolicyKey(it.productName), // "ELEVATOR TV" 등
+        product_code: normPolicyKey(it.productName),
         months: it.months,
-        // 합계 이름은 유연하게 받으므로 두 필드 모두 채움
         item_total_won: it._total,
         total_won: it._total,
       })),
@@ -497,8 +497,7 @@ export default function MapMobilePageV2() {
                 if (isInCart(selected.rowKey)) {
                   removeFromCart(selected.rowKey);
                 } else {
-                  addSelectedToCart(); // 1개월 기본
-                  // 담기 후 바텀시트 유지
+                  addSelectedToCart();
                 }
               }}
             />
@@ -571,7 +570,7 @@ export default function MapMobilePageV2() {
         open={inqOpen}
         mode={inqMode}
         prefill={inqPrefill}
-        sourcePage="/mobile" // ✅ 이전 "/mobile/v2"에서 변경
+        sourcePage="/mobile"
         onClose={() => setInqOpen(false)}
         onSubmitted={() => {
           setInqOpen(false);
