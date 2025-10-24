@@ -14,7 +14,7 @@ import {
 import { saveNodeAsPNG, saveNodeAsPDF } from "@/core/utils/capture";
 
 type InquiryKind = "SEAT" | "PACKAGE";
-type CampaignType = "기업" | "공공" | "병원" | "소상공인" | "광고대행사";
+type CampaignType = "기업" | "공공" | "병원" | "소상공인" | "광고대행사" | "기타";
 
 type Prefill = {
   apt_id?: string | null;
@@ -101,7 +101,7 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
   // 정책/완료 모달
   const [policyOpen, setPolicyOpen] = useState(false);
 
-  // ✅ 새 완료 모달 상태
+  // ✅ 새 완료 모달 상태 (InquiryModal 닫혀도 독립 표시)
   const [completeOpen, setCompleteOpen] = useState(false);
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
 
@@ -116,7 +116,8 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
   }, [sourcePage]);
 
   useEffect(() => {
-    if (!open) {
+    // open=false로 닫혀도 completeOpen=true면 완료 모달만 보이도록 유지
+    if (!open && !completeOpen) {
       // reset on close
       setBrand("");
       setCampaignType("");
@@ -133,13 +134,13 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
       setOkMsg(null);
       setPolicyOpen(false);
 
-      // 완료 모달 상태 초기화
-      setCompleteOpen(false);
       setReceiptData(null);
     }
-  }, [open]);
+  }, [open, completeOpen]);
 
-  if (!open) return null;
+  // InquiryModal UI는 숨기되, 완료 모달만 띄우기 위한 렌더 가드
+  if (!open && !completeOpen) return null;
+
   const isSeat = mode === "SEAT";
 
   // 연락처: 숫자만 허용
@@ -261,7 +262,6 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
               if (node) saveNodeAsPDF(node as HTMLElement, `${ticketCode}_receipt`);
             },
             onCopyLink: () => {
-              // 프로젝트 토스트 있으면 연결
               console.log("receipt link copied");
             },
           },
@@ -298,9 +298,8 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
 
       // 임시: 로컬 저장(링크 열람용)
       persistReceiptLocal(token, rd);
-      // TODO: 서버 컬럼 준비 시 아래 주석 해제해 저장
-      // await (supabase as any).from("inquiries").update({ ticket_code: ticketCode, receipt_token: token }).eq("id", data.id);
 
+      // 문의 폼은 숨기고(렌더 안 함), 완료 모달만 중앙 표시
       setReceiptData(rd);
       setCompleteOpen(true);
 
@@ -315,260 +314,268 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
 
   const submitDisabled = submitting || !agreePrivacy;
 
-  // —————————— UI ——————————
+  /* ========================= 렌더 =========================
+   * completeOpen === true 면 '문의 모달 UI'는 아예 렌더하지 않고
+   * 완료 모달(CompleteModal)만 중앙 오버레이로 표시된다.
+   * ====================================================== */
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/40" onClick={() => !submitting && onClose()} />
+    <>
+      {/* ✅ 완료 모달 (PC/모바일 자동 분기) — InquiryModal과 독립 표시 */}
+      {receiptData && (
+        <CompleteModal
+          open={completeOpen}
+          onClose={() => {
+            setCompleteOpen(false);
+            onClose(); // 부모에 알림(폼 완전 종료)
+          }}
+          data={receiptData}
+          confirmLabel="확인"
+        />
+      )}
 
-      {/* Panel */}
-      <div className="relative z-[1001] w-[720px] max-w-[92vw] rounded-2xl bg-white shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
-          <div>
-            <div className="text-lg font-bold">
-              {mode === "SEAT" ? "구좌(T.O) 문의" : "시,군,구 동 단위 / 패키지문의"}
-            </div>
-            <div className="text-xs text-gray-500 mt-1">
-              {mode === "SEAT"
-                ? "선택하신 단지/상품 정보를 포함해 접수됩니다."
-                : "브랜드·캠페인유형·희망일 등을 알려주시면 빠르게 제안드립니다."}
-            </div>
-          </div>
-          <button
-            className="rounded-full p-2 hover:bg-gray-50"
-            onClick={() => !submitting && onClose()}
-            aria-label="close"
-          >
-            <svg width="22" height="22" viewBox="0 0 24 24">
-              <path d="M6 6l12 12M18 6L6 18" stroke="#111" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-          </button>
-        </div>
+      {/* ❌ completeOpen 상태에서는 문의 모달 UI 렌더 자체를 막음 */}
+      {open && !completeOpen && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center">
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/40" onClick={() => !submitting && onClose()} />
 
-        {/* Body */}
-        <form onSubmit={handleSubmit} className="px-6 py-5 space-y-5">
-          {/* ===== SEAT: 문의 내용 박스 ===== */}
-          {mode === "SEAT" &&
-            (() => {
-              const s = deriveSeatHeaderBox();
-              return (
-                <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
-                  <div className="text-sm font-semibold mb-2">문의 내용</div>
-                  <div className="grid grid-cols-2 gap-3 text-[13px]">
-                    <div className="flex flex-col">
-                      <span className={READ}>단지명</span>
-                      <span className="font-medium">{s.aptLabel}</span>
-                    </div>
-                    <div className="flex flex-col">
-                      <span className={READ}>상품명</span>
-                      <span className="font-medium">{s.productLabel}</span>
-                    </div>
-                    <div className="flex flex-col">
-                      <span className={READ}>광고기간</span>
-                      <span className="font-medium">{s.monthsLabel}</span>
-                    </div>
-                    <div className="flex flex-col">
-                      <span className={READ}>예상 총광고료</span>
-                      <span className="font-medium">
-                        {fmtWon(s.totalWon)} <span className="text-gray-500">(VAT별도)</span>
-                      </span>
-                    </div>
-                  </div>
+          {/* Panel */}
+          <div className="relative z-[1001] w-[720px] max-w-[92vw] rounded-2xl bg-white shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
+              <div>
+                <div className="text-lg font-bold">
+                  {mode === "SEAT" ? "구좌(T.O) 문의" : "시,군,구 동 단위 / 패키지문의"}
                 </div>
-              );
-            })()}
-
-          {/* ===== 입력 폼 ===== */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <div className={LABEL}>
-                브랜드명 <span className="text-red-500">*</span>
+                <div className="text-xs text-gray-500 mt-1">
+                  {mode === "SEAT"
+                    ? "선택하신 단지/상품 정보를 포함해 접수됩니다."
+                    : "브랜드·캠페인유형·희망일 등을 알려주시면 빠르게 제안드립니다."}
+                </div>
               </div>
-              <input
-                className={INPUT_BASE}
-                placeholder="오르카 코리아"
-                value={brand}
-                onChange={(e) => setBrand(e.target.value)}
-              />
-            </div>
-
-            <div>
-              <div className={LABEL}>
-                캠페인유형 <span className="text-red-500">*</span>
-              </div>
-              <select
-                className={`${INPUT_BASE} bg-white`}
-                value={campaignType}
-                onChange={(e) => setCampaignType(e.target.value as CampaignType)}
-              >
-                <option value="" disabled>
-                  선택하세요
-                </option>
-                <option value="기업">기업</option>
-                <option value="공공">공공</option>
-                <option value="병원">병원</option>
-                <option value="소상공인">소상공인</option>
-                <option value="광고대행사">광고대행사</option>
-              </select>
-            </div>
-
-            <div>
-              <div className={LABEL}>
-                담당자명 <span className="text-red-500">*</span>
-              </div>
-              <input
-                className={INPUT_BASE}
-                placeholder="박우주"
-                value={managerName}
-                onChange={(e) => setManagerName(e.target.value)}
-              />
-            </div>
-
-            <div>
-              <div className={LABEL}>
-                연락처 <span className="text-red-500">*</span>
-              </div>
-              <input
-                className={INPUT_BASE}
-                inputMode="numeric"
-                placeholder="01012345678"
-                value={phone}
-                onChange={(e) => handlePhoneChange(e.target.value)}
-              />
-            </div>
-
-            <div>
-              <div className={LABEL}>이메일 </div>
-              <input
-                className={INPUT_BASE}
-                placeholder="you@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
-
-            <div>
-              <div className={LABEL}>광고 송출 예정(희망)일</div>
-              <input
-                type="date"
-                className={INPUT_BASE}
-                value={hopeDate}
-                onChange={(e) => setHopeDate(e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div>
-            <div className={LABEL}>요청사항 </div>
-            <textarea
-              className={`${INPUT_BASE} h-28 resize-none`}
-              placeholder="관심 상품/예산/지역/기간 등을 적어주세요."
-              value={requestText}
-              onChange={(e) => setRequestText(e.target.value)}
-            />
-          </div>
-
-          <div>
-            <div className={LABEL}>프로모션 코드 </div>
-            <input
-              className={INPUT_BASE}
-              placeholder="예: ORCA2024"
-              value={promoCode}
-              onChange={(e) => setPromoCode(e.target.value)}
-            />
-          </div>
-
-          {errorMsg && <div className="text-[13px] text-red-600">{errorMsg}</div>}
-          {okMsg && !completeOpen && <div className="text-[13px] text-emerald-600">{okMsg}</div>}
-
-          {/* 하단: 정책 버튼 + 체크 1개 + 제출 */}
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3 flex-wrap">
-              <button
-                type="button"
-                className="px-3 py-2 text-[12px] rounded-md border border-black bg-white hover:bg-gray-50 whitespace-nowrap"
-                onClick={() => setPolicyOpen(true)}
-              >
-                개인정보 수집·이용 정책 자세히보기
-              </button>
-
-              <label className="flex items-center gap-2 text-[12px] text-gray-700 whitespace-nowrap">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 rounded border-gray-300"
-                  checked={agreePrivacy}
-                  onChange={(e) => setAgreePrivacy(e.target.checked)}
-                />
-                개인정보 수집·이용 동의 <span className="text-red-500">*</span>
-              </label>
-            </div>
-
-            <button
-              type="submit"
-              disabled={submitDisabled}
-              className={`rounded-xl px-5 py-3 text-white font-semibold ${
-                submitDisabled ? "bg-violet-300 cursor-not-allowed" : "bg-violet-600 hover:bg-violet-700"
-              }`}
-            >
-              {submitting ? "전송 중..." : "문의 접수"}
-            </button>
-          </div>
-        </form>
-      </div>
-
-      {/* == 정책 안내 모달 == */}
-      {policyOpen && (
-        <div className="fixed inset-0 z-[1100] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setPolicyOpen(false)} />
-          <div className="relative z-[1101] w-[680px] max-w-[92vw] rounded-2xl bg-white shadow-2xl">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <div className="text-base font-bold">개인정보 수집·이용 정책</div>
               <button
                 className="rounded-full p-2 hover:bg-gray-50"
-                onClick={() => setPolicyOpen(false)}
-                aria-label="close-policy"
+                onClick={() => !submitting && onClose()}
+                aria-label="close"
               >
                 <svg width="22" height="22" viewBox="0 0 24 24">
                   <path d="M6 6l12 12M18 6L6 18" stroke="#111" strokeWidth="2" strokeLinecap="round" />
                 </svg>
               </button>
             </div>
-            <div className="px-6 py-5 max-h-[60vh] overflow-auto text-[13px] leading-6 text-gray-700">
-              <p className="mb-3">
-                오르카 코리아는 문의 접수 및 상담을 위해 최소한의 개인정보를 수집·이용하며, 목적 달성 후 지체 없이
-                파기합니다. 수집 항목: 성명, 연락처, 이메일, 문의 내용 등. 보유·이용 기간: 문의 처리 완료 후 1년.
-              </p>
-              <p className="mb-3">
-                필요한 경우 매체 운영사 등 협력사와의 상담/집행을 위해 최소한의 정보가 공유될 수 있습니다. 법령에 따른
-                고지·동의 절차를 준수합니다.
-              </p>
-              <p>귀하는 동의를 거부할 권리가 있으며, 동의 거부 시 상담 제공이 제한될 수 있습니다.</p>
-            </div>
-            <div className="px-6 py-4 border-t border-gray-100 flex justify-end">
-              <button
-                className="rounded-xl px-5 py-3 text-white font-semibold bg-violet-600 hover:bg-violet-700"
-                onClick={() => setPolicyOpen(false)}
-              >
-                확인
-              </button>
-            </div>
+
+            {/* Body */}
+            <form onSubmit={handleSubmit} className="px-6 py-5 space-y-5">
+              {/* ===== SEAT: 문의 내용 박스 ===== */}
+              {mode === "SEAT" &&
+                (() => {
+                  const s = deriveSeatHeaderBox();
+                  return (
+                    <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+                      <div className="text-sm font-semibold mb-2">문의 내용</div>
+                      <div className="grid grid-cols-2 gap-3 text-[13px]">
+                        <div className="flex flex-col">
+                          <span className={READ}>단지명</span>
+                          <span className="font-medium">{s.aptLabel}</span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className={READ}>상품명</span>
+                          <span className="font-medium">{s.productLabel}</span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className={READ}>광고기간</span>
+                          <span className="font-medium">{s.monthsLabel}</span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className={READ}>예상 총광고료</span>
+                          <span className="font-medium">
+                            {fmtWon(s.totalWon)} <span className="text-gray-500">(VAT별도)</span>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+              {/* ===== 입력 폼 ===== */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <div className={LABEL}>
+                    브랜드명 <span className="text-red-500">*</span>
+                  </div>
+                  <input
+                    className={INPUT_BASE}
+                    placeholder="오르카 코리아"
+                    value={brand}
+                    onChange={(e) => setBrand(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <div className={LABEL}>
+                    캠페인유형 <span className="text-red-500">*</span>
+                  </div>
+                  <select
+                    className={`${INPUT_BASE} bg-white`}
+                    value={campaignType}
+                    onChange={(e) => setCampaignType(e.target.value as CampaignType)}
+                  >
+                    <option value="" disabled>
+                      선택하세요
+                    </option>
+                    <option value="기업">기업</option>
+                    <option value="공공">공공</option>
+                    <option value="병원">병원</option>
+                    <option value="소상공인">소상공인</option>
+                    <option value="광고대행사">광고대행사</option>
+                  </select>
+                </div>
+
+                <div>
+                  <div className={LABEL}>
+                    담당자명 <span className="text-red-500">*</span>
+                  </div>
+                  <input
+                    className={INPUT_BASE}
+                    placeholder="박우주"
+                    value={managerName}
+                    onChange={(e) => setManagerName(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <div className={LABEL}>
+                    연락처 <span className="text-red-500">*</span>
+                  </div>
+                  <input
+                    className={INPUT_BASE}
+                    inputMode="numeric"
+                    placeholder="01012345678"
+                    value={phone}
+                    onChange={(e) => handlePhoneChange(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <div className={LABEL}>이메일 </div>
+                  <input
+                    className={INPUT_BASE}
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <div className={LABEL}>광고 송출 예정(희망)일</div>
+                  <input
+                    type="date"
+                    className={INPUT_BASE}
+                    value={hopeDate}
+                    onChange={(e) => setHopeDate(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className={LABEL}>요청사항 </div>
+                <textarea
+                  className={`${INPUT_BASE} h-28 resize-none`}
+                  placeholder="관심 상품/예산/지역/기간 등을 적어주세요."
+                  value={requestText}
+                  onChange={(e) => setRequestText(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <div className={LABEL}>프로모션 코드 </div>
+                <input
+                  className={INPUT_BASE}
+                  placeholder="예: ORCA2024"
+                  value={promoCode}
+                  onChange={(e) => setPromoCode(e.target.value)}
+                />
+              </div>
+
+              {errorMsg && <div className="text-[13px] text-red-600">{errorMsg}</div>}
+              {okMsg && <div className="text-[13px] text-emerald-600">{okMsg}</div>}
+
+              {/* 하단: 정책 버튼 + 체크 1개 + 제출 */}
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <button
+                    type="button"
+                    className="px-3 py-2 text-[12px] rounded-md border border-black bg-white hover:bg-gray-50 whitespace-nowrap"
+                    onClick={() => setPolicyOpen(true)}
+                  >
+                    개인정보 수집·이용 정책 자세히보기
+                  </button>
+
+                  <label className="flex items-center gap-2 text-[12px] text-gray-700 whitespace-nowrap">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-gray-300"
+                      checked={agreePrivacy}
+                      onChange={(e) => setAgreePrivacy(e.target.checked)}
+                    />
+                    개인정보 수집·이용 동의 <span className="text-red-500">*</span>
+                  </label>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={submitDisabled}
+                  className={`rounded-xl px-5 py-3 text-white font-semibold ${
+                    submitDisabled ? "bg-violet-300 cursor-not-allowed" : "bg-violet-600 hover:bg-violet-700"
+                  }`}
+                >
+                  {submitting ? "전송 중..." : "문의 접수"}
+                </button>
+              </div>
+            </form>
           </div>
+
+          {/* == 정책 안내 모달 == */}
+          {policyOpen && (
+            <div className="fixed inset-0 z-[1100] flex items-center justify-center">
+              <div className="absolute inset-0 bg-black/40" onClick={() => setPolicyOpen(false)} />
+              <div className="relative z-[1101] w-[680px] max-w-[92vw] rounded-2xl bg-white shadow-2xl">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+                  <div className="text-base font-bold">개인정보 수집·이용 정책</div>
+                  <button
+                    className="rounded-full p-2 hover:bg-gray-50"
+                    onClick={() => setPolicyOpen(false)}
+                    aria-label="close-policy"
+                  >
+                    <svg width="22" height="22" viewBox="0 0 24 24">
+                      <path d="M6 6l12 12M18 6L6 18" stroke="#111" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                </div>
+                <div className="px-6 py-5 max-h-[60vh] overflow-auto text-[13px] leading-6 text-gray-700">
+                  <p className="mb-3">
+                    오르카 코리아는 문의 접수 및 상담을 위해 최소한의 개인정보를 수집·이용하며, 목적 달성 후 지체 없이
+                    파기합니다. 수집 항목: 성명, 연락처, 이메일, 문의 내용 등. 보유·이용 기간: 문의 처리 완료 후 1년.
+                  </p>
+                  <p className="mb-3">
+                    필요한 경우 매체 운영사 등 협력사와의 상담/집행을 위해 최소한의 정보가 공유될 수 있습니다. 법령에
+                    따른 고지·동의 절차를 준수합니다.
+                  </p>
+                  <p>귀하는 동의를 거부할 권리가 있으며, 동의 거부 시 상담 제공이 제한될 수 있습니다.</p>
+                </div>
+                <div className="px-6 py-4 border-t border-gray-100 flex justify-end">
+                  <button
+                    className="rounded-xl px-5 py-3 text-white font-semibold bg-violet-600 hover:bg-violet-700"
+                    onClick={() => setPolicyOpen(false)}
+                  >
+                    확인
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
-
-      {/* ✅ 새 완료 모달 (PC/모바일 자동 분기) */}
-      {receiptData && (
-        <CompleteModal
-          open={completeOpen}
-          onClose={() => {
-            setCompleteOpen(false);
-            onClose();
-          }}
-          data={receiptData}
-          confirmLabel="확인"
-        />
-      )}
-    </div>
+    </>
   );
 }
