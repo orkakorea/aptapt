@@ -50,7 +50,7 @@ const MIN_LAT_SPAN = 0.0001; // 약 90m
 const MIN_LNG_SPAN = 0.0001; // 약 90m
 
 /* =========================================================================
- * 훅 본체
+ * 훅 본체(⚠️ 훅 호출은 항상 동일한 순서/개수로 유지)
  * ========================================================================= */
 export default function useMarkers({
   kakao,
@@ -73,15 +73,16 @@ export default function useMarkers({
   /** 선택 집합을 ref로 보관 → 렌더 영향 없이 참조 */
   const selectedSetRef = useRef<Set<string>>(new Set());
   useEffect(() => {
+    // 배열 순서 변화에 둔감하도록 Set으로 교체
     selectedSetRef.current = new Set(externalSelectedRowKeys);
-  }, [externalSelectedRowKeys.join("|")]);
+  }, [externalSelectedRowKeys]);
 
   /** 중복 요청/늦은 응답/빈결과 스트릭 가드 */
   const fetchInFlightRef = useRef(false);
   const requestVersionRef = useRef(0);
   const emptyStreakRef = useRef(0); // 연속 0건 응답 횟수 (2회 이상이면 정리 허용)
 
-  /** 마커 이미지 캐시 */
+  /** 마커 이미지 캐시 (항상 훅은 호출, 내부에서 kakao 준비 여부만 분기) */
   const imgs = useMemo(() => {
     if (!kakao?.maps) return null;
     const { maps } = kakao;
@@ -231,7 +232,7 @@ export default function useMarkers({
           mk.__rowKey = rowKey;
           mk.__row = row;
 
-          maps.event.addListener(mk, "click", () => {
+          const onClick = () => {
             const sel = toSelected(mk.__rowKey, mk.__row, lat, lng);
             onSelect(sel);
 
@@ -243,7 +244,11 @@ export default function useMarkers({
 
             // 현재 클릭 반영(선택이면 노랑, 아니면 클릭색)
             colorByRule(mk);
-          });
+          };
+          // 핸들러를 저장해 두면 해제할 때 쓸 수 있음
+          mk.__onClick = onClick as any;
+
+          maps.event.addListener(mk, "click", onClick);
 
           poolRef.current.set(idKey, mk);
           toAdd.push(mk);
@@ -288,6 +293,12 @@ export default function useMarkers({
         try {
           if (clusterer?.removeMarkers) clusterer.removeMarkers(toRemove);
           else toRemove.forEach((m) => m.setMap(null));
+        } catch {}
+        // 이벤트 해제(메모리 누수 방지)
+        try {
+          toRemove.forEach((mk) => {
+            kakao.maps.event.removeListener(mk, "click", mk.__onClick);
+          });
         } catch {}
       }
 
@@ -367,16 +378,18 @@ export default function useMarkers({
     if (!kakao?.maps || !map) return;
     const { maps } = kakao;
 
-    const h = maps.event.addListener(map, "idle", () => {
+    const handleIdle = () => {
       refreshInBounds();
-    });
+    };
+
+    maps.event.addListener(map, "idle", handleIdle);
 
     // 초기: 다음 프레임에 강제 1회 실행 (초기 idle 누락 대비)
     requestAnimationFrame(() => refreshInBounds());
 
     return () => {
       try {
-        maps.event.removeListener(h);
+        maps.event.removeListener(map, "idle", handleIdle);
       } catch {}
       // 정리
       const all: any[] = [];
@@ -384,6 +397,11 @@ export default function useMarkers({
       try {
         if (clusterer?.removeMarkers) clusterer.removeMarkers(all);
         else all.forEach((m) => m.setMap(null));
+      } catch {}
+      try {
+        all.forEach((mk) => {
+          kakao.maps.event.removeListener(mk, "click", mk.__onClick);
+        });
       } catch {}
       poolRef.current.clear();
       rowKeyIndexRef.current.clear();
@@ -420,5 +438,6 @@ export default function useMarkers({
     [colorByRule, kakao, map, onSelect, toSelected],
   );
 
+  // 항상 동일 shape의 API 반환
   return { refreshInBounds, selectByRowKey };
 }
