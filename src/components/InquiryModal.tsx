@@ -11,6 +11,7 @@ import {
   maskPhone,
   emailToDomain,
 } from "@/core/utils/receipt";
+import { saveNodeAsPNG, saveNodeAsPDF } from "@/core/utils/capture";
 
 type InquiryKind = "SEAT" | "PACKAGE";
 type CampaignType = "기업" | "공공" | "병원" | "소상공인" | "광고대행사";
@@ -64,8 +65,24 @@ function fmtWon(n: number | null | undefined) {
 function genTicketCode() {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
-  const code = `ORKA-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${Math.floor(1000 + Math.random() * 9000)}`;
+  const code = `ORKA-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(
+    d.getDate(),
+  )}-${Math.floor(1000 + Math.random() * 9000)}`;
   return code;
+}
+
+/** 접수증 링크 토큰(임시) */
+function makeToken(len = 22) {
+  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let out = "";
+  for (let i = 0; i < len; i++) out += chars[(Math.random() * chars.length) | 0];
+  return out;
+}
+/** 로컬 스냅샷 저장(서버 마이그레이션 전 임시) */
+function persistReceiptLocal(token: string, data: any) {
+  try {
+    localStorage.setItem(`receipt:${token}`, JSON.stringify(data));
+  } catch {}
 }
 
 export default function InquiryModal({ open, mode, prefill, onClose, sourcePage, onSubmitted }: Props) {
@@ -196,6 +213,11 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
       // 접수증 데이터 구성
       const ticketCode = genTicketCode();
       const createdAtISO = new Date().toISOString();
+      const token = makeToken();
+      const receiptUrl =
+        typeof window !== "undefined"
+          ? `${window.location.origin}${window.location.pathname}?receipt=${token}`
+          : undefined;
 
       const customer = {
         company: brand,
@@ -228,6 +250,21 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
             monthlyTotalKRW: summary.monthlyTotalKRW ?? null,
             periodTotalKRW: summary.periodTotalKRW ?? null,
           },
+          links: { receiptUrl },
+          actions: {
+            onSaveImage: () => {
+              const node = document.getElementById("receipt-capture");
+              if (node) saveNodeAsPNG(node as HTMLElement, `${ticketCode}_receipt`);
+            },
+            onSavePDF: () => {
+              const node = document.getElementById("receipt-capture");
+              if (node) saveNodeAsPDF(node as HTMLElement, `${ticketCode}_receipt`);
+            },
+            onCopyLink: () => {
+              // 프로젝트 토스트 있으면 연결
+              console.log("receipt link copied");
+            },
+          },
           meta: { currency: "KRW", vatNote: "표시된 금액은 부가세 별도입니다.", timeZone: "Asia/Seoul" },
         } as ReceiptSeat;
       } else {
@@ -243,9 +280,26 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
             budgetRangeText: undefined,
           },
           details: { areas: [] },
+          links: { receiptUrl },
+          actions: {
+            onSaveImage: () => {
+              const node = document.getElementById("receipt-capture");
+              if (node) saveNodeAsPNG(node as HTMLElement, `${ticketCode}_receipt`);
+            },
+            onSavePDF: () => {
+              const node = document.getElementById("receipt-capture");
+              if (node) saveNodeAsPDF(node as HTMLElement, `${ticketCode}_receipt`);
+            },
+            onCopyLink: () => console.log("receipt link copied"),
+          },
           meta: { currency: "KRW", vatNote: "표시된 금액은 부가세 별도입니다.", timeZone: "Asia/Seoul" },
         } as ReceiptPackage;
       }
+
+      // 임시: 로컬 저장(링크 열람용)
+      persistReceiptLocal(token, rd);
+      // TODO: 서버 컬럼 준비 시 아래 주석 해제해 저장
+      // await (supabase as any).from("inquiries").update({ ticket_code: ticketCode, receipt_token: token }).eq("id", data.id);
 
       setReceiptData(rd);
       setCompleteOpen(true);
@@ -426,7 +480,7 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
           </div>
 
           {errorMsg && <div className="text-[13px] text-red-600">{errorMsg}</div>}
-          {okMsg && <div className="text-[13px] text-emerald-600">{okMsg}</div>}
+          {okMsg && !completeOpen && <div className="text-[13px] text-emerald-600">{okMsg}</div>}
 
           {/* 하단: 정책 버튼 + 체크 1개 + 제출 */}
           <div className="flex items-center justify-between gap-4">
