@@ -1,6 +1,6 @@
-// src/pages/mobile/index.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/router";
+import { useSearchParams } from "react-router-dom";
+
 import BottomSheet from "@/components/mobile/BottomSheet";
 import DetailPanel from "@/components/mobile/DetailPanel";
 import CartPanel from "@/components/mobile/CartPanel";
@@ -20,56 +20,12 @@ const COLOR_PRIMARY = "#6F4BF2";
 
 type ActiveTab = "detail" | "cart" | "quote";
 
-/**
- * ⚠️ 훅 오류(#310) 회피 전략
- * - Kakao SDK 로딩이 끝나기 전에는 지도 관련 커스텀 훅을 호출하지 않는다.
- * - 로딩 이후에만 훅을 사용하는 내부 컴포넌트를 마운트한다(MapMobileInner).
- * - 이렇게 하면 한 컴포넌트 내에서 훅 호출 순서가 변하는 일이 없다.
- */
 export default function MapMobilePageV2() {
-  const { kakao, error: kakaoError } = useKakaoLoader();
-
-  if (!kakao) {
-    return (
-      <div className="w-screen h-[100dvh] bg-white">
-        {/* 상단바(프레임 유지) */}
-        <div className="fixed top-0 left-0 right-0 z-[40] bg-white border-b">
-          <div className="h-14 px-3 flex items-center justify-between">
-            <div className="font-extrabold text-[15px]">응답하라 입주민이여</div>
-            <button
-              className="px-3 py-1 rounded-full border text-sm font-semibold opacity-60 cursor-not-allowed"
-              disabled
-            >
-              패키지 문의
-            </button>
-          </div>
-        </div>
-
-        {/* 로딩 플레이스홀더 */}
-        <div className="fixed top-[56px] left-0 right-0 bottom-0 grid place-items-center">
-          <div className="text-sm text-gray-500">지도를 불러오는 중…</div>
-        </div>
-
-        {kakaoError && (
-          <div className="fixed bottom-4 right-4 z-[100] rounded-lg bg-red-600 text-white px-3 py-2 text-sm shadow">
-            Kakao SDK 오류: {kakaoError}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  return <MapMobileInner kakao={kakao} />;
-}
-
-/** =========================
- * Kakao 준비 이후 실제 페이지
- * ========================= */
-function MapMobileInner({ kakao }: { kakao: any }) {
   /** =========================
    * Kakao 지도
    * ========================= */
   const mapRef = useRef<HTMLDivElement | null>(null);
+  const { kakao, error: kakaoError } = useKakaoLoader();
   const { map, clusterer } = useKakaoMap(mapRef, {
     kakao,
     center: { lat: 37.5665, lng: 126.978 },
@@ -87,6 +43,26 @@ function MapMobileInner({ kakao }: { kakao: any }) {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchAreaRef = useRef<HTMLDivElement>(null);
   const search = usePlaceSearch({ kakao, map, defaultLevel: 4, smoothPan: true });
+
+  /** ✅ (2) b) 초기 검색어 적용 — /mobile?q=... 로 진입하면 자동 실행 */
+  const [searchParams] = useSearchParams();
+  const initialQ = (searchParams.get("q") || "").trim();
+  useEffect(() => {
+    const ready = !!(kakao && map);
+    if (!ready) return;
+    if (!initialQ) return;
+
+    setSearchQ(initialQ);
+    try {
+      searchInputRef.current?.blur();
+      (document.activeElement as HTMLElement | null)?.blur?.();
+    } catch {}
+    (async () => {
+      try {
+        await search.run(initialQ); // runSearchAndBlur는 내부 state를 읽으므로 여기선 직접 실행
+      } catch {}
+    })();
+  }, [kakao, map, initialQ, search]);
 
   /** =========================
    * 선택/카트
@@ -110,10 +86,9 @@ function MapMobileInner({ kakao }: { kakao: any }) {
   const [activeTab, setActiveTab] = useState<ActiveTab>("detail");
 
   const phoneBtnRef = useRef<HTMLAnchorElement>(null);
-  const [sheetMaxH, setSheetMaxH] = useState<number>(() => {
-    if (typeof window === "undefined") return 480;
-    return Math.max(320, Math.floor(window.innerHeight * 0.75));
-  });
+  const [sheetMaxH, setSheetMaxH] = useState<number>(() =>
+    Math.max(320, Math.floor((typeof window !== "undefined" ? window.innerHeight : 800) * 0.75)),
+  );
 
   const recalcSheetMax = useCallback(() => {
     const winH = typeof window !== "undefined" ? window.innerHeight : 800;
@@ -146,7 +121,6 @@ function MapMobileInner({ kakao }: { kakao: any }) {
 
   useEffect(() => {
     if (map && kakao) {
-      // 지도 초기 바운더리 반영
       setTimeout(() => {
         try {
           markers.refreshInBounds();
@@ -335,8 +309,9 @@ function MapMobileInner({ kakao }: { kakao: any }) {
       items: items.map((it) => ({
         apt_name: it.aptName,
         product_name: it.productName ?? undefined,
-        product_code: normPolicyKey(it.productName),
+        product_code: normPolicyKey(it.productName), // "ELEVATOR TV" 등
         months: it.months,
+        // 합계 이름은 유연하게 받으므로 두 필드 모두 채움
         item_total_won: it._total,
         total_won: it._total,
       })),
@@ -355,6 +330,7 @@ function MapMobileInner({ kakao }: { kakao: any }) {
           <button
             className="px-3 py-1 rounded-full border text-sm font-semibold"
             onClick={() => {
+              // 바텀시트가 열려 있으면 닫고 문의 시트만 띄움
               setSheetOpen(false);
               setInqMode("PACKAGE");
               setInqPrefill(undefined);
@@ -522,6 +498,7 @@ function MapMobileInner({ kakao }: { kakao: any }) {
                   removeFromCart(selected.rowKey);
                 } else {
                   addSelectedToCart(); // 1개월 기본
+                  // 담기 후 바텀시트 유지
                 }
               }}
             />
@@ -569,6 +546,13 @@ function MapMobileInner({ kakao }: { kakao: any }) {
         </div>
       </BottomSheet>
 
+      {/* SDK 에러 토스트 */}
+      {kakaoError && (
+        <div className="fixed bottom-4 right-4 z-[100] rounded-lg bg-red-600 text-white px-3 py-2 text-sm shadow">
+          Kakao SDK 오류: {kakaoError}
+        </div>
+      )}
+
       {/* 종료 확인 모달 */}
       {exitAsk && (
         <ConfirmExitModal
@@ -582,12 +566,12 @@ function MapMobileInner({ kakao }: { kakao: any }) {
         />
       )}
 
-      {/* 모바일 문의 시트 (성공 시 외부에서 확인 모달 띄우는 구조) */}
+      {/* 모바일 문의 시트 */}
       <MobileInquirySheet
         open={inqOpen}
         mode={inqMode}
         prefill={inqPrefill}
-        sourcePage="/mobile"
+        sourcePage="/mobile" // ✅ 이전 "/mobile/v2"에서 변경
         onClose={() => setInqOpen(false)}
         onSubmitted={() => {
           setInqOpen(false);
