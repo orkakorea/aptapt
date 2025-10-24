@@ -30,14 +30,13 @@ export default function MobileInquirySheet({
   sourcePage?: string;
   onSubmitted?: (id: string) => void;
 }) {
-  const BRAND = "#6F4BF2";
   const PROGRESS_BG = "#E9E1FF"; // 옅은 보라(트랙)
   const PROGRESS_FG = "#C7B4FF"; // 진행색(스크린샷 느낌)
 
   /* -----------------------------
    * form state (2페이지로 분리)
    * ----------------------------- */
-  type CampaignType = "기업" | "공공" | "병원" | "소상공인" | "광고대행사";
+  type CampaignType = "기업" | "공공" | "병원" | "소상공인" | "광고대행사" | "기타";
   const [step, setStep] = useState<1 | 2>(1);
 
   // 1단계
@@ -56,7 +55,6 @@ export default function MobileInquirySheet({
   const [policyOpen, setPolicyOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [okMsg, setOkMsg] = useState<string | null>(null);
 
   // 리셋: 모달 닫힐 때 초기화
   useEffect(() => {
@@ -73,7 +71,6 @@ export default function MobileInquirySheet({
       setAgreePrivacy(false);
       setSubmitting(false);
       setErrorMsg(null);
-      setOkMsg(null);
       setPolicyOpen(false);
     }
   }, [open]);
@@ -183,14 +180,12 @@ export default function MobileInquirySheet({
    * 진행 조건/제출
    * ----------------------------- */
   const canNext = brand.trim() && campaignType && managerName.trim() && phone.trim().length >= 8;
-
   const submitDisabled = submitting || !agreePrivacy;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (submitDisabled) return;
     setErrorMsg(null);
-    setOkMsg(null);
 
     try {
       setSubmitting(true);
@@ -227,15 +222,12 @@ export default function MobileInquirySheet({
         extra,
       };
 
-      const { error } = await (supabase as any).from("inquiries").insert(payload);
+      // ✅ 성공 시 ID를 바로 부모로 넘겨 외부 "완료 모달"에서 사용
+      const { data, error } = await (supabase as any).from("inquiries").insert(payload).select("id").single();
       if (error) throw error;
 
-      setOkMsg("접수가 완료되었습니다. 담당자가 곧 연락드리겠습니다.");
-      // 간단한 완료 뷰로 전환
-      setTimeout(() => {
-        onSubmitted?.("ok");
-        onClose();
-      }, 1200);
+      onSubmitted?.(String(data?.id ?? "ok"));
+      // 자동 닫기/성공문구는 제거 — 외부에서 제어
     } catch (err: any) {
       setErrorMsg(err?.message || "제출 중 오류가 발생했습니다.");
     } finally {
@@ -336,7 +328,7 @@ export default function MobileInquirySheet({
                     />
                   </div>
 
-                  {/* 캠페인유형 (네모 버튼 5개) */}
+                  {/* 캠페인유형 (네모 버튼 6개) */}
                   <div>
                     <div className={LABEL}>
                       캠페인유형 <span className="text-red-500">*</span>
@@ -347,6 +339,7 @@ export default function MobileInquirySheet({
                       <CampaignBtn value="병원" label="병원" />
                       <CampaignBtn value="소상공인" label="소상공인" />
                       <CampaignBtn value="광고대행사" label="광고대행사" />
+                      <CampaignBtn value="기타" label="기타" />
                     </div>
                   </div>
 
@@ -498,7 +491,6 @@ export default function MobileInquirySheet({
                 </div>
 
                 {errorMsg && <div className="text-[13px] text-red-600">{errorMsg}</div>}
-                {okMsg && <div className="text-[13px] text-emerald-600">{okMsg}</div>}
 
                 <button
                   type="button"
