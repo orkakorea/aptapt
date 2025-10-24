@@ -1,5 +1,21 @@
+// src/components/InquiryModal.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+
+import CompleteModal from "@/components/complete-modal";
+import type {
+  InquiryKind as ReceiptInquiryKind,
+  ReceiptData,
+  ReceiptSeat,
+  ReceiptPackage,
+} from "@/components/complete-modal";
+import {
+  buildSeatHeaderLabels,
+  buildSeatItemsFromSnapshot,
+  makeSeatSummary,
+  maskPhone,
+  emailToDomain,
+} from "@/core/utils/receipt";
 
 type InquiryKind = "SEAT" | "PACKAGE";
 type CampaignType = "기업" | "공공" | "병원" | "소상공인" | "광고대행사";
@@ -9,13 +25,12 @@ type Prefill = {
   apt_name?: string | null;
   product_code?: string | null;
   product_name?: string | null;
-  // 1탭 총액 및 다중선택을 담는 스냅샷 (필드명은 유연하게 수용)
-  cart_snapshot?: any | null;
+  cart_snapshot?: any | null; // 1탭 카트 스냅샷
 };
 
 type Props = {
   open: boolean;
-  mode: InquiryKind;          // "SEAT" | "PACKAGE"
+  mode: InquiryKind; // "SEAT" | "PACKAGE"
   onClose: () => void;
   prefill?: Prefill;
   sourcePage?: string;
@@ -25,7 +40,7 @@ type Props = {
 const INPUT_BASE =
   "w-full rounded-xl border border-gray-200 px-4 py-3 outline-none focus:ring-2 focus:ring-violet-400 text-sm";
 const LABEL = "text-[13px] font-semibold text-gray-700 mb-1";
-const READ  = "text-[13px] text-gray-500";
+const READ = "text-[13px] text-gray-500";
 
 function getUTM() {
   if (typeof window === "undefined") return null;
@@ -35,67 +50,48 @@ function getUTM() {
   let has = false;
   keys.forEach((k) => {
     const v = p.get(k);
-    if (v) { o[k] = v; has = true; }
+    if (v) {
+      o[k] = v;
+      has = true;
+    }
   });
   return has ? o : null;
 }
-
 function required(v?: string) {
   return v && v.trim().length > 0;
 }
-
 function fmtWon(n: number | null | undefined) {
   if (n == null || isNaN(Number(n))) return "-";
   return `${Number(n).toLocaleString()}원`;
 }
 
-/** cart_snapshot에서 1탭 '총 비용' 값을 최대한 정확히 꺼내오기 (여러 필드명 호환) */
-function pickCartTotal(snap: any): number | null {
-  if (!snap) return null;
-  const candidates = [
-    snap.cartTotal, snap.cart_total, snap.cartTotalWon, snap.cart_total_won,
-    snap.grandTotal, snap.grand_total,
-    snap.totalWon, snap.total_won, snap.total,
-  ];
-  for (const c of candidates) {
-    const n = Number(c);
-    if (isFinite(n) && n > 0) return n;
-  }
-  // items 합계(각 item의 총액 필드명도 다양하게 대응)
-  if (Array.isArray(snap.items) && snap.items.length > 0) {
-    const sum = snap.items.reduce((acc: number, it: any) => {
-      const n = Number(it?.itemTotalWon ?? it?.item_total_won ?? it?.totalWon ?? it?.total_won ?? 0);
-      return acc + (isFinite(n) ? n : 0);
-    }, 0);
-    return sum > 0 ? sum : null;
-  }
-  return null;
+/** 접수번호 생성(프론트 임시 규칙) */
+function genTicketCode() {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const code = `ORKA-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${Math.floor(1000 + Math.random() * 9000)}`;
+  return code;
 }
 
-export default function InquiryModal({
-  open,
-  mode,
-  prefill,
-  onClose,
-  sourcePage,
-  onSubmitted,
-}: Props) {
-  // ===== 공통 입력(패키지/구좌 동일 레이아웃로 통일) =====
-  const [brand, setBrand] = useState("");                         // 브랜드명(필수)
-  const [campaignType, setCampaignType] = useState<CampaignType | "">(""); // 캠페인유형(필수)
-  const [managerName, setManagerName] = useState("");             // 담당자명(필수)
-  const [phone, setPhone] = useState("");                         // 연락처(숫자만)
-  const [email, setEmail] = useState("");                         // 이메일(선택)
-  const [hopeDate, setHopeDate] = useState<string>("");           // 광고 송출 예정(희망)일
-  const [requestText, setRequestText] = useState("");             // 요청사항(선택)
-  const [promoCode, setPromoCode] = useState("");                 // 프로모션 코드(선택)
+export default function InquiryModal({ open, mode, prefill, onClose, sourcePage, onSubmitted }: Props) {
+  // ===== 공통 입력 =====
+  const [brand, setBrand] = useState("");
+  const [campaignType, setCampaignType] = useState<CampaignType | "">("");
+  const [managerName, setManagerName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [hopeDate, setHopeDate] = useState<string>("");
+  const [requestText, setRequestText] = useState("");
+  const [promoCode, setPromoCode] = useState("");
 
-  // 체크박스(필수 1개만 유지: 개인정보 수집·이용 동의)
   const [agreePrivacy, setAgreePrivacy] = useState(false);
 
   // 정책/완료 모달
   const [policyOpen, setPolicyOpen] = useState(false);
-  const [successOpen, setSuccessOpen] = useState(false);
+
+  // ✅ 새 완료 모달 상태
+  const [completeOpen, setCompleteOpen] = useState(false);
+  const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -124,7 +120,10 @@ export default function InquiryModal({
       setErrorMsg(null);
       setOkMsg(null);
       setPolicyOpen(false);
-      setSuccessOpen(false);
+
+      // 완료 모달 상태 초기화
+      setCompleteOpen(false);
+      setReceiptData(null);
     }
   }, [open]);
 
@@ -137,72 +136,20 @@ export default function InquiryModal({
     setPhone(digitsOnly);
   }
 
-  // ====== SEAT "문의 내용" 박스 파생값 ======
-  function deriveSeatSummary() {
-    const snap: any = prefill?.cart_snapshot || null;
-    const items: any[] = Array.isArray(snap?.items) ? snap.items : [];
-
-    // 최상위 단지명
-    const topAptName: string =
-      items[0]?.apt_name ?? prefill?.apt_name ?? "-";
-
-    // 단지 수
-    const aptCount: number =
-      items.length > 0 ? items.length : (prefill?.apt_name ? 1 : 0);
-
-    const aptLabel =
-      aptCount > 1 ? `${topAptName} 외 ${aptCount - 1}개 단지` : topAptName;
-
-    // 1) 상품명 요약: 첫 상품명(또는 코드) + (유니크 2개 이상이면 " 외")
-    const firstItem = items[0] ?? null;
-    const firstProduct =
-      firstItem?.product_name ??
-      firstItem?.product_code ??
-      prefill?.product_name ??
-      prefill?.product_code ??
-      "-";
-
-    const uniqueProducts = new Set<string>();
-    if (items.length > 0) {
-      items.forEach((i) => {
-        const key = i?.product_name ?? i?.product_code ?? "";
-        if (key) uniqueProducts.add(String(key));
-      });
-    } else {
-      const key = prefill?.product_name ?? prefill?.product_code ?? "";
-      if (key) uniqueProducts.add(String(key));
-    }
-    const productLabel =
-      uniqueProducts.size >= 2 ? `${firstProduct} 외` : firstProduct;
-
-    // 2) 광고기간 요약:
-    // - 아이템마다 기간이 다를 수 있으므로, 유니크 개수 파악
-    // - 최댓값 months + (서로 다르면 " 등")
-    const monthSet = new Set<number>();
-    let monthsMaxFromItems = 0;
-    if (items.length > 0) {
-      items.forEach((i) => {
-        const n = Number(i?.months ?? 0);
-        if (isFinite(n) && n > 0) {
-          monthSet.add(n);
-          if (n > monthsMaxFromItems) monthsMaxFromItems = n;
-        }
-      });
-    }
-    const fallbackMonths = Number(snap?.months ?? 0);
-    if (monthSet.size === 0 && isFinite(fallbackMonths) && fallbackMonths > 0) {
-      monthSet.add(fallbackMonths);
-      monthsMaxFromItems = fallbackMonths;
-    }
-
-    const months: number | null = monthsMaxFromItems > 0 ? monthsMaxFromItems : null;
-    const monthsLabel =
-      months ? `${months}개월${monthSet.size >= 2 ? " 등" : ""}` : "-";
-
-    // 예상 총광고료: 1탭 총액과 100% 일치하도록 pickCartTotal 사용
-    const totalWon: number | null = pickCartTotal(snap);
-
-    return { aptLabel, productLabel, months, monthsLabel, totalWon };
+  // ====== SEAT "문의 내용" 박스 파생값 (헤더 요약) ======
+  function deriveSeatHeaderBox() {
+    const labels = buildSeatHeaderLabels({
+      apt_name: prefill?.apt_name,
+      product_name: prefill?.product_name,
+      product_code: prefill?.product_code,
+      cart_snapshot: prefill?.cart_snapshot,
+    });
+    return {
+      aptLabel: labels.aptLabel,
+      productLabel: labels.productLabel,
+      monthsLabel: labels.monthsLabel,
+      totalWon: labels.totalWon,
+    };
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -210,16 +157,11 @@ export default function InquiryModal({
     setErrorMsg(null);
     setOkMsg(null);
 
-    // 패키지/구좌 모두 동일 검증 규칙 적용(요청사항)
     if (!required(brand)) return setErrorMsg("브랜드명을 입력해 주세요.");
     if (!required(campaignType)) return setErrorMsg("캠페인유형을 선택해 주세요.");
     if (!required(managerName)) return setErrorMsg("담당자명을 입력해 주세요.");
     if (!required(phone)) return setErrorMsg("연락처를 입력해 주세요.");
-
-    // 체크박스 강제 조건
-    if (!agreePrivacy) {
-      return setErrorMsg("개인정보 수집·이용 동의를 체크해 주세요.");
-    }
+    if (!agreePrivacy) return setErrorMsg("개인정보 수집·이용 동의를 체크해 주세요.");
 
     try {
       setSubmitting(true);
@@ -237,8 +179,7 @@ export default function InquiryModal({
 
       const payload: any = {
         inquiry_kind: mode,
-        status: "new", 
-        // 기존 테이블 호환 필드 매핑 (company/memo는 내부적으로 brand/request 사용)
+        status: "new",
         customer_name: managerName || null,
         phone: phone || null,
         company: brand || null,
@@ -246,22 +187,76 @@ export default function InquiryModal({
         memo: requestText || null,
         source_page: page,
         utm,
-        // SEAT 전용 필드
         apt_id: isSeat ? (prefill?.apt_id ?? null) : null,
         apt_name: isSeat ? (prefill?.apt_name ?? null) : null,
         product_code: isSeat ? (prefill?.product_code ?? null) : null,
         product_name: isSeat ? (prefill?.product_name ?? null) : null,
         cart_snapshot: isSeat ? (prefill?.cart_snapshot ?? null) : null,
-        // 신규 필드
         extra,
       };
 
-      const { error } = await (supabase as any).from("inquiries").insert(payload);
+      const { data, error } = await (supabase as any).from("inquiries").insert(payload).select("id").single();
       if (error) throw error;
 
+      // 접수증 데이터 구성
+      const ticketCode = genTicketCode();
+      const createdAtISO = new Date().toISOString();
+
+      const customer = {
+        company: brand,
+        name: managerName,
+        phoneMasked: maskPhone(phone),
+        emailDomain: emailToDomain(email),
+        campaignType: campaignType,
+        inquiryKind: mode === "SEAT" ? "구좌문의" : "패키지문의",
+        note: requestText || undefined,
+      };
+
+      let rd: ReceiptData;
+      if (mode === "SEAT") {
+        const summary = makeSeatSummary({
+          apt_name: prefill?.apt_name,
+          product_name: prefill?.product_name,
+          product_code: prefill?.product_code,
+          cart_snapshot: prefill?.cart_snapshot,
+        });
+        const items = buildSeatItemsFromSnapshot(prefill?.cart_snapshot || null);
+
+        rd = {
+          ticketCode,
+          createdAtISO,
+          mode: "SEAT",
+          customer,
+          summary,
+          details: {
+            items,
+            monthlyTotalKRW: summary.monthlyTotalKRW ?? null,
+            periodTotalKRW: summary.periodTotalKRW ?? null,
+          },
+          meta: { currency: "KRW", vatNote: "표시된 금액은 부가세 별도입니다.", timeZone: "Asia/Seoul" },
+        } as ReceiptSeat;
+      } else {
+        rd = {
+          ticketCode,
+          createdAtISO,
+          mode: "PACKAGE",
+          customer,
+          summary: {
+            scopeLabel: "시·군·구/동 단위 패키지 문의",
+            areaCount: 0,
+            months: null,
+            budgetRangeText: undefined,
+          },
+          details: { areas: [] },
+          meta: { currency: "KRW", vatNote: "표시된 금액은 부가세 별도입니다.", timeZone: "Asia/Seoul" },
+        } as ReceiptPackage;
+      }
+
+      setReceiptData(rd);
+      setCompleteOpen(true);
+
       setOkMsg("접수가 완료되었습니다. 담당자가 곧 연락드리겠습니다.");
-      onSubmitted?.("ok");
-      setSuccessOpen(true); // 완료 모달
+      onSubmitted?.(data?.id ?? "ok");
     } catch (err: any) {
       setErrorMsg(err?.message || "제출 중 오류가 발생했습니다.");
     } finally {
@@ -275,10 +270,7 @@ export default function InquiryModal({
   return (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center">
       {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/40"
-        onClick={() => !submitting && onClose()}
-      />
+      <div className="absolute inset-0 bg-black/40" onClick={() => !submitting && onClose()} />
 
       {/* Panel */}
       <div className="relative z-[1001] w-[720px] max-w-[92vw] rounded-2xl bg-white shadow-2xl">
@@ -308,36 +300,37 @@ export default function InquiryModal({
         {/* Body */}
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-5">
           {/* ===== SEAT: 문의 내용 박스 ===== */}
-          {mode === "SEAT" && (() => {
-            const s = deriveSeatSummary();
-            return (
-              <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
-                <div className="text-sm font-semibold mb-2">문의 내용</div>
-                <div className="grid grid-cols-2 gap-3 text-[13px]">
-                  <div className="flex flex-col">
-                    <span className={READ}>단지명</span>
-                    <span className="font-medium">{s.aptLabel}</span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className={READ}>상품명</span>
-                    <span className="font-medium">{s.productLabel}</span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className={READ}>광고기간</span>
-                    <span className="font-medium">{s.monthsLabel}</span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className={READ}>예상 총광고료</span>
-                    <span className="font-medium">
-                      {fmtWon(s.totalWon)} <span className="text-gray-500">(VAT별도)</span>
-                    </span>
+          {mode === "SEAT" &&
+            (() => {
+              const s = deriveSeatHeaderBox();
+              return (
+                <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+                  <div className="text-sm font-semibold mb-2">문의 내용</div>
+                  <div className="grid grid-cols-2 gap-3 text-[13px]">
+                    <div className="flex flex-col">
+                      <span className={READ}>단지명</span>
+                      <span className="font-medium">{s.aptLabel}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className={READ}>상품명</span>
+                      <span className="font-medium">{s.productLabel}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className={READ}>광고기간</span>
+                      <span className="font-medium">{s.monthsLabel}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className={READ}>예상 총광고료</span>
+                      <span className="font-medium">
+                        {fmtWon(s.totalWon)} <span className="text-gray-500">(VAT별도)</span>
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })()}
+              );
+            })()}
 
-          {/* ===== 입력 폼 (패키지/구좌 동일) ===== */}
+          {/* ===== 입력 폼 ===== */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <div className={LABEL}>
@@ -360,7 +353,9 @@ export default function InquiryModal({
                 value={campaignType}
                 onChange={(e) => setCampaignType(e.target.value as CampaignType)}
               >
-                <option value="" disabled>선택하세요</option>
+                <option value="" disabled>
+                  선택하세요
+                </option>
                 <option value="기업">기업</option>
                 <option value="공공">공공</option>
                 <option value="병원">병원</option>
@@ -441,7 +436,6 @@ export default function InquiryModal({
           {/* 하단: 정책 버튼 + 체크 1개 + 제출 */}
           <div className="flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 flex-wrap">
-              {/* 안내 사각박스 (흰색 배경 + 검은 테두리) */}
               <button
                 type="button"
                 className="px-3 py-2 text-[12px] rounded-md border border-black bg-white hover:bg-gray-50 whitespace-nowrap"
@@ -450,7 +444,6 @@ export default function InquiryModal({
                 개인정보 수집·이용 정책 자세히보기
               </button>
 
-              {/* 체크박스 1개 */}
               <label className="flex items-center gap-2 text-[12px] text-gray-700 whitespace-nowrap">
                 <input
                   type="checkbox"
@@ -493,13 +486,13 @@ export default function InquiryModal({
               </button>
             </div>
             <div className="px-6 py-5 max-h-[60vh] overflow-auto text-[13px] leading-6 text-gray-700">
-              {/* 👉 실제 약관 전문으로 교체하세요 */}
               <p className="mb-3">
-                오르카 코리아는 문의 접수 및 상담을 위해 최소한의 개인정보를 수집·이용하며, 목적 달성 후 지체 없이 파기합니다.
-                수집 항목: 성명, 연락처, 이메일, 문의 내용 등. 보유·이용 기간: 문의 처리 완료 후 1년.
+                오르카 코리아는 문의 접수 및 상담을 위해 최소한의 개인정보를 수집·이용하며, 목적 달성 후 지체 없이
+                파기합니다. 수집 항목: 성명, 연락처, 이메일, 문의 내용 등. 보유·이용 기간: 문의 처리 완료 후 1년.
               </p>
               <p className="mb-3">
-                필요한 경우 매체 운영사 등 협력사와의 상담/집행을 위해 최소한의 정보가 공유될 수 있습니다. 법령에 따른 고지·동의 절차를 준수합니다.
+                필요한 경우 매체 운영사 등 협력사와의 상담/집행을 위해 최소한의 정보가 공유될 수 있습니다. 법령에 따른
+                고지·동의 절차를 준수합니다.
               </p>
               <p>귀하는 동의를 거부할 권리가 있으며, 동의 거부 시 상담 제공이 제한될 수 있습니다.</p>
             </div>
@@ -515,54 +508,17 @@ export default function InquiryModal({
         </div>
       )}
 
-      {/* == 완료 모달 == */}
-      {successOpen && (
-        <div className="fixed inset-0 z-[1200] flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40" />
-          <div className="relative z-[1201] w-[520px] max-w-[92vw] rounded-2xl bg-white shadow-2xl">
-            <div className="flex justify-end p-4">
-              <button
-                className="rounded-full p-2 hover:bg-gray-50"
-                onClick={() => {
-                  setSuccessOpen(false);
-                  onClose();
-                }}
-                aria-label="close-success"
-              >
-                <svg width="22" height="22" viewBox="0 0 24 24">
-                  <path d="M6 6l12 12M18 6L6 18" stroke="#111" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              </button>
-            </div>
-
-            <div className="px-8 pb-8 -mt-6 flex flex-col items-center text-center">
-              {/* 아이콘 */}
-              <div className="w-16 h-16 rounded-full bg-violet-100 flex items-center justify-center mb-6">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-                  <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10Z" fill="#7C3AED" opacity="0.15"/>
-                  <path d="M8 12h8M8 15h5M9 8h6" stroke="#7C3AED" strokeWidth="2" strokeLinecap="round"/>
-                </svg>
-              </div>
-
-              <div className="text-lg font-bold mb-2">
-                {mode === "SEAT" ? "구좌문의가 완료되었습니다." : "광고문의가 완료되었습니다."}
-              </div>
-              <div className="text-[15px] text-gray-700 leading-7">
-                영업일 기준 1~2일 이내로 담당자가 배정되어<br />답변드릴 예정입니다.
-              </div>
-
-              <button
-                className="mt-10 w-full rounded-xl px-5 py-3 text-white font-semibold bg-violet-600 hover:bg-violet-700"
-                onClick={() => {
-                  setSuccessOpen(false);
-                  onClose();
-                }}
-              >
-                확인
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* ✅ 새 완료 모달 (PC/모바일 자동 분기) */}
+      {receiptData && (
+        <CompleteModal
+          open={completeOpen}
+          onClose={() => {
+            setCompleteOpen(false);
+            onClose();
+          }}
+          data={receiptData}
+          confirmLabel="확인"
+        />
       )}
     </div>
   );
