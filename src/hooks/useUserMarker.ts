@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type UseUserMarkerArgs = {
   kakao: any;
@@ -17,66 +17,97 @@ export default function useUserMarker({ kakao, map, autoCenterOnFirstFix = true,
   const [error, setError] = useState<string | null>(null);
 
   // 파란 점 마커 이미지 (SVG data URL)
-  const getMarkerImage = () => {
+  const getMarkerImage = useCallback(() => {
     if (!kakao?.maps) return null;
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="28">
-         <circle cx="14" cy="14" r="8" fill="#1a73e8"/>
-         <circle cx="14" cy="14" r="11.5" fill="none" stroke="white" stroke-width="3"/>
-       </svg>`;
+      <circle cx="14" cy="14" r="8" fill="#1a73e8"/>
+      <circle cx="14" cy="14" r="11.5" fill="none" stroke="white" stroke-width="3"/>
+    </svg>`;
     const url = "data:image/svg+xml;utf8," + encodeURIComponent(svg);
-    return new kakao.maps.MarkerImage(url, new kakao.maps.Size(28, 28), {
-      offset: new kakao.maps.Point(14, 14),
-    });
-  };
-
-  const ensureOverlays = () => {
-    if (!kakao?.maps || !map) return;
-    if (!markerRef.current) {
-      markerRef.current = new kakao.maps.Marker({
-        zIndex: 999999,
-        clickable: false,
+    try {
+      return new kakao.maps.MarkerImage(url, new kakao.maps.Size(28, 28), {
+        offset: new kakao.maps.Point(14, 14),
       });
+    } catch {
+      return null;
+    }
+  }, [kakao]);
+
+  // 오버레이 생성/정리 (준비 전이면 아무 것도 안 함)
+  useEffect(() => {
+    if (!kakao?.maps || !map) return;
+
+    if (!markerRef.current) {
       try {
-        markerRef.current.setImage(getMarkerImage());
-      } catch {}
+        markerRef.current = new kakao.maps.Marker({
+          zIndex: 999999,
+          clickable: false,
+        });
+        const img = getMarkerImage();
+        if (img) markerRef.current.setImage(img);
+      } catch {
+        markerRef.current = null;
+      }
     }
     if (!circleRef.current) {
-      circleRef.current = new kakao.maps.Circle({
-        strokeWeight: 1,
-        strokeColor: "#4285F4",
-        strokeOpacity: 0.6,
-        strokeStyle: "solid",
-        fillColor: "#4285F4",
-        fillOpacity: 0.15,
-        zIndex: 999998,
-      });
-      circleRef.current.setMap(map);
-    }
-    markerRef.current.setMap(map);
-  };
-
-  const updatePosition = (lat: number, lng: number, accuracy?: number) => {
-    if (!kakao?.maps || !map) return;
-    ensureOverlays();
-    const pos = new kakao.maps.LatLng(lat, lng);
-    markerRef.current?.setPosition(pos);
-
-    if (circleRef.current) {
-      circleRef.current.setPosition(pos);
-      circleRef.current.setRadius(Math.max(0, Math.min(Number(accuracy) || 0, 500)));
-    }
-
-    if (autoCenterOnFirstFix && !centeredOnceRef.current) {
-      centeredOnceRef.current = true;
       try {
-        map.panTo(pos);
-      } catch {}
+        circleRef.current = new kakao.maps.Circle({
+          strokeWeight: 1,
+          strokeColor: "#4285F4",
+          strokeOpacity: 0.6,
+          strokeStyle: "solid",
+          fillColor: "#4285F4",
+          fillOpacity: 0.15,
+          zIndex: 999998,
+        });
+      } catch {
+        circleRef.current = null;
+      }
     }
-  };
+
+    try {
+      markerRef.current?.setMap?.(map);
+      circleRef.current?.setMap?.(map);
+    } catch {}
+
+    return () => {
+      try {
+        markerRef.current?.setMap?.(null);
+        circleRef.current?.setMap?.(null);
+      } catch {}
+      markerRef.current = null;
+      circleRef.current = null;
+      centeredOnceRef.current = false;
+    };
+  }, [kakao, map, getMarkerImage]);
+
+  // 위치 업데이트(최초 fix에는 자동 센터)
+  const updatePosition = useCallback(
+    (lat: number, lng: number, accuracy?: number) => {
+      if (!kakao?.maps || !map || !markerRef.current) return;
+      try {
+        const pos = new kakao.maps.LatLng(lat, lng);
+        markerRef.current.setPosition(pos);
+
+        if (circleRef.current) {
+          circleRef.current.setPosition(pos);
+          // 반경 0~500m로 클램프
+          const r = Math.max(0, Math.min(Number(accuracy) || 0, 500));
+          circleRef.current.setRadius(r);
+        }
+
+        if (autoCenterOnFirstFix && !centeredOnceRef.current) {
+          centeredOnceRef.current = true;
+          map.panTo?.(pos);
+        }
+      } catch {}
+    },
+    [kakao, map, autoCenterOnFirstFix],
+  );
 
   // 한 번만 요청(버튼에서 호출)
-  const locateNow = () => {
-    if (!navigator.geolocation) {
+  const locateNow = useCallback(() => {
+    if (!navigator?.geolocation) {
       setError("이 브라우저에서 위치 정보를 지원하지 않습니다.");
       return;
     }
@@ -92,15 +123,15 @@ export default function useUserMarker({ kakao, map, autoCenterOnFirstFix = true,
         } catch {}
       },
       (err) => {
-        setError(err.message || "위치 정보를 가져오지 못했습니다.");
+        setError(err?.message || "위치 정보를 가져오지 못했습니다.");
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 10000 },
     );
-  };
+  }, [map, updatePosition]);
 
+  // 지속 추적(watch)
   useEffect(() => {
-    if (!kakao?.maps || !map) return;
-    if (!watch || !navigator.geolocation) return;
+    if (!watch || !navigator?.geolocation) return;
 
     const id = navigator.geolocation.watchPosition(
       (res) => {
@@ -110,34 +141,19 @@ export default function useUserMarker({ kakao, map, autoCenterOnFirstFix = true,
         updatePosition(latitude, longitude, accuracy);
       },
       (err) => {
-        setError(err.message || "위치 추적 실패");
+        setError(err?.message || "위치 추적 실패");
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 },
     );
     watchIdRef.current = id as unknown as number;
 
     return () => {
-      if (watchIdRef.current != null && navigator.geolocation.clearWatch) {
-        try {
-          navigator.geolocation.clearWatch(watchIdRef.current);
-        } catch {}
-      }
-      watchIdRef.current = null;
-
       try {
-        markerRef.current?.setMap(null);
-        circleRef.current?.setMap(null);
+        if (watchIdRef.current != null) navigator.geolocation.clearWatch(watchIdRef.current);
       } catch {}
-      markerRef.current = null;
-      circleRef.current = null;
-      centeredOnceRef.current = false;
+      watchIdRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kakao, map, watch]);
+  }, [watch, updatePosition]);
 
-  return {
-    hasFix,
-    error,
-    locateNow, // ✅ 버튼에서 호출
-  };
+  return { hasFix, error, locateNow };
 }
