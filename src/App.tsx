@@ -12,7 +12,7 @@ const SupaDebugPage = lazy(() => import("./pages/SupaDebug"));
 const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
 const DashboardPage = lazy(() => import("./pages/admin/DashboardPage"));
 const MapMobilePage = lazy(() => import("./pages/mobile/MapMobilePage"));
-const MapMobilePageV2 = lazy(() => import("./pages/mobile/MapMobilePageV2")); // ⬇ NEW
+const MapMobilePageV2 = lazy(() => import("./pages/mobile")); // ⬇ NEW
 
 /** 경로에 따라 헤더를 조건부로 노출하는 레이아웃 */
 function AppLayout({ children }: PropsWithChildren) {
