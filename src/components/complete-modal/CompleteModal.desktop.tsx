@@ -321,6 +321,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "í™•ì
 
           {/* Panel (z-1201) */}
           <motion.div
+            id="receipt-capture"
             key="panel"
             className="fixed left-1/2 top-1/2 z-[1201] w-[840px] max-w-[94vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white shadow-2xl"
             role="dialog"
