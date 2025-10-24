@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useNavigate } from "react-router-dom";
-import { useIsMobile } from "@/hooks/useIsMobile"; // ✅ 이걸로 교체
+import { useIsMobile } from "@/hooks/use-mobile"; // ✅ 통일된 경로
 
 const searchSchema = z.object({
   searchQuery: z.string().min(1, "검색어를 입력해주세요"),
@@ -13,7 +13,7 @@ type SearchFormData = z.infer<typeof searchSchema>;
 
 export const SearchSection: React.FC = () => {
   const navigate = useNavigate();
-  const isMobile = useIsMobile(); // ✅ 모바일 여부
+  const isMobile = useIsMobile();
 
   const {
     register,
@@ -26,16 +26,13 @@ export const SearchSection: React.FC = () => {
   const onSubmit = (data: SearchFormData) => {
     const query = data.searchQuery.trim();
     if (!query) return;
-    const target = isMobile ? "/mobile" : "/map"; // ✅ 분기
+    const target = isMobile ? "/mobile" : "/map";
     navigate(`${target}?q=${encodeURIComponent(query)}`);
   };
 
   return (
     <section className="relative z-[2]">
-      <div className="w-[656px] h-[70px] text-black text-center text-[40px] font-bold leading-[72px] tracking-[-0.8px] absolute left-[622px] top-[252px] max-md:w-[90%] max-md:text-[32px] max-md:leading-[48px] max-md:left-[5%] max-md:top-[180px] max-sm:w-[95%] max-sm:text-2xl max-sm:leading-8 max-sm:left-[2.5%] max-sm:top-[120px]">
-        <h2 className="text-black font-pretendard text-4xl font-bold">원하는 지역의 광고 가능 단지를 확인하세요</h2>
-      </div>
-
+      {/* ... 나머지 JSX 동일 ... */}
       <form onSubmit={handleSubmit(onSubmit)} className="relative">
         <div className="w-[651px] h-[71px] border absolute bg-white rounded-[10px] border-solid border-[#D3D3D3] left-[627px] top-[357px] max-md:w-[70%] max-md:h-[60px] max-md:left-[15%] max-md:top-[280px] max-sm:w-[85%] max-sm:h-[50px] max-sm:left-[7.5%] max-sm:top-[220px]">
           <input
