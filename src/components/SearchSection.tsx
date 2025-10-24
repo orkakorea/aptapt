@@ -26,7 +26,7 @@ export const SearchSection: React.FC = () => {
   const onSubmit = (data: SearchFormData) => {
     const query = data.searchQuery.trim();
     if (!query) return;
-    const dest = isMobile ? "/mobile" : "/map";
+    const dest = isMobile ? "/mobile" : "/map"; // ✅ 모바일은 /mobile, PC는 /map
     navigate(`${dest}?q=${encodeURIComponent(query)}`);
   };
 
