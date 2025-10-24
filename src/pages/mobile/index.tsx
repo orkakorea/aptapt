@@ -1,6 +1,6 @@
-// src/pages/mobile/MapMobilePageV2.tsx
+// src/pages/mobile/index.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
+import { useRouter } from "next/router";
 import BottomSheet from "@/components/mobile/BottomSheet";
 import DetailPanel from "@/components/mobile/DetailPanel";
 import CartPanel from "@/components/mobile/CartPanel";
