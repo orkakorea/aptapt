@@ -19,7 +19,7 @@ import { calcMonthlyWithPolicy, normPolicyKey, DEFAULT_POLICY, rateFromRanges } 
 const COLOR_PRIMARY = "#6F4BF2";
 
 type ActiveTab = "detail" | "cart" | "quote";
-export { default } from "./MapMobilePageV2";
+
 export default function MapMobilePageV2() {
   /** =========================
    * Kakao 지도
