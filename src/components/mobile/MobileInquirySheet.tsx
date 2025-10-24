@@ -32,7 +32,7 @@ export default function MobileInquirySheet({
   onSubmitted?: (id: string) => void;
 }) {
   const PROGRESS_BG = "#E9E1FF"; // 옅은 보라(트랙)
-  const PROGRESS_FG = "#C7B4FF"; // 진행색(스크린샷 느낌)
+  const PROGRESS_FG = "#7C3AED"; // 진행색(스크린샷 느낌)
 
   /* -----------------------------
    * form state (2페이지로 분리)
@@ -278,11 +278,7 @@ export default function MobileInquirySheet({
               <div className="text-[18px] font-extrabold text-gray-900">
                 {mode === "SEAT" ? "구좌(T.O) 문의" : "시·군·구 등 단위 / 패키지문의"}
               </div>
-              <div className="text-[12px] text-gray-500 mt-1">
-                {mode === "SEAT"
-                  ? "선택하신 단지/상품 정보를 포함해 접수됩니다."
-                  : "브랜드·캠페인유형·희망일 등을 알려주시면 빠르게 제안드립니다."}
-              </div>
+              <div className="text-[12px] text-gray-500 mt-1">필수입력*.</div>
             </div>
             <button
               className="rounded-full p-2 hover:bg-gray-50"
@@ -402,7 +398,7 @@ export default function MobileInquirySheet({
                   type="submit"
                   disabled={!canNext}
                   className={`w-full h-12 rounded-xl text-white font-semibold ${
-                    canNext ? "bg-[#C7B4FF] hover:opacity-95" : "bg-[#E3DBFF] cursor-not-allowed"
+                    canNext ? "bg-violet-600 hover:bg-violet-700" : "bg-violet-300 cursor-not-allowed"
                   }`}
                 >
                   다음
