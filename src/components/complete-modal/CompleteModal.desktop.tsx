@@ -1,3 +1,4 @@
+// src/components/complete-modal/CompleteModal.desktop.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -17,6 +18,7 @@ import {
 } from "lucide-react";
 import type { CompleteModalProps, ReceiptData, ReceiptSeat, ReceiptPackage } from "./types";
 import { isSeatReceipt, isPackageReceipt } from "./types";
+import { createPortal } from "react-dom";
 
 /* =========================================================================
  * 스타일 / 상수
@@ -305,246 +307,247 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
     }
   };
 
-  return (
+  // ✅ 포털로 body에 렌더 → 항상 정중앙
+  if (!open) return null;
+  return createPortal(
     <AnimatePresence>
-      {open && (
-        <>
-          {/* Dim (z-1200) */}
-          <motion.div
-            key="dim"
-            className="fixed inset-0 z-[1200] bg-black/40"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-          />
+      <>
+        {/* Dim (z-1200) */}
+        <motion.div
+          key="dim"
+          className="fixed inset-0 z-[1200] bg-black/40"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={onClose}
+        />
 
-          {/* Panel (z-1201) */}
-          <motion.div
-            id="receipt-capture"
-            key="panel"
-            className="fixed left-1/2 top-1/2 z-[1201] w-[840px] max-w-[94vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white shadow-2xl"
-            role="dialog"
-            aria-modal="true"
-            initial={{ scale: 0.96, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{ scale: 0.96, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 260, damping: 22 }}
-          >
-            {/* Header */}
-            <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-6 py-5">
-              <HeaderSuccess ticketCode={data.ticketCode} createdAtISO={data.createdAtISO} />
-              <button aria-label="close" className="rounded-full p-2 hover:bg-gray-50" onClick={onClose}>
-                <X size={18} />
-              </button>
+        {/* Panel (z-1201) */}
+        <motion.div
+          id="receipt-capture"
+          key="panel"
+          className="fixed left-1/2 top-1/2 z-[1201] w-[840px] max-w-[94vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white shadow-2xl"
+          role="dialog"
+          aria-modal="true"
+          initial={{ scale: 0.96, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.96, opacity: 0 }}
+          transition={{ type: "spring", stiffness: 260, damping: 22 }}
+        >
+          {/* Header */}
+          <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-6 py-5">
+            <HeaderSuccess ticketCode={data.ticketCode} createdAtISO={data.createdAtISO} />
+            <button aria-label="close" className="rounded-full p-2 hover:bg-gray-50" onClick={onClose}>
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* Body */}
+          <div className="grid grid-cols-12 gap-6 px-6 py-6">
+            {/* 좌측(8): 요약/자세히 */}
+            <div className="col-span-8 space-y-4">
+              <SummaryCard data={data} />
+              <DetailsSection data={data} />
             </div>
 
-            {/* Body */}
-            <div className="grid grid-cols-12 gap-6 px-6 py-6">
-              {/* 좌측(8): 요약/자세히 */}
-              <div className="col-span-8 space-y-4">
-                <SummaryCard data={data} />
-                <DetailsSection data={data} />
-              </div>
+            {/* 우측(4): 다음 절차/CTA/링크 */}
+            <div className="col-span-4 space-y-4">
+              <NextSteps />
 
-              {/* 우측(4): 다음 절차/CTA/링크 */}
-              <div className="col-span-4 space-y-4">
-                <NextSteps />
+              {/* CTA */}
+              <div className="rounded-xl border border-gray-100 p-4">
+                <div className="text-sm font-semibold">다음 액션</div>
+                <div className="mt-3 grid grid-cols-1 gap-2">
+                  <button
+                    onClick={() => setPickerOpen(true)}
+                    className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white"
+                    style={{ backgroundColor: BRAND }}
+                  >
+                    접수증 저장
+                  </button>
 
-                {/* CTA */}
-                <div className="rounded-xl border border-gray-100 p-4">
-                  <div className="text-sm font-semibold">다음 액션</div>
-                  <div className="mt-3 grid grid-cols-1 gap-2">
+                  {data?.actions?.onBookMeeting ? (
                     <button
-                      onClick={() => setPickerOpen(true)}
-                      className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white"
-                      style={{ backgroundColor: BRAND }}
+                      onClick={data.actions.onBookMeeting}
+                      className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
                     >
-                      접수증 저장
+                      상담 일정 잡기
                     </button>
-
-                    {data?.actions?.onBookMeeting ? (
-                      <button
-                        onClick={data.actions.onBookMeeting}
-                        className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
-                      >
-                        상담 일정 잡기
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          if (data?.links?.guideUrl) openExternal(data.links.guideUrl);
-                          data?.actions?.onDownloadGuide?.();
-                        }}
-                        className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
-                      >
-                        <FileText size={16} />
-                        제작 가이드 보기
-                      </button>
-                    )}
-                  </div>
-
-                  {/* 보조 링크 */}
-                  {(hasTeam || hasYT || hasGuide) && (
-                    <>
-                      <div className="mt-4 h-px w-full bg-gray-100" />
-                      <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-                        {hasTeam && (
-                          <button
-                            onClick={() => openExternal(data.links!.teamUrl)}
-                            className="inline-flex items-center justify-center gap-1 rounded-lg border border-gray-200 px-3 py-2"
-                          >
-                            <ExternalLink size={14} />
-                            오르카의 얼굴들
-                          </button>
-                        )}
-                        {hasYT && (
-                          <button
-                            onClick={() => openExternal(data.links!.youtubeUrl)}
-                            className="inline-flex items-center justify-center gap-1 rounded-lg border border-gray-200 px-3 py-2"
-                          >
-                            <ExternalLink size={14} />
-                            영상소재 템플릿
-                          </button>
-                        )}
-                        {hasGuide && (
-                          <button
-                            onClick={() => openExternal(data.links!.guideUrl)}
-                            className="inline-flex items-center justify-center gap-1 rounded-lg border border-gray-200 px-3 py-2"
-                          >
-                            <ExternalLink size={14} />
-                            제작 가이드
-                          </button>
-                        )}
-                      </div>
-                    </>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        if (data?.links?.guideUrl) openExternal(data.links.guideUrl);
+                        data?.actions?.onDownloadGuide?.();
+                      }}
+                      className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
+                    >
+                      <FileText size={16} />
+                      제작 가이드 보기
+                    </button>
                   )}
                 </div>
 
-                {/* 연락처 */}
-                <div className="rounded-xl border border-dashed border-gray-200 p-3 text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600">급하시면 지금 전화 주세요</span>
-                    <a
-                      href="tel:03115510810"
-                      className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5"
-                    >
-                      <Phone size={14} />
-                      031-1551-0810
-                    </a>
-                  </div>
+                {/* 보조 링크 */}
+                {(hasTeam || hasYT || hasGuide) && (
+                  <>
+                    <div className="mt-4 h-px w-full bg-gray-100" />
+                    <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                      {hasTeam && (
+                        <button
+                          onClick={() => openExternal(data.links!.teamUrl)}
+                          className="inline-flex items-center justify-center gap-1 rounded-lg border border-gray-200 px-3 py-2"
+                        >
+                          <ExternalLink size={14} />
+                          오르카의 얼굴들
+                        </button>
+                      )}
+                      {hasYT && (
+                        <button
+                          onClick={() => openExternal(data.links!.youtubeUrl)}
+                          className="inline-flex items-center justify-center gap-1 rounded-lg border border-gray-200 px-3 py-2"
+                        >
+                          <ExternalLink size={14} />
+                          영상소재 템플릿
+                        </button>
+                      )}
+                      {hasGuide && (
+                        <button
+                          onClick={() => openExternal(data.links!.guideUrl)}
+                          className="inline-flex items-center justify-center gap-1 rounded-lg border border-gray-200 px-3 py-2"
+                        >
+                          <ExternalLink size={14} />
+                          제작 가이드
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* 연락처 */}
+              <div className="rounded-xl border border-dashed border-gray-200 p-3 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-600">급하시면 지금 전화 주세요</span>
+                  <a
+                    href="tel:03115510810"
+                    className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5"
+                  >
+                    <Phone size={14} />
+                    031-1551-0810
+                  </a>
                 </div>
               </div>
             </div>
+          </div>
 
-            {/* Footer */}
-            <div className="flex items-center justify-between border-t border-gray-100 px-6 py-4">
-              {hasReceiptLink ? (
-                <button
-                  onClick={handleCopyLink}
-                  className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-2 text-xs"
-                >
-                  <LinkIcon size={14} />
-                  접수증 링크 복사
-                </button>
-              ) : (
-                <span />
-              )}
-
-              <button onClick={onClose} className="rounded-xl bg-black px-5 py-3 text-sm font-semibold text-white">
-                {confirmLabel}
+          {/* Footer */}
+          <div className="flex items-center justify-between border-t border-gray-100 px-6 py-4">
+            {hasReceiptLink ? (
+              <button
+                onClick={handleCopyLink}
+                className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-2 text-xs"
+              >
+                <LinkIcon size={14} />
+                접수증 링크 복사
               </button>
-            </div>
-          </motion.div>
-
-          {/* 접수증 저장 선택지(센터 카드) — z 1202/1203 */}
-          <AnimatePresence>
-            {pickerOpen && (
-              <>
-                <motion.div
-                  key="picker-dim"
-                  className="fixed inset-0 z-[1202] bg-black/30"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  onClick={() => setPickerOpen(false)}
-                />
-                <motion.div
-                  key="picker-card"
-                  className="fixed left-1/2 top-1/2 z-[1203] w-[420px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white shadow-2xl"
-                  initial={{ scale: 0.96, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  exit={{ scale: 0.96, opacity: 0 }}
-                  transition={{ type: "spring", stiffness: 260, damping: 22 }}
-                >
-                  <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
-                    <div className="text-sm font-semibold">접수증 저장</div>
-                    <button
-                      aria-label="close-picker"
-                      className="rounded-full p-2 hover:bg-gray-50"
-                      onClick={() => setPickerOpen(false)}
-                    >
-                      <X size={18} />
-                    </button>
-                  </div>
-                  <div className="px-5 py-4">
-                    <div className="grid grid-cols-2 gap-3">
-                      <button
-                        onClick={() => {
-                          data?.actions?.onSaveImage?.();
-                          setPickerOpen(false);
-                        }}
-                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
-                      >
-                        <FileDown size={16} />
-                        이미지(PNG)
-                      </button>
-                      <button
-                        onClick={() => {
-                          data?.actions?.onSavePDF?.();
-                          setPickerOpen(false);
-                        }}
-                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
-                      >
-                        <FileText size={16} />
-                        PDF(A4)
-                      </button>
-                      <button
-                        onClick={() => {
-                          handleCopyLink();
-                          setPickerOpen(false);
-                        }}
-                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
-                      >
-                        <Copy size={16} />
-                        링크 복사
-                      </button>
-                      <button
-                        onClick={() => {
-                          data?.actions?.onSendEmail?.();
-                          setPickerOpen(false);
-                        }}
-                        className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
-                      >
-                        <Mail size={16} />
-                        이메일로 보내기
-                      </button>
-                    </div>
-
-                    <button
-                      onClick={() => setPickerOpen(false)}
-                      className="mt-4 w-full rounded-xl bg-black px-4 py-3 text-sm font-semibold text-white"
-                    >
-                      닫기
-                    </button>
-                  </div>
-                </motion.div>
-              </>
+            ) : (
+              <span />
             )}
-          </AnimatePresence>
-        </>
-      )}
-    </AnimatePresence>
+
+            <button onClick={onClose} className="rounded-xl bg-black px-5 py-3 text-sm font-semibold text-white">
+              {confirmLabel}
+            </button>
+          </div>
+        </motion.div>
+
+        {/* 접수증 저장 선택지(센터 카드) — z 1202/1203 */}
+        <AnimatePresence>
+          {pickerOpen && (
+            <>
+              <motion.div
+                key="picker-dim"
+                className="fixed inset-0 z-[1202] bg-black/30"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setPickerOpen(false)}
+              />
+              <motion.div
+                key="picker-card"
+                className="fixed left-1/2 top-1/2 z-[1203] w-[420px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white shadow-2xl"
+                initial={{ scale: 0.96, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.96, opacity: 0 }}
+                transition={{ type: "spring", stiffness: 260, damping: 22 }}
+              >
+                <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+                  <div className="text-sm font-semibold">접수증 저장</div>
+                  <button
+                    aria-label="close-picker"
+                    className="rounded-full p-2 hover:bg-gray-50"
+                    onClick={() => setPickerOpen(false)}
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+                <div className="px-5 py-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      onClick={() => {
+                        data?.actions?.onSaveImage?.();
+                        setPickerOpen(false);
+                      }}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
+                    >
+                      <FileDown size={16} />
+                      이미지(PNG)
+                    </button>
+                    <button
+                      onClick={() => {
+                        data?.actions?.onSavePDF?.();
+                        setPickerOpen(false);
+                      }}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
+                    >
+                      <FileText size={16} />
+                      PDF(A4)
+                    </button>
+                    <button
+                      onClick={() => {
+                        handleCopyLink();
+                        setPickerOpen(false);
+                      }}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
+                    >
+                      <Copy size={16} />
+                      링크 복사
+                    </button>
+                    <button
+                      onClick={() => {
+                        data?.actions?.onSendEmail?.();
+                        setPickerOpen(false);
+                      }}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
+                    >
+                      <Mail size={16} />
+                      이메일로 보내기
+                    </button>
+                  </div>
+
+                  <button
+                    onClick={() => setPickerOpen(false)}
+                    className="mt-4 w-full rounded-xl bg-black px-4 py-3 text-sm font-semibold text-white"
+                  >
+                    닫기
+                  </button>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
+      </>
+    </AnimatePresence>,
+    document.body,
   );
 }
 
