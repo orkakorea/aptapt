@@ -1,3 +1,4 @@
+// src/components/mobile/MobileInquirySheet.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -74,8 +75,6 @@ export default function MobileInquirySheet({
       setPolicyOpen(false);
     }
   }, [open]);
-
-  if (!open) return null;
 
   /* -----------------------------
    * UX 유틸
@@ -179,7 +178,7 @@ export default function MobileInquirySheet({
   /* -----------------------------
    * 진행 조건/제출
    * ----------------------------- */
-  const canNext = brand.trim() && campaignType && managerName.trim() && phone.trim().length >= 8;
+  const canNext = !!(brand.trim() && campaignType && managerName.trim() && phone.trim().length >= 8);
   const submitDisabled = submitting || !agreePrivacy;
 
   async function handleSubmit(e: React.FormEvent) {
@@ -222,12 +221,12 @@ export default function MobileInquirySheet({
         extra,
       };
 
-      // ✅ 성공 시 ID를 바로 부모로 넘겨 외부 "완료 모달"에서 사용
+      // ✅ 성공 시 ID를 부모로 전달 (외부 확인 모달에서 사용)
       const { data, error } = await (supabase as any).from("inquiries").insert(payload).select("id").single();
       if (error) throw error;
 
       onSubmitted?.(String(data?.id ?? "ok"));
-      // 자동 닫기/성공문구는 제거 — 외부에서 제어
+      // 완료 문구/자동 닫기 없음 — 외부에서 처리
     } catch (err: any) {
       setErrorMsg(err?.message || "제출 중 오류가 발생했습니다.");
     } finally {
@@ -260,6 +259,8 @@ export default function MobileInquirySheet({
   /* -----------------------------
    * 렌더링
    * ----------------------------- */
+  if (!open) return null; // ✅ 모든 훅 호출 이후에만 렌더를 막는다 (Hook 순서 보장)
+
   return (
     <div className="fixed inset-0 z-[1000]">
       {/* dimmed */}
