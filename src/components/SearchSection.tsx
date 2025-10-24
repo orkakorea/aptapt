@@ -3,17 +3,16 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useNavigate } from "react-router-dom";
+import useIsMobile from "@/hooks/useIsMobile";
 
 const searchSchema = z.object({
   searchQuery: z.string().min(1, "검색어를 입력해주세요"),
 });
 type SearchFormData = z.infer<typeof searchSchema>;
 
-// ✅ 여기만 바꿔서 목적지 경로를 /mobile 또는 /mobile/v2 로 조정
-const DEST_PATH = "/mobile"; // 필요 시 '/mobile/v2' 로 변경
-
 export const SearchSection: React.FC = () => {
   const navigate = useNavigate();
+  const isMobile = useIsMobile(768);
 
   const {
     register,
@@ -26,7 +25,8 @@ export const SearchSection: React.FC = () => {
   const onSubmit = (data: SearchFormData) => {
     const query = data.searchQuery.trim();
     if (!query) return;
-    navigate(`${DEST_PATH}?q=${encodeURIComponent(query)}`);
+    const dest = isMobile ? "/mobile" : "/map"; // ✅ 모바일은 /mobile, PC는 /map
+    navigate(`${dest}?q=${encodeURIComponent(query)}`);
   };
 
   return (
