@@ -587,7 +587,7 @@ function MapMobileInner({ kakao }: { kakao: any }) {
         open={inqOpen}
         mode={inqMode}
         prefill={inqPrefill}
-        sourcePage="/mobile/v2"
+        sourcePage="/mobile"
         onClose={() => setInqOpen(false)}
         onSubmitted={() => {
           setInqOpen(false);
