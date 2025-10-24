@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useNavigate } from "react-router-dom";
-import useIsMobile from "@/hooks/useIsMobile";
+import useIsMobile from "@/hooks/use-mobile"; // ✅ 경로 수정!
 
 const searchSchema = z.object({
   searchQuery: z.string().min(1, "검색어를 입력해주세요"),
@@ -12,7 +12,7 @@ type SearchFormData = z.infer<typeof searchSchema>;
 
 export const SearchSection: React.FC = () => {
   const navigate = useNavigate();
-  const isMobile = useIsMobile(768);
+  const isMobile = useIsMobile(768 as any); // 훅 시그니처가 기본값이면 인자 생략해도 됩니다.
 
   const {
     register,
@@ -25,7 +25,7 @@ export const SearchSection: React.FC = () => {
   const onSubmit = (data: SearchFormData) => {
     const query = data.searchQuery.trim();
     if (!query) return;
-    const dest = isMobile ? "/mobile" : "/map"; // ✅ 모바일은 /mobile, PC는 /map
+    const dest = isMobile ? "/mobile" : "/map";
     navigate(`${dest}?q=${encodeURIComponent(query)}`);
   };
 
