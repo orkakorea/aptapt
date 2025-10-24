@@ -11,8 +11,7 @@ const NotFound = lazy(() => import("./pages/NotFound"));
 const SupaDebugPage = lazy(() => import("./pages/SupaDebug"));
 const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
 const DashboardPage = lazy(() => import("./pages/admin/DashboardPage"));
-const MapMobilePage = lazy(() => import("./pages/mobile/MapMobilePage"));
-const MapMobilePageV2 = lazy(() => import("./pages/mobile")); // default export (index.tsx)
+const MapMobilePageV2 = lazy(() => import("./pages/mobile")); // /mobile (index.tsx의 default export)
 
 /** 경로에 따라 헤더를 조건부로 노출하는 레이아웃 */
 function AppLayout({ children }: PropsWithChildren) {
@@ -38,13 +37,13 @@ export default function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/map" element={<MapPage />} />
 
-            {/* 모바일 정식 경로 */}
+            {/* 모바일 지도 (정식 경로) */}
             <Route path="/mobile" element={<MapMobilePageV2 />} />
 
-            {/* 이전 경로 호환: 모두 /mobile 로 정리 */}
+            {/* 과거 경로 호환 → /mobile로 리다이렉트 */}
             <Route path="/m2" element={<Navigate to="/mobile" replace />} />
             <Route path="/m" element={<Navigate to="/mobile" replace />} />
-            {/* 필요하다면 /mobile/v2 도 리다이렉트로 묶기 */}
+            {/* 필요 시 예전 /mobile/v2도 함께 묶기 */}
             {/* <Route path="/mobile/v2" element={<Navigate to="/mobile" replace />} /> */}
 
             {/* Admin */}
@@ -54,7 +53,7 @@ export default function App() {
               <Route path="inquiries" element={<InquiriesPage />} />
             </Route>
 
-            {/* 도구 페이지 */}
+            {/* 도구/디버그 */}
             <Route path="/supa-debug" element={<SupaDebugPage />} />
 
             {/* 404 */}
