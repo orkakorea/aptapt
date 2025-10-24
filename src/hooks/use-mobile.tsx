@@ -3,6 +3,7 @@ import * as React from "react";
 
 const MOBILE_BREAKPOINT = 768; // 짧은 변이 768px 이하면 모바일
 
+export { useIsMobile } from "./useIsMobile";
 export function useIsMobile() {
   const compute = () => {
     if (typeof window === "undefined") return false;
