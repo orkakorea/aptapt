@@ -2,13 +2,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
-import CompleteModal from "@/components/complete-modal";
-import type {
-  InquiryKind as ReceiptInquiryKind,
-  ReceiptData,
-  ReceiptSeat,
-  ReceiptPackage,
-} from "@/components/complete-modal";
+import { CompleteModal } from "@/components/complete-modal";
+import type { ReceiptData, ReceiptSeat, ReceiptPackage } from "@/components/complete-modal";
 import {
   buildSeatHeaderLabels,
   buildSeatItemsFromSnapshot,
