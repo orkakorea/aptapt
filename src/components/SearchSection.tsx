@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useNavigate } from "react-router-dom";
-import useIsMobile from "@/hooks/use-mobile";
+import { useIsMobile } from "@/hooks/useIsMobile"; // ✅ 이걸로 교체
 
 const searchSchema = z.object({
   searchQuery: z.string().min(1, "검색어를 입력해주세요"),
@@ -13,7 +13,7 @@ type SearchFormData = z.infer<typeof searchSchema>;
 
 export const SearchSection: React.FC = () => {
   const navigate = useNavigate();
-  const isMobile = useIsMobile();
+  const isMobile = useIsMobile(); // ✅ 모바일 여부
 
   const {
     register,
@@ -26,8 +26,8 @@ export const SearchSection: React.FC = () => {
   const onSubmit = (data: SearchFormData) => {
     const query = data.searchQuery.trim();
     if (!query) return;
-    const dest = isMobile ? "/mobile" : "/map"; // ✅ 모바일은 /mobile, PC는 /map
-    navigate(`${dest}?q=${encodeURIComponent(query)}`);
+    const target = isMobile ? "/mobile" : "/map"; // ✅ 분기
+    navigate(`${target}?q=${encodeURIComponent(query)}`);
   };
 
   return (
