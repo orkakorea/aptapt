@@ -190,8 +190,11 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
         agree_privacy: agreePrivacy,
       };
 
+      // ✅ DB 제약에 맞게 inquiry_kind를 소문자로 매핑
+      const inquiryKindDB = mode === "SEAT" ? "seat" : "package";
+
       const payload: any = {
-        inquiry_kind: mode,
+        inquiry_kind: inquiryKindDB, // ← 여기!
         status: "new",
         customer_name: managerName || null,
         phone: phone || null,
