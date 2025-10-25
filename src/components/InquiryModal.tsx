@@ -190,8 +190,8 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
         agree_privacy: agreePrivacy,
       };
 
-      // ✅ DB 제약에 맞게 inquiry_kind를 소문자로 매핑
-      const inquiryKindDB = mode === "SEAT" ? "seat" : "package";
+      // ✅ DB 제약: 대문자만 허용 → 그대로 사용
+      const inquiryKindDB = mode; // "SEAT" | "PACKAGE"
 
       const payload: any = {
         inquiry_kind: inquiryKindDB, // ← 여기!
