@@ -61,6 +61,9 @@ function fmtWon(n: number | null | undefined) {
   return `${Number(n).toLocaleString()}원`;
 }
 
+// ''(빈문자열)을 undefined로 치환해서 payload에 안 나가게
+const clean = (v: any) => (typeof v === "string" && v.trim() === "" ? undefined : v);
+
 /** 접수번호 생성(프론트 임시 규칙) */
 function genTicketCode() {
   const d = new Date();
@@ -180,38 +183,40 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
       setSubmitting(true);
       const utm = getUTM();
 
-      const extra: Record<string, any> = {
-        brand: brand || null,
-        campaign_type: campaignType || null,
-        manager_name: managerName || null,
-        hope_date: hopeDate || null,
-        request_text: requestText || null,
-        promo_code: promoCode || null,
-        agree_privacy: agreePrivacy,
-      };
-
-      // ✅ DB 제약: 대문자만 허용 → 그대로 사용
-      const inquiryKindDB = mode; // "SEAT" | "PACKAGE"
-
+      // ✅ INSERT payload: 관리자 필드(status/assignee/valid)는 보내지 않음
       const payload: any = {
-        inquiry_kind: inquiryKindDB, // ← 여기!
-        status: "new",
-        customer_name: managerName || null,
-        phone: phone || null,
-        company: brand || null,
-        email: email || null,
-        memo: requestText || null,
+        inquiry_kind: mode, // "SEAT" | "PACKAGE" (대문자)
+        customer_name: clean(managerName),
+        phone: clean(phone),
+        company: clean(brand),
+        email: clean(email),
+        campaign_type: clean(campaignType), // 어드민 매핑 컬럼
+        memo: clean(requestText),
+
         source_page: page,
         utm,
-        apt_id: isSeat ? (prefill?.apt_id ?? null) : null,
-        apt_name: isSeat ? (prefill?.apt_name ?? null) : null,
-        product_code: isSeat ? (prefill?.product_code ?? null) : null,
-        product_name: isSeat ? (prefill?.product_name ?? null) : null,
-        cart_snapshot: isSeat ? (prefill?.cart_snapshot ?? null) : null,
-        extra,
+
+        // SEAT일 때만 단지/상품 정보 포함
+        apt_id: isSeat ? clean(prefill?.apt_id) : undefined,
+        apt_name: isSeat ? clean(prefill?.apt_name) : undefined,
+        product_code: isSeat ? clean(prefill?.product_code) : undefined,
+        product_name: isSeat ? clean(prefill?.product_name) : undefined,
+        cart_snapshot: isSeat ? (prefill?.cart_snapshot ?? undefined) : undefined,
+
+        // 기타 값은 extra에 보관(옵션)
+        extra: {
+          brand: clean(brand),
+          campaign_type: clean(campaignType),
+          manager_name: clean(managerName),
+          hope_date: clean(hopeDate),
+          request_text: clean(requestText),
+          promo_code: clean(promoCode),
+          agree_privacy: !!agreePrivacy,
+        },
       };
 
-      const { data, error } = await (supabase as any).from("inquiries").insert(payload).select("id").single();
+      // ✅ anon의 SELECT RLS(using false)를 피하기 위해 returning: 'minimal'
+      const { error } = await (supabase as any).from("inquiries").insert(payload, { returning: "minimal" });
       if (error) throw error;
 
       // 접수증 데이터 구성
@@ -307,7 +312,7 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
       setCompleteOpen(true);
 
       setOkMsg("접수가 완료되었습니다. 담당자가 곧 연락드리겠습니다.");
-      onSubmitted?.(data?.id ?? "ok");
+      onSubmitted?.("ok");
     } catch (err: any) {
       setErrorMsg(err?.message || "제출 중 오류가 발생했습니다.");
     } finally {
@@ -431,6 +436,7 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
                     <option value="병원">병원</option>
                     <option value="소상공인">소상공인</option>
                     <option value="광고대행사">광고대행사</option>
+                    <option value="기타">기타</option>
                   </select>
                 </div>
 
