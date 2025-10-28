@@ -8,7 +8,7 @@ import type { SelectedApt } from "@/core/types";
  * 로컬 유틸
  * ========================================================================= */
 type PlaceRow = {
-  id?: number | string;
+  id?: number | string; // ← place_id 매핑
   lat?: number | null;
   lng?: number | null;
   [k: string]: any;
@@ -133,19 +133,21 @@ export default function useMarkers({
     [setMarkerState],
   );
 
-  /** 행 -> 선택객체 */
+  /** 행 -> 선택객체 (RPC snake_case 컬럼 포함) */
   const toSelected = useCallback((rowKey: string, row: PlaceRow, lat: number, lng: number): SelectedApt => {
     const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
     const address = getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
     const productName = getField(row, ["상품명", "productName", "product_name"]) || "";
-    const installLocation = getField(row, ["설치위치", "installLocation"]) || "";
+    const installLocation = getField(row, ["설치위치", "installLocation", "install_location"]) || "";
     const households = toNum(getField(row, ["세대수", "households"]));
     const residents = toNum(getField(row, ["거주인원", "residents"]));
     const monitors = toNum(getField(row, ["모니터수량", "monitors"]));
-    const monthlyImpressions = toNum(getField(row, ["월송출횟수", "monthlyImpressions"]));
-    const monthlyFee = toNum(getField(row, ["월광고료", "month_fee", "monthlyFee"]));
-    const monthlyFeeY1 = toNum(getField(row, ["1년 계약 시 월 광고료", "연간월광고료", "monthlyFeeY1"]));
-    const costPerPlay = toNum(getField(row, ["1회당 송출비용", "costPerPlay"]));
+    const monthlyImpressions = toNum(getField(row, ["월송출횟수", "monthlyImpressions", "monthly_impressions"]));
+    const monthlyFee = toNum(getField(row, ["월광고료", "month_fee", "monthlyFee", "monthly_fee"]));
+    const monthlyFeeY1 = toNum(
+      getField(row, ["1년 계약 시 월 광고료", "연간월광고료", "monthlyFeeY1", "monthly_fee_y1"]),
+    );
+    const costPerPlay = toNum(getField(row, ["1회당 송출비용", "costPerPlay", "cost_per_play"]));
     const hours = getField(row, ["운영시간", "hours"]) || "";
     const rawImage = getField(row, ["imageUrl", "이미지", "썸네일", "thumbnail", "image_url"]) || undefined;
 
@@ -170,7 +172,7 @@ export default function useMarkers({
     };
   }, []);
 
-  /** 안정키: row.id 우선, 없으면 좌표 5자리 + 그룹/상품/설치 */
+  /** 안정키: row.id(=place_id) 우선, 없으면 좌표 5자리 + 그룹/상품/설치 */
   function stableIdKeyFromRow(row: PlaceRow): string {
     if (row.id != null) return `id:${String(row.id)}`;
     const lat = Number(row.lat);
@@ -178,7 +180,7 @@ export default function useMarkers({
     const lat5 = Number.isFinite(lat) ? lat.toFixed(5) : "x";
     const lng5 = Number.isFinite(lng) ? lng.toFixed(5) : "x";
     const prod = String(getField(row, ["상품명", "productName", "product_name"]) || "");
-    const loc = String(getField(row, ["설치위치", "installLocation"]) || "");
+    const loc = String(getField(row, ["설치위치", "installLocation", "install_location"]) || "");
     const gk = groupKeyFromRow(row);
     return `geo:${lat5},${lng5}|${gk}|${prod}|${loc}`;
   }
@@ -307,7 +309,7 @@ export default function useMarkers({
     [clusterer, colorByRule, imgs, kakao, map, onSelect, toSelected],
   );
 
-  /** 바운드 내 데이터 요청 + DIFF 반영 */
+  /** 바운드 내 데이터 요청 + DIFF 반영 (RPC 사용) */
   const refreshInBounds = useCallback(async () => {
     if (!kakao?.maps || !map) return;
     const kbounds = map.getBounds?.();
@@ -335,39 +337,27 @@ export default function useMarkers({
     const myVersion = ++requestVersionRef.current;
 
     try {
-      // ✅ 공개용 뷰로 전환: public_map_places (is_active만 노출)
-      const { data, error } = await (supabase as any)
-        .from("public_map_places")
-        .select("place_id,name,product_name,lat,lng,image_url,is_active,city,district,updated_at")
-        .eq("is_active", true)
-        .not("lat", "is", null)
-        .not("lng", "is", null)
-        .gte("lat", minLat)
-        .lte("lat", maxLat)
-        .gte("lng", minLng)
-        .lte("lng", maxLng)
-        .order("updated_at", { ascending: false })
-        .limit(5000);
+      // ✅ 공개용 RPC 호출: get_public_map_places
+      const { data, error } = await (supabase as any).rpc("get_public_map_places", {
+        min_lat: minLat,
+        max_lat: maxLat,
+        min_lng: minLng,
+        max_lng: maxLng,
+        limit_n: 5000,
+      });
 
       // 느리게 도착한 응답은 폐기
       if (myVersion !== requestVersionRef.current) return;
 
       if (error) {
-        console.error("Supabase(public_map_places) error:", error.message);
+        console.error("[useMarkers] RPC error:", error.message);
         return;
       }
 
-      // 🔁 새 뷰 스키마 → 기존 로직이 쓰는 키로 정규화
+      // 🔁 RPC 스키마(snake_case) → 내부 row 포맷으로 정규화(id=place_id 매핑)
       const rows: PlaceRow[] = (data ?? []).map((r: any) => ({
+        ...r,
         id: r.place_id, // 안정 키
-        lat: r.lat,
-        lng: r.lng,
-        name: r.name,
-        productName: r.product_name,
-        imageUrl: r.image_url,
-        city: r.city,
-        district: r.district,
-        updated_at: r.updated_at,
       }));
 
       // ❗ 일시적 0건 보호: 1회는 무시, 2회 연속이면 진짜로 비어있다고 판단
