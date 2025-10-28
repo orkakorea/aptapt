@@ -449,7 +449,7 @@ export default function MapPage() {
     lastReqIdRef.current = reqId;
 
     const { data, error } = await supabase
-      .from("public_map_places")
+      .from("raw_places")
       .select("*")
       .not("lat", "is", null)
       .not("lng", "is", null)
@@ -461,7 +461,7 @@ export default function MapPage() {
 
     if (reqId !== lastReqIdRef.current) return;
     if (error) {
-      console.error("Supabase select(public_map_places) error:", error.message);
+      console.error("Supabase select(raw_places) error:", error.message);
       return;
     }
 
@@ -619,7 +619,7 @@ export default function MapPage() {
     if (!newMarkers.length) {
       const pad = expandBounds(bounds, 0.12);
       const { data: data2, error: err2 } = await supabase
-        .from("public_map_places")
+        .from("raw_places")
         .select("*")
         .not("lat", "is", null)
         .not("lng", "is", null)
