@@ -1,3 +1,4 @@
+// src/hooks/useMarkers.ts
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { buildRowKeyFromRow, groupKeyFromRow } from "@/core/map/rowKey";
@@ -73,7 +74,6 @@ export default function useMarkers({
   /** 선택 집합을 ref로 보관 → 렌더 영향 없이 참조 */
   const selectedSetRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    // 배열 순서 변화에 둔감하도록 Set으로 교체
     selectedSetRef.current = new Set(externalSelectedRowKeys);
   }, [externalSelectedRowKeys]);
 
@@ -137,7 +137,7 @@ export default function useMarkers({
   const toSelected = useCallback((rowKey: string, row: PlaceRow, lat: number, lng: number): SelectedApt => {
     const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
     const address = getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
-    const productName = getField(row, ["상품명", "productName"]) || "";
+    const productName = getField(row, ["상품명", "productName", "product_name"]) || "";
     const installLocation = getField(row, ["설치위치", "installLocation"]) || "";
     const households = toNum(getField(row, ["세대수", "households"]));
     const residents = toNum(getField(row, ["거주인원", "residents"]));
@@ -147,7 +147,7 @@ export default function useMarkers({
     const monthlyFeeY1 = toNum(getField(row, ["1년 계약 시 월 광고료", "연간월광고료", "monthlyFeeY1"]));
     const costPerPlay = toNum(getField(row, ["1회당 송출비용", "costPerPlay"]));
     const hours = getField(row, ["운영시간", "hours"]) || "";
-    const rawImage = getField(row, ["imageUrl", "이미지", "썸네일", "thumbnail"]) || undefined;
+    const rawImage = getField(row, ["imageUrl", "이미지", "썸네일", "thumbnail", "image_url"]) || undefined;
 
     return {
       rowKey,
@@ -177,7 +177,7 @@ export default function useMarkers({
     const lng = Number(row.lng);
     const lat5 = Number.isFinite(lat) ? lat.toFixed(5) : "x";
     const lng5 = Number.isFinite(lng) ? lng.toFixed(5) : "x";
-    const prod = String(getField(row, ["상품명", "productName"]) || "");
+    const prod = String(getField(row, ["상품명", "productName", "product_name"]) || "");
     const loc = String(getField(row, ["설치위치", "installLocation"]) || "");
     const gk = groupKeyFromRow(row);
     return `geo:${lat5},${lng5}|${gk}|${prod}|${loc}`;
@@ -245,7 +245,6 @@ export default function useMarkers({
             // 현재 클릭 반영(선택이면 노랑, 아니면 클릭색)
             colorByRule(mk);
           };
-          // 핸들러를 저장해 두면 해제할 때 쓸 수 있음
           mk.__onClick = onClick as any;
 
           maps.event.addListener(mk, "click", onClick);
@@ -336,26 +335,40 @@ export default function useMarkers({
     const myVersion = ++requestVersionRef.current;
 
     try {
+      // ✅ 공개용 뷰로 전환: public_map_places (is_active만 노출)
       const { data, error } = await supabase
-        .from("raw_places")
-        .select("*")
+        .from("public_map_places")
+        .select("place_id,name,product_name,lat,lng,image_url,is_active,city,district,updated_at")
+        .eq("is_active", true)
         .not("lat", "is", null)
         .not("lng", "is", null)
         .gte("lat", minLat)
         .lte("lat", maxLat)
         .gte("lng", minLng)
         .lte("lng", maxLng)
+        .order("updated_at", { ascending: false })
         .limit(5000);
 
       // 느리게 도착한 응답은 폐기
       if (myVersion !== requestVersionRef.current) return;
 
       if (error) {
-        console.error("Supabase(raw_places) error:", error.message);
+        console.error("Supabase(public_map_places) error:", error.message);
         return;
       }
 
-      const rows = (data ?? []) as PlaceRow[];
+      // 🔁 새 뷰 스키마 → 기존 로직이 쓰는 키로 정규화
+      const rows: PlaceRow[] = (data ?? []).map((r: any) => ({
+        id: r.place_id, // 안정 키
+        lat: r.lat,
+        lng: r.lng,
+        name: r.name,
+        productName: r.product_name,
+        imageUrl: r.image_url,
+        city: r.city,
+        district: r.district,
+        updated_at: r.updated_at,
+      }));
 
       // ❗ 일시적 0건 보호: 1회는 무시, 2회 연속이면 진짜로 비어있다고 판단
       if (rows.length === 0) {
