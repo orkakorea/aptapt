@@ -1,3 +1,5 @@
+// src/core/map/rowKey.ts
+
 /**
  * RowKey / GroupKey 규칙 (PC·모바일 공통)
  * -------------------------------------------------------------
@@ -35,7 +37,8 @@ export function groupKeyFromRow(row: Record<string, any>): string {
  *  - `xy:37.1234567,127.1234567|p:ELEVATOR TV|loc:엘베홀`
  */
 export function buildRowKeyFromRow(row: Record<string, any>): string {
-  const idPart = row?.id != null ? String(row.id) : "";
+  // ✅ public_map_places 호환: place_id도 인식
+  const idPart = row?.id != null ? String(row.id) : row?.place_id != null ? String(row.place_id) : "";
 
   // 좌표
   const lat = Number(row?.lat);
@@ -43,8 +46,8 @@ export function buildRowKeyFromRow(row: Record<string, any>): string {
   const latN = Number.isFinite(lat) ? lat : 0;
   const lngN = Number.isFinite(lng) ? lng : 0;
 
-  // 상품명/설치위치(여러 필드명 케이터)
-  const productName = (getField(row, ["상품명", "productName"]) ?? "") as string;
+  // 상품명/설치위치(여러 필드명 케이터) — ✅ product_name 추가
+  const productName = (getField(row, ["상품명", "productName", "product_name"]) ?? "") as string;
   const installLocation = (getField(row, ["설치위치", "installLocation"]) ?? "") as string;
 
   if (idPart) return `id:${idPart}`;
