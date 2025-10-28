@@ -448,16 +448,15 @@ export default function MapPage() {
     const reqId = Date.now();
     lastReqIdRef.current = reqId;
 
-    const { data, error } = await (supabase as any)
-      .from("raw_places")
-      .select("*")
-      .not("lat", "is", null)
-      .not("lng", "is", null)
-      .gte("lat", sw.getLat())
-      .lte("lat", ne.getLat())
-      .gte("lng", sw.getLng())
-      .lte("lng", ne.getLng())
-      .limit(5000);
+const { data, error } = await (supabase as any).rpc("get_public_map_places", {
+  min_lat: sw.getLat(),
+  max_lat: ne.getLat(),
+  min_lng: sw.getLng(),
+  max_lng: ne.getLng(),
+  limit_n: 5000,
+});
+
+console.log("[map] RPC NOW:", (data ?? []).length, error?.message);
 
     console.log("[map] public_map_places NOW:", (data ?? []).length, error?.message);
 
@@ -620,16 +619,15 @@ export default function MapPage() {
     // 확장 조회
     if (!newMarkers.length) {
       const pad = expandBounds(bounds, 0.12);
-      const { data: data2, error: err2 } = await (supabase as any)
-        .from("raw_places")
-        .select("*")
-        .not("lat", "is", null)
-        .not("lng", "is", null)
-        .gte("lat", pad.minLat)
-        .lte("lat", pad.maxLat)
-        .gte("lng", pad.minLng)
-        .lte("lng", pad.maxLng)
-        .limit(5000);
+      const { data: data2, error: err2 } = await (supabase as any).rpc("get_public_map_places", {
+  min_lat: pad.minLat,
+  max_lat: pad.maxLat,
+  min_lng: pad.minLng,
+  max_lng: pad.maxLng,
+  limit_n: 5000,
+});
+
+console.log("[map] RPC EXPANDED:", (data2 ?? []).length, err2?.message);
       console.log("[map] public_map_places EXPANDED:", (data2 ?? []).length, err2?.message);
 
       if (err2) {
