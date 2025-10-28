@@ -459,6 +459,8 @@ export default function MapPage() {
       .lte("lng", ne.getLng())
       .limit(5000);
 
+    console.log("[map] public_map_places NOW:", (data ?? []).length, error?.message);
+
     if (reqId !== lastReqIdRef.current) return;
     if (error) {
       console.error("Supabase select(raw_places) error:", error.message);
@@ -628,6 +630,8 @@ export default function MapPage() {
         .gte("lng", pad.minLng)
         .lte("lng", pad.maxLng)
         .limit(5000);
+      console.log("[map] public_map_places EXPANDED:", (data2 ?? []).length, err2?.message);
+
       if (err2) {
         console.warn("[MapPage] expanded select error:", err2.message);
         return;
