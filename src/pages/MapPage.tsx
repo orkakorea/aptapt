@@ -112,19 +112,27 @@ function expandBounds(bounds: any, pad = 0.05) {
 /* =========================================================================
    ④ 타입/키 유틸
    ------------------------------------------------------------------------- */
-type PlaceRow = { id?: number | string; lat?: number | null; lng?: number | null; [key: string]: any };
-type KMarker = any & { __key?: string; __basePos?: any; __row?: PlaceRow };
+type PlaceRow = {
+  id?: number | string; // 과거 raw_places
+  place_id?: number | string; // public_map_places
+  lat?: number | null;
+  lng?: number | null;
+  [key: string]: any;
+};
 
 const monthlyFeeOf = (row: PlaceRow): number =>
   toNumLoose(getField(row, ["월광고료", "월 광고료", "월 광고비", "월비용", "월요금", "month_fee", "monthlyFee"])) ?? 0;
 
 const groupKeyFromRow = (row: PlaceRow) => `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(7)}`;
 
+/** ✅ place_id, product_name 지원 */
 const buildRowKeyFromRow = (row: PlaceRow) => {
   const lat = Number(row.lat),
     lng = Number(row.lng);
-  const idPart = row.id != null ? String(row.id) : "";
-  const productName = String(getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName"]) || "");
+  const idPart = row.id != null ? String(row.id) : row.place_id != null ? String(row.place_id) : "";
+  const productName = String(
+    getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "",
+  );
   const installLocation = String(getField(row, ["설치위치", "설치 위치", "installLocation"]) || "");
   return idPart ? `id:${idPart}` : `xy:${lat.toFixed(7)},${lng.toFixed(7)}|p:${productName}|loc:${installLocation}`;
 };
@@ -132,7 +140,7 @@ const buildRowKeyFromRow = (row: PlaceRow) => {
 /* =========================================================================
    ⑤ ‘정적 분리(항상 나란히)’ 레이아웃
    ------------------------------------------------------------------------- */
-function layoutMarkersSideBySide(map: any, group: KMarker[]) {
+function layoutMarkersSideBySide(map: any, group: any[]) {
   if (!group || group.length <= 1) return;
   const proj = map.getProjection();
   const center = group[0].__basePos;
@@ -165,20 +173,20 @@ export default function MapPage() {
   const radiusLabelRef = useRef<any>(null);
   const radiusLabelElRef = useRef<HTMLDivElement | null>(null);
 
-  const markerCacheRef = useRef<Map<string, KMarker>>(new Map());
-  const keyIndexRef = useRef<Record<string, KMarker[]>>({});
-  const groupsRef = useRef<Map<string, KMarker[]>>(new Map());
+  const markerCacheRef = useRef<Map<string, any>>(new Map());
+  const keyIndexRef = useRef<Record<string, any[]>>({});
+  const groupsRef = useRef<Map<string, any[]>>(new Map());
   const selectedRowKeySetRef = useRef<Set<string>>(new Set());
   const lastReqIdRef = useRef<number>(0);
 
-  const lastClickedRef = useRef<KMarker | null>(null);
+  const lastClickedRef = useRef<any | null>(null);
 
   const [selected, setSelected] = useState<SelectedAptX | null>(null);
   const [initialQ, setInitialQ] = useState("");
   const [kakaoError, setKakaoError] = useState<string | null>(null);
 
   /* ---------- 정렬/우선순위 ---------- */
-  const orderAndApplyZIndex = useCallback((arr: KMarker[]) => {
+  const orderAndApplyZIndex = useCallback((arr: any[]) => {
     if (!arr || arr.length <= 1) return arr;
     const sorted = arr.slice().sort((a, b) => {
       const ra = a.__row as PlaceRow,
@@ -203,7 +211,7 @@ export default function MapPage() {
     return arr;
   }, []);
   const applyGroupPrioritiesMap = useCallback(
-    (groups: Map<string, KMarker[]>) => {
+    (groups: Map<string, any[]>) => {
       groups.forEach((list) => orderAndApplyZIndex(list));
     },
     [orderAndApplyZIndex],
@@ -302,7 +310,11 @@ export default function MapPage() {
       if (w.__kakaoMap === mapObjRef.current) w.__kakaoMap = null;
       try {
         radiusCircleRef.current?.setMap(null);
+      } catch {}
+      try {
         radiusLabelRef.current?.setMap(null);
+      } catch {}
+      try {
         searchPinRef.current?.setMap?.(null);
       } catch {}
     };
@@ -412,7 +424,7 @@ export default function MapPage() {
       if (opts?.level != null) map.setLevel(opts.level);
       map.setCenter(latlng);
       await loadMarkersInBounds(); // 로드 후 가장 가까운 마커 트리거
-      let best: KMarker | null = null;
+      let best: any | null = null;
       let bestDist = Infinity;
       markerCacheRef.current.forEach((mk) => {
         const r = mk.__row as PlaceRow;
@@ -432,7 +444,7 @@ export default function MapPage() {
     [applyStaticSeparationAll],
   );
 
-  /* ---------- 바운드 내 마커 로드 ---------- */
+  /* ---------- 바운드 내 마커 로드 (⚠ public_map_places 사용) ---------- */
   async function loadMarkersInBounds() {
     const kakao = (window as KakaoNS).kakao;
     const maps = kakao?.maps;
@@ -448,8 +460,8 @@ export default function MapPage() {
     const reqId = Date.now();
     lastReqIdRef.current = reqId;
 
-    const { data, error } = await (supabase as any)
-      .from("raw_places")
+    const { data, error } = await supabase
+      .from("public_map_places")
       .select("*")
       .not("lat", "is", null)
       .not("lng", "is", null)
@@ -461,7 +473,7 @@ export default function MapPage() {
 
     if (reqId !== lastReqIdRef.current) return;
     if (error) {
-      console.error("Supabase select(raw_places) error:", error.message);
+      console.error("Supabase select(public_map_places) error:", error.message);
       return;
     }
 
@@ -469,19 +481,22 @@ export default function MapPage() {
     const imgs = markerImages(maps);
 
     const nowKeys = new Set<string>();
-    const groups = new Map<string, KMarker[]>();
+    const groups = new Map<string, any[]>();
+    // ✅ place_id, product_name 고려
     const keyOf = (row: PlaceRow) => {
       const lat = Number(row.lat),
         lng = Number(row.lng);
-      const idPart = row.id != null ? String(row.id) : "";
-      const prod = String(getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName"]) || "");
+      const idPart = row.id != null ? String(row.id) : row.place_id != null ? String(row.place_id) : "";
+      const prod = String(
+        getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "",
+      );
       const loc = String(getField(row, ["설치위치", "설치 위치", "installLocation"]) || "");
       return `${lat.toFixed(7)},${lng.toFixed(7)}|${idPart}|${prod}|${loc}`;
     };
 
     keyIndexRef.current = {};
-    const toAdd: KMarker[] = [];
-    const newMarkers: KMarker[] = [];
+    const toAdd: any[] = [];
+    const newMarkers: any[] = [];
 
     rows.forEach((row) => {
       if (row.lat == null || row.lng == null) return;
@@ -505,7 +520,8 @@ export default function MapPage() {
         maps.event.addListener(mk, "click", () => {
           const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
           const address = getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
-          const productName = getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName"]) || "";
+          const productName =
+            getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "";
           const installLocation = getField(row, ["설치위치", "설치 위치", "installLocation"]) || "";
           const households = toNumLoose(
             getField(row, ["세대수", "세대 수", "세대", "가구수", "가구 수", "세대수(가구)", "households"]),
@@ -534,11 +550,11 @@ export default function MapPage() {
           );
           const costPerPlay = toNumLoose(getField(row, ["1회당 송출비용", "송출 1회당 비용", "costPerPlay"]));
           const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
-          const imageUrl = getField(row, ["imageUrl", "이미지", "썸네일", "thumbnail"]) || undefined;
+          const imageUrl = getField(row, ["imageUrl", "image_url", "이미지", "썸네일", "thumbnail"]) || undefined;
 
           const sel: SelectedAptX = {
             rowKey,
-            rowId: row.id != null ? String(row.id) : undefined,
+            rowId: row.place_id != null ? String(row.place_id) : row.id != null ? String(row.id) : undefined,
             name,
             address,
             productName,
@@ -602,7 +618,7 @@ export default function MapPage() {
 
     if (toAdd.length) clustererRef.current.addMarkers(toAdd);
 
-    const toRemove: KMarker[] = [];
+    const toRemove: any[] = [];
     markerCacheRef.current.forEach((mk, key) => {
       if (!nowKeys.has(key)) {
         toRemove.push(mk);
@@ -615,11 +631,11 @@ export default function MapPage() {
     applyGroupPrioritiesMap(groups);
     groupsRef.current = groups;
 
-    // 확장 조회
+    // 확장 조회 (여전히 public_map_places)
     if (!newMarkers.length) {
       const pad = expandBounds(bounds, 0.12);
-      const { data: data2, error: err2 } = await (supabase as any)
-        .from("raw_places")
+      const { data: data2, error: err2 } = await supabase
+        .from("public_map_places")
         .select("*")
         .not("lat", "is", null)
         .not("lng", "is", null)
@@ -629,7 +645,7 @@ export default function MapPage() {
         .lte("lng", pad.maxLng)
         .limit(5000);
       if (err2) {
-        console.warn("[MapPage] expanded select error:", err2.message);
+        console.warn("[MapPage] expanded select(public_map_places) error:", err2.message);
         return;
       }
       if (reqId !== lastReqIdRef.current) return;
@@ -637,7 +653,11 @@ export default function MapPage() {
       const rows2 = (data2 ?? []) as PlaceRow[];
       rows2.forEach((row) => {
         if (row.lat == null || row.lng == null) return;
-        const key = `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(7)}|${row.id != null ? String(row.id) : ""}|${String(getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName"]) || "")}|${String(getField(row, ["설치위치", "설치 위치", "installLocation"]) || "")}`;
+        const key = `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(7)}|${
+          row.place_id != null ? String(row.place_id) : row.id != null ? String(row.id) : ""
+        }|${String(getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "")}|${String(
+          getField(row, ["설치위치", "설치 위치", "installLocation"]) || "",
+        )}`;
         if (markerCacheRef.current.has(key)) return;
 
         const lat = Number(row.lat),
@@ -647,7 +667,7 @@ export default function MapPage() {
         const rowKey = buildRowKeyFromRow(row);
         const isSelected = selectedRowKeySetRef.current.has(rowKey);
 
-        const mk: KMarker = new maps.Marker({
+        const mk: any = new maps.Marker({
           position: pos,
           title: nameText,
           image: isSelected ? imgs.yellow : imgs.purple,
@@ -659,7 +679,8 @@ export default function MapPage() {
         maps.event.addListener(mk, "click", () => {
           const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
           const address = getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
-          const productName = getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName"]) || "";
+          const productName =
+            getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "";
           const installLocation = getField(row, ["설치위치", "설치 위치", "installLocation"]) || "";
           const households = toNumLoose(
             getField(row, ["세대수", "세대 수", "세대", "가구수", "가구 수", "세대수(가구)", "households"]),
@@ -688,11 +709,11 @@ export default function MapPage() {
           );
           const costPerPlay = toNumLoose(getField(row, ["1회당 송출비용", "송출 1회당 비용", "costPerPlay"]));
           const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
-          const imageUrl = getField(row, ["imageUrl", "이미지", "썸네일", "thumbnail"]) || undefined;
+          const imageUrl = getField(row, ["imageUrl", "image_url", "이미지", "썸네일", "thumbnail"]) || undefined;
 
           const sel: SelectedAptX = {
             rowKey,
-            rowId: row.id != null ? String(row.id) : undefined,
+            rowId: row.place_id != null ? String(row.place_id) : row.id != null ? String(row.id) : undefined,
             name,
             address,
             productName,
@@ -742,7 +763,7 @@ export default function MapPage() {
         clustererRef.current.addMarker(mk);
       });
 
-      const groups2 = new Map<string, KMarker[]>();
+      const groups2 = new Map<string, any[]>();
       markerCacheRef.current.forEach((m) => {
         const r = m.__row as PlaceRow;
         const gk = groupKeyFromRow(r);
