@@ -336,7 +336,7 @@ export default function useMarkers({
 
     try {
       // ✅ 공개용 뷰로 전환: public_map_places (is_active만 노출)
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("public_map_places")
         .select("place_id,name,product_name,lat,lng,image_url,is_active,city,district,updated_at")
         .eq("is_active", true)
