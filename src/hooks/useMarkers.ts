@@ -8,7 +8,8 @@ import type { SelectedApt } from "@/core/types";
  * 로컬 유틸
  * ========================================================================= */
 type PlaceRow = {
-  id?: number | string; // ← place_id 매핑
+  id?: number | string;
+  place_id?: number | string;
   lat?: number | null;
   lng?: number | null;
   [k: string]: any;
@@ -45,13 +46,12 @@ type MarkerState = "purple" | "yellow" | "clicked";
 
 /** 오버스캔 비율(조회 영역 확대) — 너무 크지 않게 */
 const OVERSCAN_RATIO = 0.2;
-
-/** 바운드가 비정상적으로 작은 경우 fetch 스킵(임시 레이아웃/relayout 구간 보호) */
-const MIN_LAT_SPAN = 0.0001; // 약 90m
-const MIN_LNG_SPAN = 0.0001; // 약 90m
+/** 바운드가 비정상적으로 작은 경우 fetch 스킵 */
+const MIN_LAT_SPAN = 0.0001;
+const MIN_LNG_SPAN = 0.0001;
 
 /* =========================================================================
- * 훅 본체(⚠️ 훅 호출은 항상 동일한 순서/개수로 유지)
+ * 훅 본체
  * ========================================================================= */
 export default function useMarkers({
   kakao,
@@ -71,18 +71,18 @@ export default function useMarkers({
   const rowKeyIndexRef = useRef<Map<string, any>>(new Map()); // rowKey -> Marker
   const lastClickedRef = useRef<any | null>(null);
 
-  /** 선택 집합을 ref로 보관 → 렌더 영향 없이 참조 */
+  /** 선택 집합을 ref로 보관 */
   const selectedSetRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     selectedSetRef.current = new Set(externalSelectedRowKeys);
   }, [externalSelectedRowKeys]);
 
-  /** 중복 요청/늦은 응답/빈결과 스트릭 가드 */
+  /** 중복요청/빈결과 가드 */
   const fetchInFlightRef = useRef(false);
   const requestVersionRef = useRef(0);
-  const emptyStreakRef = useRef(0); // 연속 0건 응답 횟수 (2회 이상이면 정리 허용)
+  const emptyStreakRef = useRef(0);
 
-  /** 마커 이미지 캐시 (항상 훅은 호출, 내부에서 kakao 준비 여부만 분기) */
+  /** 마커 이미지 */
   const imgs = useMemo(() => {
     if (!kakao?.maps) return null;
     const { maps } = kakao;
@@ -114,36 +114,33 @@ export default function useMarkers({
     [imgs],
   );
 
-  /** 공통 컬러링 규칙 (선택 > 클릭 > 기본) */
+  /** 공통 컬러링 규칙 */
   const colorByRule = useCallback(
     (mk: any) => {
       if (!mk) return;
       const rowKey = mk.__rowKey as string | undefined;
       const isSelected = !!rowKey && selectedSetRef.current.has(rowKey);
-      if (isSelected) {
-        setMarkerState(mk, "yellow"); // 담긴 건 항상 노랑
-        return;
-      }
-      if (lastClickedRef.current === mk) {
-        setMarkerState(mk, "clicked");
-        return;
-      }
+      if (isSelected) return setMarkerState(mk, "yellow");
+      if (lastClickedRef.current === mk) return setMarkerState(mk, "clicked");
       setMarkerState(mk, "purple");
     },
     [setMarkerState],
   );
 
-  /** 행 -> 선택객체 (RPC snake_case 컬럼 포함) */
+  /** 행 -> SelectedApt (snake_case도 지원) */
   const toSelected = useCallback((rowKey: string, row: PlaceRow, lat: number, lng: number): SelectedApt => {
     const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
     const address = getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
     const productName = getField(row, ["상품명", "productName", "product_name"]) || "";
+
+    // ⚠️ snake_case 컬럼도 포함
     const installLocation = getField(row, ["설치위치", "installLocation", "install_location"]) || "";
+
     const households = toNum(getField(row, ["세대수", "households"]));
     const residents = toNum(getField(row, ["거주인원", "residents"]));
     const monitors = toNum(getField(row, ["모니터수량", "monitors"]));
     const monthlyImpressions = toNum(getField(row, ["월송출횟수", "monthlyImpressions", "monthly_impressions"]));
-    const monthlyFee = toNum(getField(row, ["월광고료", "month_fee", "monthlyFee", "monthly_fee"]));
+    const monthlyFee = toNum(getField(row, ["월광고료", "month_fee", "monthly_fee", "monthlyFee"]));
     const monthlyFeeY1 = toNum(
       getField(row, ["1년 계약 시 월 광고료", "연간월광고료", "monthlyFeeY1", "monthly_fee_y1"]),
     );
@@ -153,7 +150,7 @@ export default function useMarkers({
 
     return {
       rowKey,
-      rowId: row.id != null ? String(row.id) : undefined,
+      rowId: row.id != null ? String(row.id) : row.place_id != null ? String(row.place_id) : undefined,
       name,
       address,
       productName,
@@ -166,15 +163,82 @@ export default function useMarkers({
       hours,
       monthlyFee,
       monthlyFeeY1,
-      imageUrl: rawImage || imageForProduct(productName),
+      imageUrl: rawImage || imageForProduct(String(productName)),
       lat,
       lng,
     };
   }, []);
 
-  /** 안정키: row.id(=place_id) 우선, 없으면 좌표 5자리 + 그룹/상품/설치 */
+  /** 상세 로드(RPC) → 선택 갱신 */
+  const enrichAndReselect = useCallback(
+    async (mk: any) => {
+      if (!mk || !kakao?.maps) return;
+
+      const row: PlaceRow = mk.__row || {};
+      // public_map_places는 place_id, get_public_map_places RPC는 id(=raw_places.id)를 줄 수 있음
+      const pid = row.place_id ?? row.id;
+      if (pid == null) return;
+
+      try {
+        // 1) 함수 호출 (SETOF 반환 가정 → 첫 행 사용)
+        const { data, error } = await (supabase as any).rpc("get_public_place_detail", {
+          place_id: Number(pid),
+        });
+
+        let det: any | undefined = undefined;
+        if (!error && data) det = Array.isArray(data) ? data[0] : data;
+
+        // 2) 백업: 실패 시 raw_places 직접 조회(권한이 있으면)
+        if (!det) {
+          const { data: bkp } = await (supabase as any)
+            .from("raw_places")
+            .select(
+              'id, "설치위치", "세대수", "거주인원", "모니터수량", "월송출횟수", "월광고료", "1회당 송출비용", "운영시간", "주소"',
+            )
+            .eq("id", Number(pid))
+            .limit(1)
+            .maybeSingle();
+          det = bkp || undefined;
+        }
+
+        if (!det) return;
+
+        // mk.__row에 상세 머지(영문 snake_case → 앱에서 쓰는 키도 같이 보유)
+        const merged: PlaceRow = {
+          ...row,
+          // 표준화된 snake_case를 그대로 보관
+          install_location: det.install_location ?? det["설치위치"],
+          households: det.households ?? det["세대수"],
+          residents: det.residents ?? det["거주인원"],
+          monitors: det.monitors ?? det["모니터수량"],
+          monthly_impressions: det.monthly_impressions ?? det["월송출횟수"],
+          monthly_fee: det.monthly_fee ?? det["월광고료"],
+          monthly_fee_y1: det.monthly_fee_y1,
+          cost_per_play: det.cost_per_play ?? det["1회당 송출비용"],
+          hours: det.hours ?? det["운영시간"],
+          address: det.address ?? det["주소"],
+          image_url: det.image_url ?? row.image_url,
+          lat: det.lat ?? row.lat,
+          lng: det.lng ?? row.lng,
+        };
+
+        mk.__row = merged;
+
+        const lat = Number(merged.lat);
+        const lng = Number(merged.lng);
+        const sel = toSelected(mk.__rowKey, merged, lat, lng);
+        onSelect(sel);
+      } catch {
+        // 무시(최초 클릭으로 보여주는 기본 정보는 이미 표시됨)
+      }
+    },
+    [kakao, onSelect, toSelected],
+  );
+
+  /** 안정키: row.id 우선, 없으면 좌표 5자리 + 그룹/상품/설치 */
   function stableIdKeyFromRow(row: PlaceRow): string {
     if (row.id != null) return `id:${String(row.id)}`;
+    if (row.place_id != null) return `id:${String(row.place_id)}`;
     const lat = Number(row.lat);
     const lng = Number(row.lng);
     const lat5 = Number.isFinite(lat) ? lat.toFixed(5) : "x";
@@ -191,16 +255,13 @@ export default function useMarkers({
       if (!kakao?.maps || !map || !imgs) return;
       const { maps } = kakao;
 
-      // ⚠️ 빈 배열 보호: 기존 마커가 있고 rows가 0이면 "일시적 공백"일 가능성 → 적용 스킵
       if ((rows?.length ?? 0) === 0 && poolRef.current.size > 0) {
-        return; // 전체 사라짐 방지
+        return; // 첫 0건 응답은 무시 → 전마커 보존
       }
 
       const nextIdKeys = new Set<string>();
       const toAdd: any[] = [];
       const toRemove: any[] = [];
-
-      // 새 rowKey 인덱스 (전체 교체)
       const nextRowKeyIndex = new Map<string, any>();
 
       for (const row of rows) {
@@ -218,12 +279,11 @@ export default function useMarkers({
 
         let mk = poolRef.current.get(idKey);
         if (!mk) {
-          // 최초 생성(추가만)
           try {
             mk = new maps.Marker({
               position: pos,
               title,
-              image: imgs.purple, // 기본은 보라 (선택/클릭 규칙으로 즉시 보정)
+              image: imgs.purple,
               clickable: true,
             });
             mk.__imgState = "purple";
@@ -235,17 +295,19 @@ export default function useMarkers({
           mk.__row = row;
 
           const onClick = () => {
-            const sel = toSelected(mk.__rowKey, mk.__row, lat, lng);
-            onSelect(sel);
+            // 1) 우선 현재 가진 데이터로 보여주기
+            const sel0 = toSelected(mk.__rowKey, mk.__row, lat, lng);
+            onSelect(sel0);
 
-            // 이전 클릭 복원(선택이면 노랑 유지)
+            // 2) 클릭 상태 컬러
             if (lastClickedRef.current && lastClickedRef.current !== mk) {
               colorByRule(lastClickedRef.current);
             }
             lastClickedRef.current = mk;
-
-            // 현재 클릭 반영(선택이면 노랑, 아니면 클릭색)
             colorByRule(mk);
+
+            // 3) 상세 데이터 비동기 로드 후 다시 갱신
+            enrichAndReselect(mk);
           };
           mk.__onClick = onClick as any;
 
@@ -254,35 +316,27 @@ export default function useMarkers({
           poolRef.current.set(idKey, mk);
           toAdd.push(mk);
         } else {
-          // 재사용: 위치/타이틀 변동시에만 갱신
           try {
             const oldPos = mk.getPosition?.();
-            if (!oldPos || oldPos.getLat() !== lat || oldPos.getLng() !== lng) {
-              mk.setPosition(pos);
-            }
+            if (!oldPos || oldPos.getLat() !== lat || oldPos.getLng() !== lng) mk.setPosition(pos);
             if (mk.getTitle?.() !== title) mk.setTitle?.(title);
           } catch {}
           mk.__rowKey = rowKey;
           mk.__row = row;
-
-          // 색 규칙 적용(변화시에만 이미지 교체)
           colorByRule(mk);
         }
 
         nextRowKeyIndex.set(rowKey, mk);
       }
 
-      // 먼저 추가를 반영 → 화면 공백 방지
       if (toAdd.length) {
         try {
           if (clusterer?.addMarkers) clusterer.addMarkers(toAdd);
           else toAdd.forEach((m) => m.setMap(map));
         } catch {}
-        // 추가분 색상 최종 적용(선택 반영)
         toAdd.forEach((mk) => colorByRule(mk));
       }
 
-      // 제거 대상: 이번 결과에 없는 idKey만 제거 (오직 새 데이터 기준)
       poolRef.current.forEach((mk, idKey) => {
         if (!nextIdKeys.has(idKey)) {
           toRemove.push(mk);
@@ -295,7 +349,6 @@ export default function useMarkers({
           if (clusterer?.removeMarkers) clusterer.removeMarkers(toRemove);
           else toRemove.forEach((m) => m.setMap(null));
         } catch {}
-        // 이벤트 해제(메모리 누수 방지)
         try {
           toRemove.forEach((mk) => {
             kakao.maps.event.removeListener(mk, "click", mk.__onClick);
@@ -303,13 +356,12 @@ export default function useMarkers({
         } catch {}
       }
 
-      // 인덱스 교체
       rowKeyIndexRef.current = nextRowKeyIndex;
     },
-    [clusterer, colorByRule, imgs, kakao, map, onSelect, toSelected],
+    [clusterer, colorByRule, imgs, kakao, map, onSelect, toSelected, enrichAndReselect],
   );
 
-  /** 바운드 내 데이터 요청 + DIFF 반영 (RPC 사용) */
+  /** 바운드 내 데이터 요청 + DIFF 반영 */
   const refreshInBounds = useCallback(async () => {
     if (!kakao?.maps || !map) return;
     const kbounds = map.getBounds?.();
@@ -318,12 +370,10 @@ export default function useMarkers({
     const sw = kbounds.getSouthWest();
     const ne = kbounds.getNorthEast();
 
-    // ❗ 비정상적으로 작은 바운드(레이아웃 전환/relayout 중)면 스킵 → 집단 깜빡임 방지
     const latSpan = Math.abs(ne.getLat() - sw.getLat());
     const lngSpan = Math.abs(ne.getLng() - sw.getLng());
     if (latSpan < MIN_LAT_SPAN || lngSpan < MIN_LNG_SPAN) return;
 
-    // 오버스캔 적용
     const latPad = (ne.getLat() - sw.getLat()) * OVERSCAN_RATIO;
     const lngPad = (ne.getLng() - sw.getLng()) * OVERSCAN_RATIO;
     const minLat = Math.min(sw.getLat(), ne.getLat()) - latPad;
@@ -331,43 +381,51 @@ export default function useMarkers({
     const minLng = Math.min(sw.getLng(), ne.getLng()) - lngPad;
     const maxLng = Math.max(sw.getLng(), ne.getLng()) + lngPad;
 
-    // 중복 요청 가드
     if (fetchInFlightRef.current) return;
     fetchInFlightRef.current = true;
     const myVersion = ++requestVersionRef.current;
 
     try {
-      // ✅ 공개용 RPC 호출: get_public_map_places
-      const { data, error } = await (supabase as any).rpc("get_public_map_places", {
-        min_lat: minLat,
-        max_lat: maxLat,
-        min_lng: minLng,
-        max_lng: maxLng,
-        limit_n: 5000,
-      });
+      // 공개 뷰
+      const { data, error } = await (supabase as any)
+        .from("public_map_places")
+        .select("place_id,name,product_name,lat,lng,image_url,is_active,city,district,updated_at")
+        .eq("is_active", true)
+        .not("lat", "is", null)
+        .not("lng", "is", null)
+        .gte("lat", minLat)
+        .lte("lat", maxLat)
+        .gte("lng", minLng)
+        .lte("lng", maxLng)
+        .order("updated_at", { ascending: false })
+        .limit(5000);
 
-      // 느리게 도착한 응답은 폐기
       if (myVersion !== requestVersionRef.current) return;
-
       if (error) {
-        console.error("[useMarkers] RPC error:", error.message);
+        console.error("Supabase(public_map_places) error:", error.message);
         return;
       }
 
-      // 🔁 RPC 스키마(snake_case) → 내부 row 포맷으로 정규화(id=place_id 매핑)
       const rows: PlaceRow[] = (data ?? []).map((r: any) => ({
-        ...r,
-        id: r.place_id, // 안정 키
+        id: r.place_id, // 안정 키로 사용
+        place_id: r.place_id,
+        lat: r.lat,
+        lng: r.lng,
+        name: r.name,
+        productName: r.product_name,
+        product_name: r.product_name,
+        imageUrl: r.image_url,
+        image_url: r.image_url,
+        city: r.city,
+        district: r.district,
+        updated_at: r.updated_at,
       }));
 
-      // ❗ 일시적 0건 보호: 1회는 무시, 2회 연속이면 진짜로 비어있다고 판단
       if (rows.length === 0) {
         emptyStreakRef.current += 1;
-        if (emptyStreakRef.current < 2 && poolRef.current.size > 0) {
-          return; // 첫 0건 응답은 무시 → 전마커 보존(깜빡임 방지)
-        }
+        if (emptyStreakRef.current < 2 && poolRef.current.size > 0) return;
       } else {
-        emptyStreakRef.current = 0; // 정상 응답이면 리셋
+        emptyStreakRef.current = 0;
       }
 
       applyRows(rows);
@@ -376,7 +434,7 @@ export default function useMarkers({
     }
   }, [applyRows, kakao, map]);
 
-  /** idle에서만 갱신 (UI 액션과 분리) + 초기 1회 강제 */
+  /** idle에서만 갱신 + 초기 1회 강제 */
   useEffect(() => {
     if (!kakao?.maps || !map) return;
     const { maps } = kakao;
@@ -386,15 +444,12 @@ export default function useMarkers({
     };
 
     maps.event.addListener(map, "idle", handleIdle);
-
-    // 초기: 다음 프레임에 강제 1회 실행 (초기 idle 누락 대비)
     requestAnimationFrame(() => refreshInBounds());
 
     return () => {
       try {
         maps.event.removeListener(map, "idle", handleIdle);
       } catch {}
-      // 정리
       const all: any[] = [];
       poolRef.current.forEach((mk) => all.push(mk));
       try {
@@ -412,7 +467,7 @@ export default function useMarkers({
     };
   }, [kakao, map, refreshInBounds, clusterer]);
 
-  /** 외부 포커스: rowKey로 선택/이동 */
+  /** 외부 포커스: rowKey로 선택/이동 (+상세 로드) */
   const selectByRowKey = useCallback(
     (rowKey: string) => {
       const mk = rowKeyIndexRef.current.get(rowKey);
@@ -431,16 +486,17 @@ export default function useMarkers({
       const sel = toSelected(rowKey, row, lat, lng);
       onSelect(sel);
 
-      // 클릭 규칙 갱신(선택이면 노랑 유지)
       if (lastClickedRef.current && lastClickedRef.current !== mk) {
         colorByRule(lastClickedRef.current);
       }
       lastClickedRef.current = mk;
       colorByRule(mk);
+
+      // 포커스 시에도 상세 동기화
+      enrichAndReselect(mk);
     },
-    [colorByRule, kakao, map, onSelect, toSelected],
+    [colorByRule, kakao, map, onSelect, toSelected, enrichAndReselect],
   );
 
-  // 항상 동일 shape의 API 반환
   return { refreshInBounds, selectByRowKey };
 }
