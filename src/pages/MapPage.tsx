@@ -115,7 +115,13 @@ const rowIdOf = (r: any) => r?.id ?? r?.place_id ?? r?.placeId ?? r?.placeID ?? 
 /* =========================================================================
    ④ 타입/키 유틸
    ------------------------------------------------------------------------- */
-type PlaceRow = { id?: number | string; place_id?: number | string; lat?: number | null; lng?: number | null; [key: string]: any };
+type PlaceRow = {
+  id?: number | string;
+  place_id?: number | string;
+  lat?: number | null;
+  lng?: number | null;
+  [key: string]: any;
+};
 type KMarker = any & { __key?: string; __basePos?: any; __row?: PlaceRow };
 
 const monthlyFeeOf = (row: PlaceRow): number =>
@@ -124,9 +130,12 @@ const monthlyFeeOf = (row: PlaceRow): number =>
 const groupKeyFromRow = (row: PlaceRow) => `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(7)}`;
 
 const buildRowKeyFromRow = (row: PlaceRow) => {
-  const lat = Number(row.lat), lng = Number(row.lng);
+  const lat = Number(row.lat),
+    lng = Number(row.lng);
   const idPart = rowIdOf(row) != null ? String(rowIdOf(row)) : "";
-  const productName = String(getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "");
+  const productName = String(
+    getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "",
+  );
   const installLocation = String(getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "");
   return idPart ? `id:${idPart}` : `xy:${lat.toFixed(7)},${lng.toFixed(7)}|p:${productName}|loc:${installLocation}`;
 };
@@ -139,7 +148,11 @@ function layoutMarkersSideBySide(map: any, group: KMarker[]) {
   const proj = map.getProjection();
   const center = group[0].__basePos;
   const cpt = proj.containerPointFromCoords(center);
-  const N = group.length, GAP = 26, totalW = GAP * (N - 1), startX = cpt.x - totalW / 2, y = cpt.y;
+  const N = group.length,
+    GAP = 26,
+    totalW = GAP * (N - 1),
+    startX = cpt.x - totalW / 2,
+    y = cpt.y;
   for (let i = 0; i < N; i++) {
     const pt = new (window as any).kakao.maps.Point(startX + i * GAP, y);
     const pos = proj.coordsFromContainerPoint(pt);
@@ -179,23 +192,31 @@ export default function MapPage() {
   const orderAndApplyZIndex = useCallback((arr: KMarker[]) => {
     if (!arr || arr.length <= 1) return arr;
     const sorted = arr.slice().sort((a, b) => {
-      const ra = a.__row as PlaceRow, rb = b.__row as PlaceRow;
-      const aRowKey = buildRowKeyFromRow(ra), bRowKey = buildRowKeyFromRow(rb);
+      const ra = a.__row as PlaceRow,
+        rb = b.__row as PlaceRow;
+      const aRowKey = buildRowKeyFromRow(ra),
+        bRowKey = buildRowKeyFromRow(rb);
       const aSel = selectedRowKeySetRef.current.has(aRowKey) ? 1 : 0;
       const bSel = selectedRowKeySetRef.current.has(bRowKey) ? 1 : 0;
       if (aSel !== bSel) return bSel - aSel;
-      const aFee = monthlyFeeOf(ra), bFee = monthlyFeeOf(rb);
+      const aFee = monthlyFeeOf(ra),
+        bFee = monthlyFeeOf(rb);
       if (aFee !== bFee) return bFee - aFee;
       return 0;
     });
     const TOP = 100000;
-    for (let i = 0; i < sorted.length; i++) try { sorted[i].setZIndex?.(TOP - i); } catch {}
+    for (let i = 0; i < sorted.length; i++)
+      try {
+        sorted[i].setZIndex?.(TOP - i);
+      } catch {}
     arr.length = 0;
     sorted.forEach((m) => arr.push(m));
     return arr;
   }, []);
   const applyGroupPrioritiesMap = useCallback(
-    (groups: Map<string, KMarker[]>) => { groups.forEach((list) => orderAndApplyZIndex(list)); },
+    (groups: Map<string, KMarker[]>) => {
+      groups.forEach((list) => orderAndApplyZIndex(list));
+    },
     [orderAndApplyZIndex],
   );
   const applyGroupPrioritiesForRowKey = useCallback(
@@ -242,8 +263,8 @@ export default function MapPage() {
           lineHeight: `${sz}px`,
           textAlign: "center",
           borderRadius: "999px",
-          background: "rgba(108, 45, 255, 0.18)`,
-          border: "1px solid rgba(108, 45, 255, 0.35)`,
+          background: "rgba(108, 45, 255, 0.18)",
+          border: "1px solid rgba(108, 45, 255, 0.35)",
           color: "#6C2DFF",
           fontWeight: "700",
           fontSize: "13px",
@@ -290,9 +311,15 @@ export default function MapPage() {
       const w = window as any;
       if (w.kakaoMap === mapObjRef.current) w.kakaoMap = null;
       if (w.__kakaoMap === mapObjRef.current) w.__kakaoMap = null;
-      try { radiusCircleRef.current?.setMap(null); } catch {}
-      try { radiusLabelRef.current?.setMap(null); } catch {}
-      try { searchPinRef.current?.setMap?.(null); } catch {}
+      try {
+        radiusCircleRef.current?.setMap(null);
+      } catch {}
+      try {
+        radiusLabelRef.current?.setMap(null);
+      } catch {}
+      try {
+        searchPinRef.current?.setMap?.(null);
+      } catch {}
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applyStaticSeparationAll]);
@@ -407,7 +434,10 @@ export default function MapPage() {
         const dlat = Number(r.lat) - lat;
         const dlng = Number(r.lng) - lng;
         const ds = dlat * dlat + dlng * dlng;
-        if (ds < bestDist) { bestDist = ds; best = mk; }
+        if (ds < bestDist) {
+          bestDist = ds;
+          best = mk;
+        }
       });
       if (best) {
         maps.event.trigger(best, "click");
@@ -427,7 +457,8 @@ export default function MapPage() {
 
     const bounds = map.getBounds();
     if (!bounds) return;
-    const sw = bounds.getSouthWest(), ne = bounds.getNorthEast();
+    const sw = bounds.getSouthWest(),
+      ne = bounds.getNorthEast();
 
     const reqId = Date.now();
     lastReqIdRef.current = reqId;
@@ -454,10 +485,13 @@ export default function MapPage() {
     const nowKeys = new Set<string>();
     const groups = new Map<string, KMarker[]>();
     const keyOf = (row: PlaceRow) => {
-      const lat = Number(row.lat), lng = Number(row.lng);
+      const lat = Number(row.lat),
+        lng = Number(row.lng);
       const idPart = rowIdOf(row) != null ? String(rowIdOf(row)) : "";
-      const prod = String(getField(row, ["상품명","상품 명","제품명","광고상품명","productName","product_name"]) || "");
-      const loc  = String(getField(row, ["설치위치","설치 위치","installLocation","install_location"]) || "");
+      const prod = String(
+        getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "",
+      );
+      const loc = String(getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "");
       return `${lat.toFixed(7)},${lng.toFixed(7)}|${idPart}|${prod}|${loc}`;
     };
 
@@ -472,7 +506,8 @@ export default function MapPage() {
       nowKeys.add(key);
 
       let mk = markerCacheRef.current.get(key);
-      const lat = Number(row.lat), lng = Number(row.lng);
+      const lat = Number(row.lat),
+        lng = Number(row.lng);
       const pos = new maps.LatLng(lat, lng);
       const nameText = String(getField(row, ["단지명", "name", "아파트명"]) || "");
 
@@ -486,17 +521,37 @@ export default function MapPage() {
         maps.event.addListener(mk, "click", () => {
           const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
           const address = getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
-          const productName = getField(row, ["상품명","상품 명","제품명","광고상품명","productName","product_name"]) || "";
-          const installLocation = getField(row, ["설치위치","설치 위치","installLocation","install_location"]) || "";
-          const households = toNumLoose(getField(row, ["세대수","세대 수","세대","가구수","가구 수","세대수(가구)","households"]));
-          const residents = toNumLoose(getField(row, ["거주인원","거주 인원","인구수","총인구","입주민수","거주자수","residents"]));
-          const monitors = toNumLoose(getField(row, ["모니터수량","모니터 수량","모니터대수","엘리베이터TV수","monitors"]));
-          const monthlyImpressions = toNumLoose(getField(row, ["월송출횟수","월 송출횟수","월 송출 횟수","월송출","노출수(월)","monthlyImpressions"]));
-          const monthlyFee = toNumLoose(getField(row, ["월광고료","월 광고료","월 광고비","월비용","월요금","month_fee","monthlyFee"]));
-          const monthlyFeeY1 = toNumLoose(getField(row, ["1년 계약 시 월 광고료","1년계약시월광고료","연간월광고료","할인 월 광고료","연간_월광고료","monthlyFeeY1"]));
-          const costPerPlay = toNumLoose(getField(row, ["1회당 송출비용","송출 1회당 비용","costPerPlay"]));
-          const hours = getField(row, ["운영시간","운영 시간","hours"]) || "";
-          const imageUrl = getField(row, ["imageUrl","image_url","이미지","썸네일","thumbnail"]) || undefined;
+          const productName =
+            getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "";
+          const installLocation = getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "";
+          const households = toNumLoose(
+            getField(row, ["세대수", "세대 수", "세대", "가구수", "가구 수", "세대수(가구)", "households"]),
+          );
+          const residents = toNumLoose(
+            getField(row, ["거주인원", "거주 인원", "인구수", "총인구", "입주민수", "거주자수", "residents"]),
+          );
+          const monitors = toNumLoose(
+            getField(row, ["모니터수량", "모니터 수량", "모니터대수", "엘리베이터TV수", "monitors"]),
+          );
+          const monthlyImpressions = toNumLoose(
+            getField(row, ["월송출횟수", "월 송출횟수", "월 송출 횟수", "월송출", "노출수(월)", "monthlyImpressions"]),
+          );
+          const monthlyFee = toNumLoose(
+            getField(row, ["월광고료", "월 광고료", "월 광고비", "월비용", "월요금", "month_fee", "monthlyFee"]),
+          );
+          const monthlyFeeY1 = toNumLoose(
+            getField(row, [
+              "1년 계약 시 월 광고료",
+              "1년계약시월광고료",
+              "연간월광고료",
+              "할인 월 광고료",
+              "연간_월광고료",
+              "monthlyFeeY1",
+            ]),
+          );
+          const costPerPlay = toNumLoose(getField(row, ["1회당 송출비용", "송출 1회당 비용", "costPerPlay"]));
+          const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
+          const imageUrl = getField(row, ["imageUrl", "image_url", "이미지", "썸네일", "thumbnail"]) || undefined;
 
           const sel: SelectedAptX = {
             rowKey,
@@ -525,25 +580,30 @@ export default function MapPage() {
             const pid = rowIdOf(row);
             if (!pid) return;
             (async () => {
-              const { data: detail, error: dErr } = await (supabase as any)
-                .rpc("get_public_place_detail", { p_place_id: pid });
+              const { data: detail, error: dErr } = await (supabase as any).rpc("get_public_place_detail", {
+                p_place_id: pid,
+              });
               if (!dErr && detail?.length) {
                 const d = detail[0];
-                setSelected((prev) => (prev && prev.rowKey === rowKey ? {
-                  ...prev,
-                  households:          d.households           ?? prev.households,
-                  residents:           d.residents            ?? prev.residents,
-                  monitors:            d.monitors             ?? prev.monitors,
-                  monthlyImpressions:  d.monthly_impressions  ?? prev.monthlyImpressions,
-                  costPerPlay:         d.cost_per_play        ?? prev.costPerPlay,
-                  hours:               d.hours                ?? prev.hours,
-                  address:             d.address              ?? prev.address,
-                  monthlyFee:          d.monthly_fee          ?? prev.monthlyFee,
-                  monthlyFeeY1:        d.monthly_fee_y1       ?? prev.monthlyFeeY1,
-                  lat:                 d.lat                  ?? prev.lat,
-                  lng:                 d.lng                  ?? prev.lng,
-                  imageUrl:            d.image_url            ?? prev.imageUrl,
-                } : prev));
+                setSelected((prev) =>
+                  prev && prev.rowKey === rowKey
+                    ? {
+                        ...prev,
+                        households: d.households ?? prev.households,
+                        residents: d.residents ?? prev.residents,
+                        monitors: d.monitors ?? prev.monitors,
+                        monthlyImpressions: d.monthly_impressions ?? prev.monthlyImpressions,
+                        costPerPlay: d.cost_per_play ?? prev.costPerPlay,
+                        hours: d.hours ?? prev.hours,
+                        address: d.address ?? prev.address,
+                        monthlyFee: d.monthly_fee ?? prev.monthlyFee,
+                        monthlyFeeY1: d.monthly_fee_y1 ?? prev.monthlyFeeY1,
+                        lat: d.lat ?? prev.lat,
+                        lng: d.lng ?? prev.lng,
+                        imageUrl: d.image_url ?? prev.imageUrl,
+                      }
+                    : prev,
+                );
               } else if (dErr) {
                 console.warn("[RPC] get_public_place_detail error:", dErr.message);
               }
@@ -628,10 +688,11 @@ export default function MapPage() {
       const rows2 = (data2 ?? []) as PlaceRow[];
       rows2.forEach((row) => {
         if (row.lat == null || row.lng == null) return;
-        const key = `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(7)}|${rowIdOf(row) != null ? String(rowIdOf(row)) : ""}|${String(getField(row, ["상품명","상품 명","제품명","광고상품명","productName","product_name"]) || "")}|${String(getField(row, ["설치위치","설치 위치","installLocation","install_location"]) || "")}`;
+        const key = `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(7)}|${rowIdOf(row) != null ? String(rowIdOf(row)) : ""}|${String(getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "")}|${String(getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "")}`;
         if (markerCacheRef.current.has(key)) return;
 
-        const lat = Number(row.lat), lng = Number(row.lng);
+        const lat = Number(row.lat),
+          lng = Number(row.lng);
         const pos = new maps.LatLng(lat, lng);
         const nameText = String(getField(row, ["단지명", "name", "아파트명"]) || "");
         const rowKey = buildRowKeyFromRow(row);
@@ -649,17 +710,37 @@ export default function MapPage() {
         maps.event.addListener(mk, "click", () => {
           const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
           const address = getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
-          const productName = getField(row, ["상품명","상품 명","제품명","광고상품명","productName","product_name"]) || "";
-          const installLocation = getField(row, ["설치위치","설치 위치","installLocation","install_location"]) || "";
-          const households = toNumLoose(getField(row, ["세대수","세대 수","세대","가구수","가구 수","세대수(가구)","households"]));
-          const residents = toNumLoose(getField(row, ["거주인원","거주 인원","인구수","총인구","입주민수","거주자수","residents"]));
-          const monitors = toNumLoose(getField(row, ["모니터수량","모니터 수량","모니터대수","엘리베이터TV수","monitors"]));
-          const monthlyImpressions = toNumLoose(getField(row, ["월송출횟수","월 송출횟수","월 송출 횟수","월송출","노출수(월)","monthlyImpressions"]));
-          const monthlyFee = toNumLoose(getField(row, ["월광고료","월 광고료","월 광고비","월비용","월요금","month_fee","monthlyFee"]));
-          const monthlyFeeY1 = toNumLoose(getField(row, ["1년 계약 시 월 광고료","1년계약시월광고료","연간월광고료","할인 월 광고료","연간_월광고료","monthlyFeeY1"]));
-          const costPerPlay = toNumLoose(getField(row, ["1회당 송출비용","송출 1회당 비용","costPerPlay"]));
-          const hours = getField(row, ["운영시간","운영 시간","hours"]) || "";
-          const imageUrl = getField(row, ["imageUrl","image_url","이미지","썸네일","thumbnail"]) || undefined;
+          const productName =
+            getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "";
+          const installLocation = getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "";
+          const households = toNumLoose(
+            getField(row, ["세대수", "세대 수", "세대", "가구수", "가구 수", "세대수(가구)", "households"]),
+          );
+          const residents = toNumLoose(
+            getField(row, ["거주인원", "거주 인원", "인구수", "총인구", "입주민수", "거주자수", "residents"]),
+          );
+          const monitors = toNumLoose(
+            getField(row, ["모니터수량", "모니터 수량", "모니터대수", "엘리베이터TV수", "monitors"]),
+          );
+          const monthlyImpressions = toNumLoose(
+            getField(row, ["월송출횟수", "월 송출횟수", "월 송출 횟수", "월송출", "노출수(월)", "monthlyImpressions"]),
+          );
+          const monthlyFee = toNumLoose(
+            getField(row, ["월광고료", "월 광고료", "월 광고비", "월비용", "월요금", "month_fee", "monthlyFee"]),
+          );
+          const monthlyFeeY1 = toNumLoose(
+            getField(row, [
+              "1년 계약 시 월 광고료",
+              "1년계약시월광고료",
+              "연간월광고료",
+              "할인 월 광고료",
+              "연간_월광고료",
+              "monthlyFeeY1",
+            ]),
+          );
+          const costPerPlay = toNumLoose(getField(row, ["1회당 송출비용", "송출 1회당 비용", "costPerPlay"]));
+          const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
+          const imageUrl = getField(row, ["imageUrl", "image_url", "이미지", "썸네일", "thumbnail"]) || undefined;
 
           const sel: SelectedAptX = {
             rowKey,
@@ -688,25 +769,30 @@ export default function MapPage() {
             const pid = rowIdOf(row);
             if (!pid) return;
             (async () => {
-              const { data: detail, error: dErr } = await (supabase as any)
-                .rpc("get_public_place_detail", { p_place_id: pid });
+              const { data: detail, error: dErr } = await (supabase as any).rpc("get_public_place_detail", {
+                p_place_id: pid,
+              });
               if (!dErr && detail?.length) {
                 const d = detail[0];
-                setSelected((prev) => (prev && prev.rowKey === rowKey ? {
-                  ...prev,
-                  households:          d.households           ?? prev.households,
-                  residents:           d.residents            ?? prev.residents,
-                  monitors:            d.monitors             ?? prev.monitors,
-                  monthlyImpressions:  d.monthly_impressions  ?? prev.monthlyImpressions,
-                  costPerPlay:         d.cost_per_play        ?? prev.costPerPlay,
-                  hours:               d.hours                ?? prev.hours,
-                  address:             d.address              ?? prev.address,
-                  monthlyFee:          d.monthly_fee          ?? prev.monthlyFee,
-                  monthlyFeeY1:        d.monthly_fee_y1       ?? prev.monthlyFeeY1,
-                  lat:                 d.lat                  ?? prev.lat,
-                  lng:                 d.lng                  ?? prev.lng,
-                  imageUrl:            d.image_url            ?? prev.imageUrl,
-                } : prev));
+                setSelected((prev) =>
+                  prev && prev.rowKey === rowKey
+                    ? {
+                        ...prev,
+                        households: d.households ?? prev.households,
+                        residents: d.residents ?? prev.residents,
+                        monitors: d.monitors ?? prev.monitors,
+                        monthlyImpressions: d.monthly_impressions ?? prev.monthlyImpressions,
+                        costPerPlay: d.cost_per_play ?? prev.costPerPlay,
+                        hours: d.hours ?? prev.hours,
+                        address: d.address ?? prev.address,
+                        monthlyFee: d.monthly_fee ?? prev.monthlyFee,
+                        monthlyFeeY1: d.monthly_fee_y1 ?? prev.monthlyFeeY1,
+                        lat: d.lat ?? prev.lat,
+                        lng: d.lng ?? prev.lng,
+                        imageUrl: d.image_url ?? prev.imageUrl,
+                      }
+                    : prev,
+                );
               } else if (dErr) {
                 console.warn("[RPC] get_public_place_detail error:", dErr.message);
               }
@@ -759,9 +845,15 @@ export default function MapPage() {
 
   /* ---------- 반경 UI ---------- */
   function clearRadiusUI() {
-    try { radiusCircleRef.current?.setMap(null); } catch {}
-    try { radiusLabelRef.current?.setMap(null); } catch {}
-    try { searchPinRef.current?.setMap?.(null); } catch {}
+    try {
+      radiusCircleRef.current?.setMap(null);
+    } catch {}
+    try {
+      radiusLabelRef.current?.setMap(null);
+    } catch {}
+    try {
+      searchPinRef.current?.setMap?.(null);
+    } catch {}
     radiusCircleRef.current = null;
     radiusLabelRef.current = null;
     searchPinRef.current = null;
@@ -882,7 +974,8 @@ export default function MapPage() {
     places.keywordSearch(query, (results: any[], status: string) => {
       if (status !== kakao.maps.services.Status.OK || !results?.length) return;
       const first = results[0];
-      const lat = Number(first.y), lng = Number(first.x);
+      const lat = Number(first.y),
+        lng = Number(first.x);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
       const latlng = new kakao.maps.LatLng(lat, lng);
       mapObjRef.current.setLevel(4);
