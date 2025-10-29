@@ -2,29 +2,16 @@ import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
 /**
- * InquiriesPage
- * - 목록: 상태/유효성/담당자 인라인 수정 (유효성은 —/유효/무효의 tri-state, 기본 —)
- * - 서버사이드 검색/필터/페이지네이션
- * - 상세 드로어: inquiry_apartments → 없으면 cart_snapshot(items) fallback
- * - 드로어 우상단: CSV(엑셀) 내보내기 (메타 + 항목표 전부)
- * - NEW 뱃지: status='new'이며 아직 클릭 안 한 행에만 1회성 표시(브랜드명 좌측, 클릭 시 사라짐)
+ * InquiriesPage (관리자 전용)
+ * - 목록/검색/필터/페이지네이션
+ * - 인라인 수정: status, valid(—/유효/무효), assignee
+ * - 상세 드로어: inquiry_apartments 우선, 없으면 cart_snapshot(items) 폴백
  *
- * ✅ 컬럼 매핑(확정)
- *   유입경로: inquiry_kind
- *   브랜드명: company
- *   캠페인유형: campaign_type
- *   담당자명: customer_name
- *   연락처: phone
- *   이메일: email
- *   요청사항: memo
- *   진행상태: status
- *   단지명: apt_name
- *   상품명: product_name
+ * ⚠️ 중요
+ * - 이 페이지는 "세션이 로드되어 admin 확인이 끝난 뒤"에만 데이터를 읽습니다.
+ *   (admin 가드가 끝나기 전에 SELECT가 나가 401/403이 나는 문제를 방지)
  */
 
-/* =========================
- *  Types & Constants
- * ========================= */
 type InquiryKind = "SEAT" | "PACKAGE";
 type InquiryStatus = "new" | "in_progress" | "done" | "canceled";
 type ValidTri = "-" | "valid" | "invalid";
@@ -32,43 +19,42 @@ type ValidTri = "-" | "valid" | "invalid";
 type InquiryRow = {
   id: string;
   created_at: string;
-  // 리스트 표시/편집 필드
   company?: string | null;
   campaign_type?: string | null;
   status?: InquiryStatus | null;
-  valid?: boolean | null; // null=—(미지정)
+  valid?: boolean | null;
   assignee?: string | null;
   inquiry_kind?: InquiryKind | null;
-  // 상세 표시 필드
+
   customer_name?: string | null;
   phone?: string | null;
   email?: string | null;
-  memo?: string | null; // 요청사항
+  memo?: string | null;
   cart_snapshot?: any;
 };
 
 const STATUS_OPTIONS: { value: InquiryStatus; label: string }[] = [
-  { value: "new",         label: "신규" },
+  { value: "new", label: "신규" },
   { value: "in_progress", label: "진행중" },
-  { value: "done",        label: "완료" },
-  { value: "canceled",    label: "취소" },
+  { value: "done", label: "완료" },
+  { value: "canceled", label: "취소" },
 ];
 
 const SOURCE_OPTIONS: { value: "all" | InquiryKind; label: string }[] = [
-  { value: "all",     label: "전체" },
-  { value: "SEAT",    label: "SEAT" },
+  { value: "all", label: "전체" },
+  { value: "SEAT", label: "SEAT" },
   { value: "PACKAGE", label: "PACKAGE" },
 ];
 
 const VALIDITY_OPTIONS: { value: ValidTri; label: string }[] = [
-  { value: "-",       label: "—" },
-  { value: "valid",   label: "유효" },
+  { value: "-", label: "—" },
+  { value: "valid", label: "유효" },
   { value: "invalid", label: "무효" },
 ];
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 
-/** 실제 DB 컬럼 키(매핑 상수) */
+/** DB 컬럼 매핑 */
 const COL = {
   id: "id",
   createdAt: "created_at",
@@ -85,10 +71,7 @@ const COL = {
   cartSnapshot: "cart_snapshot",
 } as const;
 
-const TBL = {
-  main: "inquiries",
-  apartments: "inquiry_apartments",
-} as const;
+const TBL = { main: "inquiries", apartments: "inquiry_apartments" } as const;
 
 const APT_COL = {
   inquiryId: "inquiry_id",
@@ -97,10 +80,9 @@ const APT_COL = {
 } as const;
 
 /* =========================
- *  NEW 배지 1회성 관리 (localStorage)
+ *  NEW 배지 1회성 관리
  * ========================= */
 const SEEN_KEY = "inquiries_seen_v1";
-
 function getSeenSet(): Set<string> {
   if (typeof window === "undefined") return new Set();
   try {
@@ -110,7 +92,6 @@ function getSeenSet(): Set<string> {
     return new Set();
   }
 }
-
 function addSeen(id: string) {
   if (typeof window === "undefined") return;
   const set = getSeenSet();
@@ -124,12 +105,16 @@ function addSeen(id: string) {
  *  Page
  * ========================= */
 const InquiriesPage: React.FC = () => {
+  // ----- admin 가드 준비 상태 -----
+  const [sessionReady, setSessionReady] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  // 목록 상태
   const [rows, setRows] = useState<InquiryRow[]>([]);
   const [selected, setSelected] = useState<InquiryRow | null>(null);
 
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] =
-    useState<(typeof PAGE_SIZE_OPTIONS)[number]>(20);
+  const [pageSize, setPageSize] = useState<(typeof PAGE_SIZE_OPTIONS)[number]>(20);
   const [total, setTotal] = useState(0);
 
   const [query, setQuery] = useState("");
@@ -139,22 +124,40 @@ const InquiriesPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // NEW 배지(1회성) 체크용
   const [seenIds, setSeenIds] = useState<Set<string>>(new Set());
-  useEffect(() => {
-    setSeenIds(getSeenSet());
-  }, []);
+  useEffect(() => setSeenIds(getSeenSet()), []);
 
   const { fromIdx, toIdx } = useMemo(() => {
     const fromIdx = (page - 1) * pageSize;
-    const toIdx = fromIdx + pageSize - 1;
-    return { fromIdx, toIdx };
+    return { fromIdx, toIdx: fromIdx + pageSize - 1 };
   }, [page, pageSize]);
 
-  /* -------------------------
-   * 서버사이드 로드
-   * ------------------------- */
+  // ----- 세션/role 확인 (여기서도 한 번 더 가드) -----
   useEffect(() => {
+    let mounted = true;
+    const run = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const role = (session?.user as any)?.app_metadata?.role;
+      if (mounted) {
+        setIsAdmin(role === "admin");
+        setSessionReady(true);
+      }
+    };
+    run();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      const role = (session?.user as any)?.app_metadata?.role;
+      setIsAdmin(role === "admin");
+      setSessionReady(true);
+    });
+
+    return () => sub?.subscription?.unsubscribe?.();
+  }, []);
+
+  // ----- 서버사이드 로드 -----
+  useEffect(() => {
+    if (!sessionReady || !isAdmin) return; // ✅ admin 확인 전에는 절대 SELECT 안 보냄
+
     let ignore = false;
     const load = async () => {
       setLoading(true);
@@ -200,8 +203,11 @@ const InquiriesPage: React.FC = () => {
           setTotal(typeof count === "number" ? count : mapped.length);
         }
       } catch (e: any) {
-        if (!ignore) setErr(e?.message || "데이터 로드 중 오류가 발생했습니다.");
-        console.error("[InquiriesPage] load error:", e);
+        if (!ignore) {
+          const msg = e?.message || "데이터 로드 중 오류가 발생했습니다.";
+          setErr(msg);
+          console.error("[InquiriesPage] load error:", e);
+        }
       } finally {
         if (!ignore) setLoading(false);
       }
@@ -210,14 +216,31 @@ const InquiriesPage: React.FC = () => {
     return () => {
       ignore = true;
     };
-  }, [page, pageSize, query, status, sourceType, fromIdx, toIdx]);
+  }, [sessionReady, isAdmin, page, pageSize, query, status, sourceType, fromIdx, toIdx]);
 
-  /* -------------------------
-   * 렌더
-   * ------------------------- */
+  // ----- 렌더 -----
+  if (!sessionReady) {
+    return (
+      <div className="p-6">
+        <div className="rounded-md border bg-white p-4 text-sm text-gray-500">
+          관리자 세션 확인 중…
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="p-6">
+        <div className="rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          관리자 권한이 없습니다.
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="p-6 space-y-6">
-      {/* 상단 문구 제거, 바로 타이틀 */}
       <h2 className="text-2xl font-bold">문의상세 관리</h2>
 
       {/* 필터 바 */}
@@ -225,39 +248,26 @@ const InquiriesPage: React.FC = () => {
         <input
           placeholder="브랜드/캠페인/담당자(광고주) 검색"
           value={query}
-          onChange={(e) => {
-            setPage(1);
-            setQuery(e.target.value);
-          }}
+          onChange={(e) => { setPage(1); setQuery(e.target.value); }}
           className="h-9 w-64 px-3 rounded-md border text-sm"
         />
         <select
           value={status}
-          onChange={(e) => {
-            setPage(1);
-            setStatus(e.target.value as any);
-          }}
+          onChange={(e) => { setPage(1); setStatus(e.target.value as any); }}
           className="h-9 px-2 rounded-md border text-sm"
         >
           <option value="all">전체 상태</option>
           {STATUS_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
+            <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
         <select
           value={sourceType}
-          onChange={(e) => {
-            setPage(1);
-            setSourceType(e.target.value as any);
-          }}
+          onChange={(e) => { setPage(1); setSourceType(e.target.value as any); }}
           className="h-9 px-2 rounded-md border text-sm"
         >
           {SOURCE_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
+            <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
 
@@ -265,17 +275,10 @@ const InquiriesPage: React.FC = () => {
           <label className="text-sm text-gray-500">페이지당</label>
           <select
             value={pageSize}
-            onChange={(e) => {
-              setPage(1);
-              setPageSize(Number(e.target.value) as any);
-            }}
+            onChange={(e) => { setPage(1); setPageSize(Number(e.target.value) as any); }}
             className="h-9 px-2 rounded-md border text-sm"
           >
-            {PAGE_SIZE_OPTIONS.map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
+            {PAGE_SIZE_OPTIONS.map((n) => <option key={n} value={n}>{n}</option>)}
           </select>
           <button
             onClick={() => setPage(1)}
@@ -311,22 +314,15 @@ const InquiriesPage: React.FC = () => {
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr
-                  key={r.id}
-                  className="border-t border-gray-100 hover:bg-gray-50"
-                >
+                <tr key={r.id} className="border-t border-gray-100 hover:bg-gray-50">
                   <Td>{formatDateTime(r.created_at)}</Td>
-                  <Td className="text-center">
-                    <SourceBadge value={r.inquiry_kind} />
-                  </Td>
+                  <Td className="text-center"><SourceBadge value={r.inquiry_kind} /></Td>
 
-                  {/* 브랜드명 + NEW 뱃지(1회성) */}
+                  {/* 브랜드명 + NEW 배지 */}
                   <Td>
                     <div className="flex items-center gap-2">
-                      {(r.status === "new" && !seenIds.has(r.id)) && (
-                        <span className="text-[10px] uppercase font-semibold text-violet-600">
-                          new
-                        </span>
+                      {r.status === "new" && !seenIds.has(r.id) && (
+                        <span className="text-[10px] uppercase font-semibold text-violet-600">new</span>
                       )}
                       <button
                         className="text-left text-gray-900 hover:text-[#6C2DFF] font-medium"
@@ -343,23 +339,20 @@ const InquiriesPage: React.FC = () => {
 
                   <Td>{r.campaign_type || "—"}</Td>
 
-                  {/* 진행상황: 알록달록 pill select */}
+                  {/* 진행상황 인라인 수정 */}
                   <Td>
                     <select
                       value={r.status ?? "new"}
                       onChange={async (e) => {
-                        const sb: any = supabase;
                         const next = e.target.value as InquiryStatus;
-                        const { error } = await sb
+                        const { error } = await (supabase as any)
                           .from(TBL.main)
                           .update({ [COL.status]: next })
                           .eq(COL.id, r.id);
                         if (!error) {
-                          setRows((prev) =>
-                            prev.map((row) =>
-                              row.id === r.id ? { ...row, status: next } : row
-                            )
-                          );
+                          setRows((prev) => prev.map((row) =>
+                            row.id === r.id ? { ...row, status: next } : row
+                          ));
                         }
                       }}
                       className={
@@ -368,25 +361,22 @@ const InquiriesPage: React.FC = () => {
                       }
                     >
                       {STATUS_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
                       ))}
                     </select>
                   </Td>
 
-                  {/* 유효성: tri-state —/유효/무효 + 알록달록 */}
+                  {/* 유효성 인라인 수정 */}
                   <Td>
                     <select
                       value={validToTri(r.valid)}
                       onChange={async (e) => {
-                        const sb: any = supabase;
                         const v = e.target.value as ValidTri;
                         const payload =
                           v === "-" ? { [COL.valid]: null } :
                           v === "valid" ? { [COL.valid]: true } :
                           { [COL.valid]: false };
-                        const { error } = await sb
+                        const { error } = await (supabase as any)
                           .from(TBL.main)
                           .update(payload)
                           .eq(COL.id, r.id);
@@ -406,22 +396,19 @@ const InquiriesPage: React.FC = () => {
                       }
                     >
                       {VALIDITY_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </option>
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
                       ))}
                     </select>
                   </Td>
 
-                  {/* 담당자(영업담당자) 인라인 수정 */}
+                  {/* 담당자 인라인 수정 */}
                   <Td>
                     <input
                       type="text"
                       defaultValue={r.assignee || ""}
                       onBlur={async (e) => {
-                        const sb: any = supabase;
                         const val = e.target.value;
-                        const { error } = await sb
+                        const { error } = await (supabase as any)
                           .from(TBL.main)
                           .update({ [COL.assignee]: val || null })
                           .eq(COL.id, r.id);
@@ -442,7 +429,7 @@ const InquiriesPage: React.FC = () => {
           </table>
         </div>
 
-        {/* 하단 페이저 */}
+        {/* 페이징 */}
         <div className="flex items-center justify-between px-4 py-3 border-t bg-white">
           <div className="text-xs text-gray-500">
             총 {total.toLocaleString()}건 / {page}페이지
@@ -457,11 +444,7 @@ const InquiriesPage: React.FC = () => {
             </button>
             <button
               className="h-8 px-3 rounded-md border text-sm disabled:opacity-50"
-              onClick={() =>
-                setPage((p) =>
-                  p * pageSize < Math.max(1, total) ? p + 1 : p
-                )
-              }
+              onClick={() => setPage((p) => (p * pageSize < Math.max(1, total) ? p + 1 : p))}
               disabled={loading || page * pageSize >= Math.max(1, total)}
             >
               다음
@@ -471,12 +454,7 @@ const InquiriesPage: React.FC = () => {
       </section>
 
       {/* 상세 드로어 */}
-      {selected && (
-        <DetailDrawer
-          row={selected}
-          onClose={() => setSelected(null)}
-        />
-      )}
+      {selected && <DetailDrawer row={selected} onClose={() => setSelected(null)} />}
     </div>
   );
 };
@@ -486,13 +464,8 @@ export default InquiriesPage;
 /* =========================
  *  Detail Drawer
  * ========================= */
-const DetailDrawer: React.FC<{
-  row: InquiryRow;
-  onClose: () => void;
-}> = ({ row, onClose }) => {
-  const [aptRows, setAptRows] = useState<
-    { apt_name: string; product_name: string }[]
-  >([]);
+const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row, onClose }) => {
+  const [aptRows, setAptRows] = useState<{ apt_name: string; product_name: string }[]>([]);
   const [aptLoading, setAptLoading] = useState(false);
 
   // inquiry_apartments 조회
@@ -501,25 +474,20 @@ const DetailDrawer: React.FC<{
     (async () => {
       setAptLoading(true);
       try {
-        const sb: any = supabase;
-        const { data, error } = await sb
+        const { data, error } = await (supabase as any)
           .from(TBL.apartments)
           .select(`${APT_COL.aptName}, ${APT_COL.productName}`)
           .eq(APT_COL.inquiryId, row.id);
 
-        if (!ignore) {
-          setAptRows(error ? [] : ((data as any) ?? []));
-        }
+        if (!ignore) setAptRows(error ? [] : ((data as any) ?? []));
       } finally {
         if (!ignore) setAptLoading(false);
       }
     })();
-    return () => {
-      ignore = true;
-    };
+    return () => { ignore = true; };
   }, [row.id]);
 
-  // cart_snapshot → [단지명/개월/상품명] 세트 (폭넓은 폴백)
+  // cart_snapshot 폴백
   const snapshotSets = useMemo(() => {
     const items = (row as any)?.cart_snapshot?.items;
     if (!Array.isArray(items)) return [];
@@ -538,29 +506,28 @@ const DetailDrawer: React.FC<{
     }));
   }, [row]);
 
-  // apartments 결과가 있으면 우선 사용하되, months는 snapshot과 이름 매칭해 보강
-  const listToRender: { apt_name: string; months: number | null; product_name: string }[] =
-    useMemo(() => {
-      if (aptRows.length === 0 && snapshotSets.length > 0) return snapshotSets;
+  // 표시 리스트
+  const listToRender: { apt_name: string; months: number | null; product_name: string }[] = useMemo(() => {
+    if (aptRows.length === 0 && snapshotSets.length > 0) return snapshotSets;
 
-      if (aptRows.length > 0) {
-        return aptRows.map((ap) => {
-          const found = snapshotSets.find(
-            (s) =>
-              (s.apt_name || "").trim() === (ap.apt_name || "").trim() &&
-              (s.product_name || "").trim() === (ap.product_name || "").trim()
-          );
-          return {
-            apt_name: ap.apt_name || "",
-            product_name: ap.product_name || "",
-            months: found ? found.months : null,
-          };
-        });
-      }
-      return [];
-    }, [aptRows, snapshotSets]);
+    if (aptRows.length > 0) {
+      return aptRows.map((ap) => {
+        const found = snapshotSets.find(
+          (s) =>
+            (s.apt_name || "").trim() === (ap.apt_name || "").trim() &&
+            (s.product_name || "").trim() === (ap.product_name || "").trim()
+        );
+        return {
+          apt_name: ap.apt_name || "",
+          product_name: ap.product_name || "",
+          months: found ? found.months : null,
+        };
+      });
+    }
+    return [];
+  }, [aptRows, snapshotSets]);
 
-  // CSV(엑셀) 내보내기: 메타 + 빈줄 + 항목 표
+  // CSV 내보내기
   function exportCSV() {
     const metaPairs: [string, any][] = [
       ["브랜드", row.company ?? ""],
@@ -579,12 +546,11 @@ const DetailDrawer: React.FC<{
     ].join("\n");
 
     const itemsHeader = ["단지명", "광고기간(개월)", "상품명"].join(",");
-    const itemsLines = listToRender.map((r) =>
-      [safeCSV(r.apt_name), safeCSV(r.months ?? ""), safeCSV(r.product_name)].join(",")
-    ).join("\n");
+    const itemsLines = listToRender
+      .map((r) => [safeCSV(r.apt_name), safeCSV(r.months ?? ""), safeCSV(r.product_name)].join(","))
+      .join("\n");
 
     const full = metaLines + "\n\n" + itemsHeader + "\n" + itemsLines;
-
     const blob = new Blob(["\uFEFF" + full], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -671,29 +637,18 @@ const DetailDrawer: React.FC<{
 /* =========================
  *  Small Components & Utils
  * ========================= */
-const InfoItem: React.FC<{ label: string; value: React.ReactNode }> = ({
-  label,
-  value,
-}) => (
+const InfoItem: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
   <div>
     <div className="text-xs text-gray-500">{label}</div>
     <div className="mt-0.5 text-sm text-gray-800">{value}</div>
   </div>
 );
 
-const Th: React.FC<React.PropsWithChildren<{ className?: string }>> = ({
-  className,
-  children,
-}) => (
-  <th className={"px-4 py-3 text-left font-medium " + (className ?? "")}>
-    {children}
-  </th>
+const Th: React.FC<React.PropsWithChildren<{ className?: string }>> = ({ className, children }) => (
+  <th className={"px-4 py-3 text-left font-medium " + (className ?? "")}>{children}</th>
 );
 
-const Td: React.FC<React.PropsWithChildren<{ className?: string }>> = ({
-  className,
-  children,
-}) => (
+const Td: React.FC<React.PropsWithChildren<{ className?: string }>> = ({ className, children }) => (
   <td className={"px-4 py-3 align-middle " + (className ?? "")}>{children}</td>
 );
 
@@ -708,9 +663,7 @@ const SourceBadge: React.FC<{ value?: InquiryKind | null }> = ({ value }) => {
     <span
       className={
         "inline-flex items-center px-2 py-0.5 text-xs rounded-full " +
-        (value === "SEAT"
-          ? "bg-blue-50 text-blue-700"
-          : "bg-violet-50 text-violet-700")
+        (value === "SEAT" ? "bg-blue-50 text-blue-700" : "bg-violet-50 text-violet-700")
       }
     >
       {value}
@@ -732,36 +685,31 @@ function formatDateTime(iso: string) {
   }
 }
 
-/** CSV 안전 변환 */
 function safeCSV(val: any) {
   const s = String(val ?? "");
-  if (/[,"\n]/.test(s)) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
+  if (/[,"\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
   return s;
 }
 
-/** 유효성: boolean|null → tri-state */
 function validToTri(v: boolean | null | undefined): ValidTri {
   if (v === true) return "valid";
   if (v === false) return "invalid";
   return "-";
 }
 
-/** 상태/유효성 pill 스타일 */
 function pillClassForStatus(v: InquiryStatus): string {
   switch (v) {
-    case "new":         return "bg-violet-50 text-violet-700";
+    case "new": return "bg-violet-50 text-violet-700";
     case "in_progress": return "bg-blue-50 text-blue-700";
-    case "done":        return "bg-emerald-50 text-emerald-700";
-    case "canceled":    return "bg-gray-200 text-gray-700";
-    default:            return "bg-gray-100 text-gray-600";
+    case "done": return "bg-emerald-50 text-emerald-700";
+    case "canceled": return "bg-gray-200 text-gray-700";
+    default: return "bg-gray-100 text-gray-600";
   }
 }
 function pillClassForValid(v: ValidTri): string {
   switch (v) {
-    case "valid":   return "bg-emerald-50 text-emerald-700";
+    case "valid": return "bg-emerald-50 text-emerald-700";
     case "invalid": return "bg-rose-50 text-rose-700";
-    default:        return "bg-gray-100 text-gray-600";
+    default: return "bg-gray-100 text-gray-600";
   }
 }
