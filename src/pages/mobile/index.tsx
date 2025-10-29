@@ -1,4 +1,3 @@
-// src/pages/mobile/index.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
@@ -6,7 +5,9 @@ import BottomSheet from "@/components/mobile/BottomSheet";
 import DetailPanel from "@/components/mobile/DetailPanel";
 import CartPanel from "@/components/mobile/CartPanel";
 import QuotePanel from "@/components/mobile/QuotePanel";
-import MobileInquirySheet, { type Prefill, type InquiryKind } from "@/components/mobile/MobileInquirySheet";
+// ✅ 타입만 재사용(컴포넌트는 공용 InquiryModal 사용)
+import { type Prefill, type InquiryKind } from "@/components/mobile/MobileInquirySheet";
+import InquiryModal from "@/components/InquiryModal";
 
 import { useKakaoLoader } from "@/hooks/useKakaoLoader";
 import { useKakaoMap } from "@/hooks/useKakaoMap";
@@ -565,8 +566,8 @@ export default function MapMobilePageV2() {
         />
       )}
 
-      {/* 모바일 문의 시트 */}
-      <MobileInquirySheet
+      {/* ✅ 모바일 문의: 공용 InquiryModal 사용 (UI 변경 없음) */}
+      <InquiryModal
         open={inqOpen}
         mode={inqMode}
         prefill={inqPrefill}
