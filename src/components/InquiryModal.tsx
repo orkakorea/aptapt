@@ -88,6 +88,12 @@ function persistReceiptLocal(token: string, data: any) {
   } catch {}
 }
 
+// 간단 이메일 형식 체크(서버의 CHECK와 일치할 필요는 없고 UX 보조용)
+const emailOk = (v: string) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+
+// 서버 CHECK(phone ~ '^[0-9]{9,12}$') 만족 보조
+const phoneOk = (digits: string) => digits.length >= 9 && digits.length <= 12;
+
 export default function InquiryModal({ open, mode, prefill, onClose, sourcePage, onSubmitted }: Props) {
   // ===== 공통 입력 =====
   const [brand, setBrand] = useState("");
@@ -177,6 +183,8 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
     if (!required(campaignType)) return setErrorMsg("캠페인유형을 선택해 주세요.");
     if (!required(managerName)) return setErrorMsg("담당자명을 입력해 주세요.");
     if (!required(phone)) return setErrorMsg("연락처를 입력해 주세요.");
+    if (!phoneOk(phone)) return setErrorMsg("연락처는 숫자 9~12자리(하이픈 없이)로 입력해 주세요.");
+    if (!emailOk(email)) return setErrorMsg("이메일 형식을 확인해 주세요.");
     if (!agreePrivacy) return setErrorMsg("개인정보 수집·이용 동의를 체크해 주세요.");
 
     try {
@@ -194,7 +202,7 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
         memo: clean(requestText),
 
         source_page: page,
-        utm,
+        utm: utm ?? undefined,
 
         // SEAT일 때만 단지/상품 정보 포함
         apt_id: isSeat ? clean(prefill?.apt_id) : undefined,
