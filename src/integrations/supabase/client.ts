@@ -1,34 +1,48 @@
 // src/integrations/supabase/client.ts
-// Single source of truth for Supabase client (HMR-safe, no duplicate GoTrueClient)
+// Single source of truth for Supabase client (HMR-safe)
 
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from './types';
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "./types";
 
-// ⚠️ 보안: 하드코딩된 키/URL 절대 금지. 환경변수에서만 읽습니다.
+// ────────────────────────────────────────────────────────────────
+// 반드시 .env에 아래 3개가 있어야 합니다.
+// VITE_SUPABASE_URL="https://<project>.supabase.co"
+// VITE_SUPABASE_PUBLISHABLE_KEY="sb_publishable_..."
+// VITE_SUPABASE_ANON_KEY="eyJ..."   ← 익명 JWT(길고 점 2개 포함)
+// ────────────────────────────────────────────────────────────────
 const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+const publishable = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined; // sb_publishable_...
+const anonJwt = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined; // eyJ... (JWT)
 
-if (!url || !anon) {
-  // 개발/배포 환경변수 누락 시 바로 원인 파악 가능하게 에러 처리
+if (!url || !publishable || !anonJwt) {
   const missing = [
-    !url ? 'VITE_SUPABASE_URL' : null,
-    !anon ? 'VITE_SUPABASE_ANON_KEY' : null,
-  ].filter(Boolean).join(', ');
+    !url ? "VITE_SUPABASE_URL" : null,
+    !publishable ? "VITE_SUPABASE_PUBLISHABLE_KEY" : null,
+    !anonJwt ? "VITE_SUPABASE_ANON_KEY" : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
   throw new Error(`[supabase/client] Missing required env: ${missing}`);
 }
 
-// ---- HMR(개발/미리보기)에서 중복 생성을 막기 위한 전역 가드 ----
+// HMR-safe 전역 가드
 declare global {
   // eslint-disable-next-line no-var
   var __SB_CLIENT__: SupabaseClient<Database> | undefined;
 }
 
-// storageKey 를 프로젝트 전용으로 지정 (같은 도메인의 다른 앱과 충돌 방지)
-const AUTH_STORAGE_KEY = 'aptapt-auth';
+const AUTH_STORAGE_KEY = "aptapt-auth";
 
 export const supabase: SupabaseClient<Database> =
   globalThis.__SB_CLIENT__ ??
-  (globalThis.__SB_CLIENT__ = createClient<Database>(url, anon, {
+  (globalThis.__SB_CLIENT__ = createClient<Database>(url, publishable!, {
+    // ⚠️ 핵심: Authorization에는 익명 JWT(eyJ...)를 강제
+    global: {
+      headers: {
+        apikey: publishable!, // Publishable 키(신규)
+        Authorization: `Bearer ${anonJwt!}`, // JWT(익명). 이게 있어야 RLS가 정상 동작
+      },
+    },
     auth: {
       storage: localStorage,
       persistSession: true,
@@ -37,5 +51,7 @@ export const supabase: SupabaseClient<Database> =
     },
   }));
 
-// 디버그/점검 편의를 위해 전역에 노출(운영 문제 없으면 유지)
-;(window as any).supabase = supabase;
+// 디버깅 편의
+(window as any).supabase = supabase;
+
+export default supabase;
