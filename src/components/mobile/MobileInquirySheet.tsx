@@ -1,4 +1,3 @@
-// src/components/mobile/MobileInquirySheet.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -32,7 +31,7 @@ export default function MobileInquirySheet({
   onSubmitted?: (id: string) => void;
 }) {
   const PROGRESS_BG = "#E9E1FF"; // 옅은 보라(트랙)
-  const PROGRESS_FG = "#7C3AED"; // 진행색(스크린샷 느낌)
+  const PROGRESS_FG = "#7C3AED"; // 진행색
 
   /* -----------------------------
    * form state (2페이지로 분리)
@@ -201,32 +200,39 @@ export default function MobileInquirySheet({
         step_ui: "mobile-2step",
       };
 
+      // ✅ 관리자용 매핑 컬럼은 상위 컬럼으로도 저장(PC와 동일)
       const payload: any = {
-        inquiry_kind: mode,
-        status: "new",
+        inquiry_kind: mode, // "SEAT" | "PACKAGE"
         customer_name: managerName || null,
         phone: phone || null,
         company: brand || null,
         email: email || null,
+        campaign_type: campaignType || null,
         memo: requestText || null,
+
         source_page: page,
         utm,
+
         // 구좌 전용 필드
         apt_id: mode === "SEAT" ? (prefill?.apt_id ?? null) : null,
         apt_name: mode === "SEAT" ? (prefill?.apt_name ?? null) : null,
         product_code: mode === "SEAT" ? (prefill?.product_code ?? null) : null,
         product_name: mode === "SEAT" ? (prefill?.product_name ?? null) : null,
         cart_snapshot: mode === "SEAT" ? (prefill?.cart_snapshot ?? null) : null,
+
         // 공통 부가
         extra,
       };
 
-      // ✅ 성공 시 ID를 부모로 전달 (외부 확인 모달에서 사용)
-      const { data, error } = await (supabase as any).from("inquiries").insert(payload).select("id").single();
+      // ✅ 핵심: SELECT를 수행하지 않도록 'minimal'로 삽입 (RLS SELECT 차단과 충돌 방지)
+      const { error } = await (supabase as any)
+        .from("inquiries")
+        .insert(payload, { returning: "minimal" });
+
       if (error) throw error;
 
-      onSubmitted?.(String(data?.id ?? "ok"));
-      // 완료 문구/자동 닫기 없음 — 외부에서 처리
+      onSubmitted?.("ok"); // 모바일에선 id 조회(SELECT)를 하지 않음
+      // 외부에서 성공 후 UI 처리
     } catch (err: any) {
       setErrorMsg(err?.message || "제출 중 오류가 발생했습니다.");
     } finally {
@@ -291,7 +297,7 @@ export default function MobileInquirySheet({
             </button>
           </div>
 
-          {/* progress (상단 얇은 보라 막대 + 가운데 캡) */}
+          {/* progress */}
           <div className="px-5 sm:px-6 pt-3">
             <div className="mx-auto h-1.5 w-full rounded-full" style={{ backgroundColor: PROGRESS_BG }}>
               <div
@@ -501,7 +507,7 @@ export default function MobileInquirySheet({
                   이전
                 </button>
 
-                {/* 하단 안내문구(스크린샷 문구) */}
+                {/* 하단 안내문구 */}
                 <div className={`${NOTE} mt-2`}>※ 계약 시점의 운영사 정책에 따라 단가가 변경 될 수 있습니다.</div>
               </form>
             )}
