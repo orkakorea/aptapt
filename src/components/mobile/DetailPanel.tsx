@@ -1,127 +1,130 @@
-import React, { useMemo, useState } from "react";
+import React from "react";
 import type { SelectedApt } from "@/core/types";
+import { fmtNum, fmtWon } from "@/core/utils";
 
-/** 숫자 포맷 */
-const fmtNum = (v?: number | null) => (typeof v === "number" && Number.isFinite(v) ? v.toLocaleString() : "-");
-const fmtWon = (v?: number | null) => (typeof v === "number" && Number.isFinite(v) ? `${v.toLocaleString()}원` : "-");
-
-/** 상품 이미지 폴백 */
-function fallbackProductImage(productName?: string) {
-  const p = (productName || "").toLowerCase().replace(/\s+/g, "");
-  if (p.includes("elevat")) return "/products/elevator-tv.png";
-  if (p.includes("townbord") || p.includes("townboard")) {
-    if (p.includes("_l") || p.endsWith("l")) return "/products/townbord-b.png";
-    return "/products/townbord-a.png";
-  }
-  if (p.includes("media")) return "/products/media-meet-a.png";
-  if (p.includes("space")) return "/products/space-living.png";
-  if (p.includes("hipost") || (p.includes("hi") && p.includes("post"))) return "/products/hi-post.png";
-  return "/placeholder.svg";
-}
+const COLOR_PRIMARY = "#6F4BF2";
+const COLOR_PRIMARY_LIGHT = "#EEE8FF";
+const COLOR_GRAY_CARD = "#F4F6FA";
 
 export default function DetailPanel({
   selected,
   inCart,
   onToggleCart,
+  onClose,
 }: {
   selected: SelectedApt | null;
   inCart: boolean;
   onToggleCart: () => void;
+  onClose?: () => void;
 }) {
-  // ---------- 방어적 매핑 (이전 키/새 키 모두 지원) ----------
-  const aptName = (selected?.name as any) ?? (selected as any)?.aptName ?? (selected as any)?.name_kr ?? "미상";
+  if (!selected) {
+    return <div className="text-center text-sm text-gray-500 py-6">지도의 단지를 선택하세요.</div>;
+  }
 
-  const productName =
-    (selected?.productName as any) ?? (selected as any)?.product_name ?? (selected as any)?.product ?? "-";
-
-  const imagePrimary = (selected as any)?.imageUrl || (selected as any)?.image_url || undefined;
-
-  const [imgSrc, setImgSrc] = useState<string>(() => imagePrimary || fallbackProductImage(productName));
-  // 원본 이미지 실패 시 상품 폴백으로 한 번 더
-  const onImgError: React.ReactEventHandler<HTMLImageElement> = () => {
-    const fb = fallbackProductImage(productName);
-    if (imgSrc !== fb) setImgSrc(fb);
-  };
-
-  const subline = useMemo(() => {
-    const hh = fmtNum(selected?.households);
-    const rs = fmtNum(selected?.residents);
-    // "세대 · 명" 형식
-    const a = hh !== "-" ? `${hh}세대` : "- 세대";
-    const b = rs !== "-" ? `${rs}명` : "- 명";
-    return `${a} · ${b}`;
-  }, [selected]);
+  const y1Monthly =
+    typeof selected.monthlyFeeY1 === "number" && selected.monthlyFeeY1 > 0
+      ? selected.monthlyFeeY1
+      : Math.round((selected.monthlyFee ?? 0) * 0.7);
 
   return (
-    <div className="pb-4">
-      {/* 이미지 */}
-      <div className="w-full aspect-[16/9] rounded-xl overflow-hidden bg-gray-100">
-        <img
-          src={imgSrc}
-          alt={productName || "media"}
-          className="w-full h-full object-cover"
-          onError={onImgError}
-          loading="lazy"
-        />
+    <div className="space-y-3">
+      {/* 상단 이미지 */}
+      <div className="rounded-2xl overflow-hidden bg-gray-100 aspect-[4/3]">
+        {selected.imageUrl ? (
+          <img src={selected.imageUrl} alt={selected.name} className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-gray-400">이미지</div>
+        )}
       </div>
 
-      {/* 타이틀 */}
-      <div className="mt-4">
-        <div className="text-[18px] font-extrabold leading-tight">{aptName}</div>
-        <div className="text-[12px] text-gray-500 mt-1">{subline}</div>
-      </div>
-
-      {/* 가격 */}
-      <div className="mt-4 rounded-xl border bg-gray-50">
-        <div className="px-4 py-3 text-sm text-gray-500 border-b">월 광고료</div>
-        <div className="px-4 py-3 text-lg font-extrabold">
-          {fmtWon(selected?.monthlyFee)} <span className="text-xs font-normal text-gray-500">(VAT별도)</span>
+      {/* 타이틀 + 닫기(X) */}
+      <div className="flex items-start gap-3">
+        <div className="flex-1">
+          <div className="text-[20px] font-extrabold">{selected.name}</div>
+          <div className="text-sm text-gray-500">
+            {fmtNum(selected.households)} 세대 · {fmtNum(selected.residents)} 명
+          </div>
         </div>
+        {onClose && (
+          <button
+            onClick={onClose}
+            aria-label="닫기"
+            title="닫기"
+            className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center shrink-0"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+              <path d="M18.3 5.71a1 1 0 00-1.41 0L12 10.59 7.11 5.7A1 1 0 105.7 7.11L10.59 12l-4.9 4.89a1 1 0 101.41 1.42L12 13.41l4.89 4.9a1 1 0 001.42-1.42L13.41 12l4.9-4.89a1 1 0 000-1.4z" />
+            </svg>
+          </button>
+        )}
       </div>
 
-      {/* 1년 계약 월가 */}
-      <div className="mt-3 rounded-xl border">
-        <div className="px-4 py-3 rounded-xl bg-[#EEE8FF]">
-          <div className="text-xs text-gray-600">1년 계약 시 월 광고료</div>
-          <div className="text-[18px] font-extrabold">
-            {fmtWon(selected?.monthlyFeeY1)} <span className="text-xs font-normal text-gray-500">(VAT별도)</span>
+      {/* 가격 카드들 */}
+      <div className="space-y-2">
+        <div className="rounded-2xl px-4 py-3" style={{ backgroundColor: COLOR_GRAY_CARD }}>
+          <div className="text-sm text-gray-600">월 광고료</div>
+          <div className="text-[20px] font-extrabold">
+            {fmtWon(selected.monthlyFee)} <span className="text-xs text-gray-500">(VAT별도)</span>
+          </div>
+        </div>
+
+        <div
+          className="rounded-2xl px-4 py-3 border-2"
+          style={{ borderColor: COLOR_PRIMARY, backgroundColor: COLOR_PRIMARY_LIGHT }}
+        >
+          <div className="text-sm text-gray-700">1년 계약 시 월 광고료</div>
+          <div className="text-[20px] font-extrabold" style={{ color: COLOR_PRIMARY }}>
+            {fmtWon(y1Monthly)} <span className="text-xs text-gray-500">(VAT별도)</span>
           </div>
         </div>
       </div>
 
       {/* 담기 버튼 */}
-      <div className="mt-4">
+      <div className="pt-1">
         <button
+          className={`w-full h-12 rounded-2xl font-extrabold ${inCart ? "text-gray-700" : "text-white"}`}
+          style={{ backgroundColor: inCart ? "#E5E7EB" : COLOR_PRIMARY }}
+          aria-pressed={inCart}
           onClick={onToggleCart}
-          className={`w-full h-12 rounded-xl text-white font-semibold ${inCart ? "bg-gray-400" : ""}`}
-          style={{ backgroundColor: inCart ? undefined : "#6F4BF2" }}
         >
           {inCart ? "담기 취소" : "아파트 담기"}
         </button>
       </div>
 
-      {/* 상세정보 */}
-      <div className="mt-6 rounded-xl border overflow-hidden">
-        <div className="px-4 py-3 text-sm font-semibold border-b flex items-center justify-between">
-          <span>상세정보</span>
-          <span className="text-xs text-gray-500">{productName || "-"}</span>
+      {/* 상세정보 테이블 */}
+      <section className="mt-1">
+        <div className="mb-2 text-[15px] font-extrabold">상세정보</div>
+        <div className="rounded-2xl border overflow-hidden">
+          <table className="w-full text-sm">
+            <tbody className="[&_td]:px-4 [&_td]:py-3">
+              <InfoRow label="상품명">
+                <span style={{ color: COLOR_PRIMARY }} className="font-semibold">
+                  {selected.productName ?? "ELEVATOR TV"}
+                </span>
+              </InfoRow>
+              <InfoRow label="설치 위치" value={selected.installLocation ?? "-"} />
+              <InfoRow label="모니터 수량" value={`${fmtNum(selected.monitors)} 대`} />
+              <InfoRow label="월 송출횟수" value={`${fmtNum(selected.monthlyImpressions)} 회`} />
+              <InfoRow label="송출 1회당 비용" value={`${fmtNum(selected.costPerPlay)} 원`} />
+              <InfoRow label="운영 시간" value={selected.hours || "-"} />
+              <InfoRow label="주소">
+                <span className="whitespace-pre-line">{selected.address || "-"}</span>
+              </InfoRow>
+            </tbody>
+          </table>
         </div>
-        <DlRow label="설치 위치" value={(selected?.installLocation as any) ?? "-"} />
-        <DlRow label="모니터 수량" value={fmtNum(selected?.monitors)} />
-        <DlRow label="월 송출횟수" value={fmtNum(selected?.monthlyImpressions)} />
-        <DlRow label="송출 1회당 비용" value={fmtWon(selected?.costPerPlay ?? null)} />
-        <DlRow label="운영 시간" value={(selected?.hours as any) ?? "-"} />
-        <DlRow label="주소" value={(selected?.address as any) ?? "-"} />
-      </div>
+      </section>
     </div>
   );
 }
 
-function DlRow({ label, value }: { label: string; value: React.ReactNode }) {
+function InfoRow({ label, value, children }: { label: string; value?: React.ReactNode; children?: React.ReactNode }) {
   return (
-    <div className="px-4 py-3 border-b last:border-b-0 flex items-center">
-      <div className="w-28 shrink-0 text-[13px] text-gray-500">{label}</div>
-      <div className="flex-1 text-[13px]">{value ?? "-"}</div>
-    </div>
+    <tr className="border-b last:border-b-0">
+      {/* 라벨: 좌측 정렬 */}
+      <td className="text-gray-500 w-36 text-left">{label}</td>
+      {/* 값: 우측 정렬(숫자 정렬 깔끔하게 tabular-nums) */}
+      <td className="font-semibold text-right tabular-nums">{children ?? value ?? "-"}</td>
+    </tr>
   );
 }
