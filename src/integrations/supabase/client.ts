@@ -25,22 +25,24 @@ if (!url || !publishable || !anonJwt) {
   throw new Error(`[supabase/client] Missing required env: ${missing}`);
 }
 
-// HMR-safe 전역 가드
+// HMR-safe 전역 가드(+ 환경 변경 시 재생성)
 declare global {
   // eslint-disable-next-line no-var
-  var __SB_CLIENT__: SupabaseClient<Database> | undefined;
+  var __SB__: { client: SupabaseClient<Database>; stamp: string } | undefined;
 }
 
 const AUTH_STORAGE_KEY = "aptapt-auth";
+const STAMP = `${url}|${publishable}|${anonJwt}`;
 
-export const supabase: SupabaseClient<Database> =
-  globalThis.__SB_CLIENT__ ??
-  (globalThis.__SB_CLIENT__ = createClient<Database>(url, publishable!, {
-    // ⚠️ 핵심: Authorization에는 익명 JWT(eyJ...)를 강제
+function makeClient() {
+  // ✔ createClient의 key는 "anon JWT"를 넣는다.
+  //  - 이렇게 해야 Authorization이 세션(access token)로 자동 교체됨
+  //  - apikey는 아래 global.headers에 publishable을 강제 부착
+  return createClient<Database>(url!, anonJwt!, {
     global: {
       headers: {
-        apikey: publishable!, // Publishable 키(신규)
-        Authorization: `Bearer ${anonJwt!}`, // JWT(익명). 이게 있어야 RLS가 정상 동작
+        // 항상 apikey가 붙도록 강제 (프리뷰/번들 이슈 방지)
+        apikey: publishable!,
       },
     },
     auth: {
@@ -49,7 +51,17 @@ export const supabase: SupabaseClient<Database> =
       autoRefreshToken: true,
       storageKey: AUTH_STORAGE_KEY,
     },
-  }));
+  });
+}
+
+export const supabase: SupabaseClient<Database> =
+  globalThis.__SB__?.client && globalThis.__SB__?.stamp === STAMP
+    ? globalThis.__SB__!.client
+    : (() => {
+        const client = makeClient();
+        globalThis.__SB__ = { client, stamp: STAMP };
+        return client;
+      })();
 
 // 디버깅 편의
 (window as any).supabase = supabase;
