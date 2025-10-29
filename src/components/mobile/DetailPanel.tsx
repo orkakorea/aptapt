@@ -1,10 +1,32 @@
-import React from "react";
+import React, { useMemo, useState } from "react";
 import type { SelectedApt } from "@/core/types";
 import { fmtNum, fmtWon } from "@/core/utils";
 
 const COLOR_PRIMARY = "#6F4BF2";
 const COLOR_PRIMARY_LIGHT = "#EEE8FF";
 const COLOR_GRAY_CARD = "#F4F6FA";
+
+/** 상품 이미지 폴백 */
+function fallbackProductImage(productName?: string) {
+  const p = (productName || "").toLowerCase().replace(/\s+/g, "");
+  if (p.includes("elevat")) return "/products/elevator-tv.png";
+  if (p.includes("townbord") || p.includes("townboard")) {
+    if (p.includes("_l") || p.endsWith("l")) return "/products/townbord-b.png";
+    return "/products/townbord-a.png";
+  }
+  if (p.includes("media")) return "/products/media-meet-a.png";
+  if (p.includes("space")) return "/products/space-living.png";
+  if (p.includes("hipost") || (p.includes("hi") && p.includes("post"))) return "/products/hi-post.png";
+  return "/placeholder.svg";
+}
+
+/** 안전하게 필드 꺼내기(여러 이름 대응) */
+function getField(obj: any, keys: string[]) {
+  for (const k of keys) {
+    if (k in obj && obj[k] != null && obj[k] !== "") return obj[k];
+  }
+  return undefined;
+}
 
 export default function DetailPanel({
   selected,
@@ -21,29 +43,53 @@ export default function DetailPanel({
     return <div className="text-center text-sm text-gray-500 py-6">지도의 단지를 선택하세요.</div>;
   }
 
+  // ---- 방어적 매핑 (키 이름 다양성 대응) ---------------------------------
+  const displayedName: string =
+    (getField(selected as any, ["name", "aptName", "name_kr", "단지명"]) as string) || "미상";
+
+  const displayedProduct: string =
+    (getField(selected as any, ["productName", "product_name", "product", "상품명"]) as string) || "ELEVATOR TV";
+
+  const displayedInstallLoc: string = (getField(selected as any, ["installLocation", "설치위치"]) as string) || "-";
+
+  const displayedAddress: string = (getField(selected as any, ["address", "주소"]) as string) || "-";
+
+  const initialImg: string =
+    (getField(selected as any, ["imageUrl", "image_url", "이미지", "썸네일", "thumbnail"]) as string) ||
+    fallbackProductImage(displayedProduct);
+
+  const [imgSrc, setImgSrc] = useState<string>(initialImg);
+  const onImgError: React.ReactEventHandler<HTMLImageElement> = () => {
+    const fb = fallbackProductImage(displayedProduct);
+    if (imgSrc !== fb) setImgSrc(fb);
+  };
+
   const y1Monthly =
     typeof selected.monthlyFeeY1 === "number" && selected.monthlyFeeY1 > 0
       ? selected.monthlyFeeY1
       : Math.round((selected.monthlyFee ?? 0) * 0.7);
 
+  // 세대/거주 인원 보조 텍스트 (기존 UI 유지)
+  const subline = useMemo(() => {
+    return `${fmtNum(selected.households)} 세대 · ${fmtNum(selected.residents)} 명`;
+  }, [selected.households, selected.residents]);
+
   return (
     <div className="space-y-3">
-      {/* 상단 이미지 */}
+      {/* 상단 이미지 (UI 동일) */}
       <div className="rounded-2xl overflow-hidden bg-gray-100 aspect-[4/3]">
-        {selected.imageUrl ? (
-          <img src={selected.imageUrl} alt={selected.name} className="w-full h-full object-cover" />
+        {imgSrc ? (
+          <img src={imgSrc} alt={displayedName} className="w-full h-full object-cover" onError={onImgError} />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-gray-400">이미지</div>
         )}
       </div>
 
-      {/* 타이틀 + 닫기(X) */}
+      {/* 타이틀 + 닫기(X) (UI 동일) */}
       <div className="flex items-start gap-3">
         <div className="flex-1">
-          <div className="text-[20px] font-extrabold">{selected.name}</div>
-          <div className="text-sm text-gray-500">
-            {fmtNum(selected.households)} 세대 · {fmtNum(selected.residents)} 명
-          </div>
+          <div className="text-[20px] font-extrabold">{displayedName}</div>
+          <div className="text-sm text-gray-500">{subline}</div>
         </div>
         {onClose && (
           <button
@@ -59,7 +105,7 @@ export default function DetailPanel({
         )}
       </div>
 
-      {/* 가격 카드들 */}
+      {/* 가격 카드들 (UI 동일) */}
       <div className="space-y-2">
         <div className="rounded-2xl px-4 py-3" style={{ backgroundColor: COLOR_GRAY_CARD }}>
           <div className="text-sm text-gray-600">월 광고료</div>
@@ -79,7 +125,7 @@ export default function DetailPanel({
         </div>
       </div>
 
-      {/* 담기 버튼 */}
+      {/* 담기 버튼 (UI 동일) */}
       <div className="pt-1">
         <button
           className={`w-full h-12 rounded-2xl font-extrabold ${inCart ? "text-gray-700" : "text-white"}`}
@@ -91,7 +137,7 @@ export default function DetailPanel({
         </button>
       </div>
 
-      {/* 상세정보 테이블 */}
+      {/* 상세정보 테이블 (UI 동일, 데이터 매핑만 반영) */}
       <section className="mt-1">
         <div className="mb-2 text-[15px] font-extrabold">상세정보</div>
         <div className="rounded-2xl border overflow-hidden">
@@ -99,16 +145,16 @@ export default function DetailPanel({
             <tbody className="[&_td]:px-4 [&_td]:py-3">
               <InfoRow label="상품명">
                 <span style={{ color: COLOR_PRIMARY }} className="font-semibold">
-                  {selected.productName ?? "ELEVATOR TV"}
+                  {displayedProduct}
                 </span>
               </InfoRow>
-              <InfoRow label="설치 위치" value={selected.installLocation ?? "-"} />
+              <InfoRow label="설치 위치" value={displayedInstallLoc} />
               <InfoRow label="모니터 수량" value={`${fmtNum(selected.monitors)} 대`} />
               <InfoRow label="월 송출횟수" value={`${fmtNum(selected.monthlyImpressions)} 회`} />
               <InfoRow label="송출 1회당 비용" value={`${fmtNum(selected.costPerPlay)} 원`} />
               <InfoRow label="운영 시간" value={selected.hours || "-"} />
               <InfoRow label="주소">
-                <span className="whitespace-pre-line">{selected.address || "-"}</span>
+                <span className="whitespace-pre-line">{displayedAddress}</span>
               </InfoRow>
             </tbody>
           </table>
@@ -121,9 +167,7 @@ export default function DetailPanel({
 function InfoRow({ label, value, children }: { label: string; value?: React.ReactNode; children?: React.ReactNode }) {
   return (
     <tr className="border-b last:border-b-0">
-      {/* 라벨: 좌측 정렬 */}
       <td className="text-gray-500 w-36 text-left">{label}</td>
-      {/* 값: 우측 정렬(숫자 정렬 깔끔하게 tabular-nums) */}
       <td className="font-semibold text-right tabular-nums">{children ?? value ?? "-"}</td>
     </tr>
   );
