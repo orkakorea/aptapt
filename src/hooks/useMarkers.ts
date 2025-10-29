@@ -261,7 +261,7 @@ export default function useMarkers({
               mk.__detailVer = (mk.__detailVer || 0) + 1;
               const myVer = mk.__detailVer;
               try {
-                const { data, error } = await (supabase as any).rpc("get_public_place_detail", { place_id: pid });
+                const { data, error } = await (supabase as any).rpc("get_public_place_detail", { p_place_id: pid });
                 if (error) {
                   console.warn("[useMarkers] detail rpc error:", error.message);
                   return;
@@ -489,7 +489,7 @@ export default function useMarkers({
         mk.__detailVer = (mk.__detailVer || 0) + 1;
         const myVer = mk.__detailVer;
         try {
-          const { data, error } = await (supabase as any).rpc("get_public_place_detail", { place_id: pid });
+          const { data, error } = await (supabase as any).rpc("get_public_place_detail", { p_place_id: pid });
           if (error) {
             console.warn("[useMarkers] detail rpc error:", error.message);
             return;
