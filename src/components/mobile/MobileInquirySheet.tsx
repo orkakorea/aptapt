@@ -1,3 +1,4 @@
+// src/components/mobile/MobileInquirySheet.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -30,12 +31,9 @@ export default function MobileInquirySheet({
   sourcePage?: string;
   onSubmitted?: (id: string) => void;
 }) {
-  const PROGRESS_BG = "#E9E1FF"; // 옅은 보라(트랙)
-  const PROGRESS_FG = "#7C3AED"; // 진행색
+  const PROGRESS_BG = "#E9E1FF";
+  const PROGRESS_FG = "#7C3AED";
 
-  /* -----------------------------
-   * form state (2페이지로 분리)
-   * ----------------------------- */
   type CampaignType = "기업" | "공공" | "병원" | "소상공인" | "광고대행사" | "기타";
   const [step, setStep] = useState<1 | 2>(1);
 
@@ -56,7 +54,6 @@ export default function MobileInquirySheet({
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // 리셋: 모달 닫힐 때 초기화
   useEffect(() => {
     if (!open) {
       setStep(1);
@@ -75,9 +72,6 @@ export default function MobileInquirySheet({
     }
   }, [open]);
 
-  /* -----------------------------
-   * UX 유틸
-   * ----------------------------- */
   const page = useMemo(() => {
     if (sourcePage) return sourcePage;
     if (typeof window !== "undefined") return window.location.pathname;
@@ -100,12 +94,10 @@ export default function MobileInquirySheet({
     return has ? o : null;
   }
 
-  // 연락처: 숫자만
   function setPhoneDigits(v: string) {
     setPhone(v.replace(/\D/g, ""));
   }
 
-  /** cart_snapshot에서 총액 추출(좌석문의 요약용) */
   function pickCartTotal(snap: any): number | null {
     if (!snap) return null;
     const cand = [
@@ -133,7 +125,6 @@ export default function MobileInquirySheet({
     return null;
   }
 
-  /** 구좌(Seat) 요약 (2페이지 상단에만 표기) */
   const seatSummary = useMemo(() => {
     if (mode !== "SEAT") return null;
     const snap: any = prefill?.cart_snapshot || null;
@@ -144,7 +135,6 @@ export default function MobileInquirySheet({
       ? `${first?.apt_name ?? "-"}${items.length > 1 ? ` 외 ${items.length - 1}개 단지` : ""}`
       : prefill?.apt_name || "-";
 
-    // 상품명 라벨
     let productLabel = prefill?.product_name ?? prefill?.product_code ?? "-";
     if (items.length) {
       const names = new Set<string>();
@@ -156,7 +146,6 @@ export default function MobileInquirySheet({
       productLabel = names.size >= 2 ? `${firstName} 외` : firstName;
     }
 
-    // 기간 라벨
     const monthsSet = new Set<number>();
     items.forEach((i) => {
       const n = Number(i?.months ?? 0);
@@ -174,9 +163,6 @@ export default function MobileInquirySheet({
     return { aptName, productLabel, monthsLabel, totalWon };
   }, [mode, prefill]);
 
-  /* -----------------------------
-   * 진행 조건/제출
-   * ----------------------------- */
   const canNext = !!(brand.trim() && campaignType && managerName.trim() && phone.trim().length >= 8);
   const submitDisabled = submitting || !agreePrivacy;
 
@@ -200,39 +186,34 @@ export default function MobileInquirySheet({
         step_ui: "mobile-2step",
       };
 
-      // ✅ 관리자용 매핑 컬럼은 상위 컬럼으로도 저장(PC와 동일)
       const payload: any = {
-        inquiry_kind: mode, // "SEAT" | "PACKAGE"
+        inquiry_kind: mode,              // "SEAT" | "PACKAGE"
+        // status는 정책상 기본 'new'로 처리되므로 보낼 필요 없음
         customer_name: managerName || null,
         phone: phone || null,
         company: brand || null,
         email: email || null,
-        campaign_type: campaignType || null,
         memo: requestText || null,
-
         source_page: page,
         utm,
-
         // 구좌 전용 필드
         apt_id: mode === "SEAT" ? (prefill?.apt_id ?? null) : null,
         apt_name: mode === "SEAT" ? (prefill?.apt_name ?? null) : null,
         product_code: mode === "SEAT" ? (prefill?.product_code ?? null) : null,
         product_name: mode === "SEAT" ? (prefill?.product_name ?? null) : null,
         cart_snapshot: mode === "SEAT" ? (prefill?.cart_snapshot ?? null) : null,
-
-        // 공통 부가
+        // 부가
         extra,
       };
 
-      // ✅ 핵심: SELECT를 수행하지 않도록 'minimal'로 삽입 (RLS SELECT 차단과 충돌 방지)
+      // ✅ 중요: SELECT를 유발하지 않도록 'returning: minimal'
       const { error } = await (supabase as any)
         .from("inquiries")
         .insert(payload, { returning: "minimal" });
 
       if (error) throw error;
 
-      onSubmitted?.("ok"); // 모바일에선 id 조회(SELECT)를 하지 않음
-      // 외부에서 성공 후 UI 처리
+      onSubmitted?.("ok"); // id를 굳이 읽지 않음(보안정책상 SELECT 차단)
     } catch (err: any) {
       setErrorMsg(err?.message || "제출 중 오류가 발생했습니다.");
     } finally {
@@ -240,9 +221,6 @@ export default function MobileInquirySheet({
     }
   }
 
-  /* -----------------------------
-   * 스타일 프리셋
-   * ----------------------------- */
   const INPUT =
     "w-full rounded-xl border border-gray-200 px-4 py-3 outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white";
   const LABEL = "text-[13px] font-semibold text-gray-700 mb-1";
@@ -262,10 +240,7 @@ export default function MobileInquirySheet({
     </button>
   );
 
-  /* -----------------------------
-   * 렌더링
-   * ----------------------------- */
-  if (!open) return null; // ✅ 모든 훅 호출 이후에만 렌더를 막는다 (Hook 순서 보장)
+  if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-[1000]">
@@ -322,7 +297,6 @@ export default function MobileInquirySheet({
                 className="space-y-5"
               >
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* 브랜드명 */}
                   <div>
                     <div className={LABEL}>
                       브랜드명 <span className="text-red-500">*</span>
@@ -335,7 +309,6 @@ export default function MobileInquirySheet({
                     />
                   </div>
 
-                  {/* 캠페인유형 (네모 버튼 6개) */}
                   <div>
                     <div className={LABEL}>
                       캠페인유형 <span className="text-red-500">*</span>
@@ -350,7 +323,6 @@ export default function MobileInquirySheet({
                     </div>
                   </div>
 
-                  {/* 담당자명 */}
                   <div>
                     <div className={LABEL}>
                       담당자명 <span className="text-red-500">*</span>
@@ -363,7 +335,6 @@ export default function MobileInquirySheet({
                     />
                   </div>
 
-                  {/* 연락처 */}
                   <div>
                     <div className={LABEL}>
                       연락처 <span className="text-red-500">*</span>
@@ -377,7 +348,6 @@ export default function MobileInquirySheet({
                     />
                   </div>
 
-                  {/* 이메일 */}
                   <div>
                     <div className={LABEL}>이메일</div>
                     <input
@@ -388,7 +358,6 @@ export default function MobileInquirySheet({
                     />
                   </div>
 
-                  {/* 희망일 */}
                   <div>
                     <div className={LABEL}>광고 송출 예정(희망)일</div>
                     <input
@@ -412,7 +381,6 @@ export default function MobileInquirySheet({
               </form>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-5">
-                {/* (구좌) 요약 박스 – 선택 사항 */}
                 {seatSummary && (
                   <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
                     <div className="text-sm font-semibold mb-2">문의 내용</div>
@@ -442,7 +410,6 @@ export default function MobileInquirySheet({
                   </div>
                 )}
 
-                {/* 요청사항 */}
                 <div>
                   <div className={LABEL}>요청사항</div>
                   <textarea
@@ -453,7 +420,6 @@ export default function MobileInquirySheet({
                   />
                 </div>
 
-                {/* 프로모션 코드 */}
                 <div>
                   <div className={LABEL}>프로모션 코드</div>
                   <input
@@ -464,7 +430,6 @@ export default function MobileInquirySheet({
                   />
                 </div>
 
-                {/* 정책/동의 + 버튼 */}
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3 flex-wrap">
                     <button
@@ -488,9 +453,11 @@ export default function MobileInquirySheet({
 
                   <button
                     type="submit"
-                    disabled={submitDisabled}
+                    disabled={submitting || !agreePrivacy}
                     className={`rounded-xl px-5 py-3 text-white font-semibold ${
-                      submitDisabled ? "bg-violet-300 cursor-not-allowed" : "bg-violet-600 hover:bg-violet-700"
+                      submitting || !agreePrivacy
+                        ? "bg-violet-300 cursor-not-allowed"
+                        : "bg-violet-600 hover:bg-violet-700"
                     }`}
                   >
                     {submitting ? "전송 중..." : "문의 접수"}
@@ -507,7 +474,6 @@ export default function MobileInquirySheet({
                   이전
                 </button>
 
-                {/* 하단 안내문구 */}
                 <div className={`${NOTE} mt-2`}>※ 계약 시점의 운영사 정책에 따라 단가가 변경 될 수 있습니다.</div>
               </form>
             )}
@@ -515,7 +481,6 @@ export default function MobileInquirySheet({
         </div>
       </div>
 
-      {/* 정책 모달(간단) */}
       {policyOpen && (
         <div className="fixed inset-0 z-[1100]">
           <div className="absolute inset-0 bg-black/40" onClick={() => setPolicyOpen(false)} />
