@@ -1,3 +1,4 @@
+// src/pages/admin/DashboardPage.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -16,33 +17,21 @@ import {
 } from "recharts";
 
 /**
- * DashboardPage
- * - KPI 카드
- *   · 신규 광고문의 = 오늘 문의건
- *   · 미확인 = status='new'
- *   · 누적문의 = 전체 count
- *   · 누적 유효 문의 = valid=true
- *   · 누적 무효 문의 = valid=false
- *   · 진행중 = status='in_progress'
- *   · 완료건 = status='done'
- * - 월별 문의 추이: 최근 6개월 막대 그래프
- * - 유효/무효 문의 비율: 도넛 그래프
- * - 처리 상태 현황: 최근 항목 리스트(브랜드명 + 진행상황 + 담당자)
- * - 최근 7일 문의 추이: 라인 그래프
- *
- * Supabase 타입 정의가 없을 수 있어 any 캐스팅 사용
+ * Admin Dashboard
+ * - 쿼리는 "인증 + 어드민"일 때만 실행됨.
+ * - 비로그인(401) / 비어드민(권한거부)일 땐 DB 호출 자체를 막고 안내만 노출.
  */
 
 type InquiryStatus = "new" | "in_progress" | "done" | "canceled";
 
 type Kpis = {
   todayNew: number;
-  unread: number; // status=new
+  unread: number;
   total: number;
-  valid: number; // valid=true
-  invalid: number; // valid=false
-  inProgress: number; // status=in_progress
-  done: number; // status=done
+  valid: number;
+  invalid: number;
+  inProgress: number;
+  done: number;
 };
 
 type ChartMonthPoint = { month: string; count: number };
@@ -59,11 +48,15 @@ type StatusRow = {
 
 const MONTHS = ["1월","2월","3월","4월","5월","6월","7월","8월","9월","10월","11월","12월"];
 const WEEKDAYS = ["월","화","수","목","금","토","일"];
-const DONUT_COLORS = ["#10B981", "#F43F5E"]; // 유효, 무효
+const DONUT_COLORS = ["#10B981", "#F43F5E"];
 const BAR_COLOR = "#7C3AED";
 const LINE_COLOR = "#2563EB";
 
+type AuthState = "checking" | "no-session" | "not-admin" | "ok";
+
 const DashboardPage: React.FC = () => {
+  const [authState, setAuthState] = useState<AuthState>("checking");
+
   const [kpis, setKpis] = useState<Kpis | null>(null);
   const [monthly, setMonthly] = useState<ChartMonthPoint[]>([]);
   const [validDonut, setValidDonut] = useState<ChartDonutPoint[]>([]);
@@ -72,14 +65,82 @@ const DashboardPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
-  // 기간 기준
+  // 날짜 기준
   const now = new Date();
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1); // 이번 달 포함 6개월
+  const sixMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 5, 1);
   const sevenDaysAgo = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6);
 
+  /** 1) 인증/권한 게이트 */
   useEffect(() => {
+    let cancelled = false;
+
+    const gate = async () => {
+      setLoading(true);
+      setErr(null);
+
+      // 세션 확인
+      const { data: ses, error: sErr } = await supabase.auth.getSession();
+      if (sErr) {
+        if (!cancelled) {
+          setAuthState("no-session");
+          setErr("세션 확인 중 오류가 발생했습니다.");
+          setLoading(false);
+        }
+        return;
+      }
+      const session = ses?.session ?? null;
+      if (!session) {
+        if (!cancelled) {
+          setAuthState("no-session");
+          setLoading(false);
+        }
+        return;
+      }
+
+      // 어드민 권한 프로브: admin만 통과하는 SELECT(HEAD) 1회
+      const probe = await (supabase as any)
+        .from("inquiries")
+        .select("id", { count: "exact", head: true });
+
+      if (probe.error) {
+        if (!cancelled) {
+          setAuthState("not-admin");
+          setErr("어드민 권한이 필요합니다.");
+          setLoading(false);
+        }
+        return;
+      }
+
+      if (!cancelled) {
+        setAuthState("ok");
+        setLoading(false);
+      }
+    };
+
+    gate();
+
+    // 로그인 상태 변하면 다시 체크
+    const { data: sub } = supabase.auth.onAuthStateChange(() => {
+      setAuthState("checking");
+      setKpis(null);
+      setMonthly([]);
+      setValidDonut([]);
+      setLast7([]);
+      setStatusList([]);
+    });
+
+    return () => {
+      cancelled = true;
+      sub.subscription?.unsubscribe();
+    };
+  }, []);
+
+  /** 2) 실제 데이터 로딩 (어드민 통과 후) */
+  useEffect(() => {
+    if (authState !== "ok") return;
+
     let ignore = false;
     const run = async () => {
       setLoading(true);
@@ -87,7 +148,7 @@ const DashboardPage: React.FC = () => {
       try {
         const sb: any = supabase;
 
-        // ===== KPI 집계 (count 전용 HEAD 호출) =====
+        // ===== KPI (HEAD count) =====
         const [
           totalRes,
           todayNewRes,
@@ -117,7 +178,7 @@ const DashboardPage: React.FC = () => {
           done: doneRes.count ?? 0,
         };
 
-        // ===== 월별(최근 6개월) / 최근 7일 차트 원본 =====
+        // ===== 최근 6개월/7일 원본 =====
         const [{ data: sixM, error: e1 }, { data: sevenD, error: e2 }] = await Promise.all([
           sb.from("inquiries")
             .select("id, created_at")
@@ -128,9 +189,9 @@ const DashboardPage: React.FC = () => {
             .gte("created_at", toIso(sevenDaysAgo))
             .order("created_at", { ascending: true }),
         ]);
-        if (e1 || e2) throw e1 || e2;
+        if (e1 || e2) throw (e1 || e2);
 
-        // ===== 처리 상태 현황(최근 항목 12개) =====
+        // ===== 최근 항목 12 =====
         const { data: latest, error: e3 } = await sb
           .from("inquiries")
           .select("id, company, status, assignee, created_at")
@@ -145,7 +206,6 @@ const DashboardPage: React.FC = () => {
         (sixM || []).forEach((r: any) => {
           const d = new Date(r.created_at);
           const label = `${d.getFullYear()}.${MONTHS[d.getMonth()]}`;
-          if (!monthMap.has(label)) monthMap.set(label, 0);
           monthMap.set(label, (monthMap.get(label) || 0) + 1);
         });
         const monthSeries: ChartMonthPoint[] = labels6.map((m) => ({
@@ -153,19 +213,19 @@ const DashboardPage: React.FC = () => {
           count: monthMap.get(m) || 0,
         }));
 
-        // 유효/무효 도넛
+        // 도넛
         const validSeries: ChartDonutPoint[] = [
           { name: "유효", value: k.valid },
           { name: "무효", value: k.invalid },
         ];
 
-        // 최근 7일 라인
+        // 최근 7일
         const days = listLast7Days(now);
         const dayMap = new Map<string, number>();
         days.forEach((d) => dayMap.set(d, 0));
         (sevenD || []).forEach((r: any) => {
           const d = new Date(r.created_at);
-          const label = WEEKDAYS[(d.getDay() + 6) % 7]; // 월=0 … 일=6
+          const label = WEEKDAYS[(d.getDay() + 6) % 7];
           dayMap.set(label, (dayMap.get(label) || 0) + 1);
         });
         const daySeries: ChartDayPoint[] = days.map((d) => ({
@@ -188,111 +248,137 @@ const DashboardPage: React.FC = () => {
 
     run();
     return () => { ignore = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [authState]);
+
+  /** ===== 렌더 ===== */
+  // 인증/권한 안내 카드 (UI 변경 최소화: 본문 위에 경고만 표시)
+  const gateNotice = useMemo(() => {
+    if (authState === "checking") return null;
+    if (authState === "no-session") {
+      return (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          관리자 페이지입니다. 먼저 로그인해 주세요. (로그인 후 새로고침)
+        </div>
+      );
+    }
+    if (authState === "not-admin") {
+      return (
+        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          어드민 권한이 없어 조회할 수 없습니다.
+        </div>
+      );
+    }
+    return null;
+  }, [authState]);
 
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold">대시보드 개요</h2>
       <p className="text-sm text-gray-500">광고 문의 현황 및 통계 정보</p>
 
-      {/* KPI 카드 (알록달록) */}
-      <section className="grid gap-4 md:grid-cols-3 xl:grid-cols-4">
-        <ColoredStat title="신규 광고문의" value={kpis?.todayNew} hint="오늘 접수" color="violet" />
-        <ColoredStat title="미확인" value={kpis?.unread} hint="status=new" color="blue" />
-        <ColoredStat title="누적 문의 수" value={kpis?.total} emphasize color="slate" />
-        <ColoredStat title="누적 유효 문의" value={kpis?.valid} color="emerald" />
-        <ColoredStat title="누적 무효 문의" value={kpis?.invalid} color="rose" />
-        <ColoredStat title="진행중" value={kpis?.inProgress} color="indigo" />
-        <ColoredStat title="완료건" value={kpis?.done} emphasize color="amber" />
-      </section>
+      {gateNotice}
 
-      {err && (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          {err}
-        </div>
+      {/* authState === 'ok' 인 경우만 본문 위젯 노출 */}
+      {authState === "ok" && (
+        <>
+          {/* KPI */}
+          <section className="grid gap-4 md:grid-cols-3 xl:grid-cols-4">
+            <ColoredStat title="신규 광고문의" value={kpis?.todayNew} hint="오늘 접수" color="violet" />
+            <ColoredStat title="미확인" value={kpis?.unread} hint="status=new" color="blue" />
+            <ColoredStat title="누적 문의 수" value={kpis?.total} emphasize color="slate" />
+            <ColoredStat title="누적 유효 문의" value={kpis?.valid} color="emerald" />
+            <ColoredStat title="누적 무효 문의" value={kpis?.invalid} color="rose" />
+            <ColoredStat title="진행중" value={kpis?.inProgress} color="indigo" />
+            <ColoredStat title="완료건" value={kpis?.done} emphasize color="amber" />
+          </section>
+
+          {err && (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+              {err}
+            </div>
+          )}
+
+          {/* 차트 1행 */}
+          <section className="grid gap-4 md:grid-cols-2">
+            <ChartPanel title="월별 문의의 추이">
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={monthly}>
+                  <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                  <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+                  <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+                  <Tooltip />
+                  <Bar dataKey="count" radius={[8, 8, 0, 0]} fill={BAR_COLOR} />
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartPanel>
+
+            <ChartPanel title="유효/무효 문의의 비율">
+              <ResponsiveContainer width="100%" height={280}>
+                <PieChart>
+                  <Tooltip />
+                  <Pie
+                    data={validDonut}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={70}
+                    outerRadius={100}
+                    paddingAngle={2}
+                  >
+                    {validDonut.map((_, i) => (
+                      <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
+                    ))}
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+            </ChartPanel>
+          </section>
+
+          {/* 차트 2행 */}
+          <section className="grid gap-4 md:grid-cols-2">
+            <ChartPanel title="처리 상태 현황">
+              <div className="space-y-2 overflow-y-auto h-[280px] pr-1">
+                {statusList.length === 0 ? (
+                  <div className="text-sm text-gray-500">데이터 없음</div>
+                ) : (
+                  statusList.map((r) => (
+                    <div
+                      key={r.id}
+                      className="flex items-center justify-between rounded-xl border border-gray-100 bg-white shadow-sm px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-medium text-gray-900 truncate">
+                          {r.company || "—"}
+                        </div>
+                        <div className="text-xs text-gray-500 mt-0.5">
+                          {formatDateTime(r.created_at)}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={"px-2 py-0.5 text-xs rounded-full " + statusBadgeClass(r.status ?? "new")}>
+                          {toStatusLabel(r.status ?? "new")}
+                        </span>
+                        <span className="text-sm text-gray-700">{r.assignee || "—"}</span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </ChartPanel>
+
+            <ChartPanel title="최근 7일 문의의 추이">
+              <ResponsiveContainer width="100%" height={280}>
+                <LineChart data={last7}>
+                  <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                  <XAxis dataKey="day" tick={{ fontSize: 12 }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="count" dot stroke={LINE_COLOR} />
+                </LineChart>
+              </ResponsiveContainer>
+            </ChartPanel>
+          </section>
+        </>
       )}
-
-      {/* 차트 1행 */}
-      <section className="grid gap-4 md:grid-cols-2">
-        <ChartPanel title="월별 문의의 추이">
-          <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={monthly}>
-              <CartesianGrid vertical={false} strokeDasharray="3 3" />
-              <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-              <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
-              <Tooltip />
-              <Bar dataKey="count" radius={[8, 8, 0, 0]} fill={BAR_COLOR} />
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartPanel>
-
-        <ChartPanel title="유효/무효 문의의 비율">
-          <ResponsiveContainer width="100%" height={280}>
-            <PieChart>
-              <Tooltip />
-              <Pie
-                data={validDonut}
-                dataKey="value"
-                nameKey="name"
-                innerRadius={70}
-                outerRadius={100}
-                paddingAngle={2}
-              >
-                {validDonut.map((_, i) => (
-                  <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
-                ))}
-              </Pie>
-            </PieChart>
-          </ResponsiveContainer>
-        </ChartPanel>
-      </section>
-
-      {/* 차트 2행 */}
-      <section className="grid gap-4 md:grid-cols-2">
-        {/* 처리상태 현황: 목록 */}
-        <ChartPanel title="처리 상태 현황">
-          <div className="space-y-2 overflow-y-auto h-[280px] pr-1">
-            {statusList.length === 0 ? (
-              <div className="text-sm text-gray-500">데이터 없음</div>
-            ) : (
-              statusList.map((r) => (
-                <div
-                  key={r.id}
-                  className="flex items-center justify-between rounded-xl border border-gray-100 bg-white shadow-sm px-3 py-2"
-                >
-                  <div className="min-w-0">
-                    <div className="font-medium text-gray-900 truncate">
-                      {r.company || "—"}
-                    </div>
-                    <div className="text-xs text-gray-500 mt-0.5">
-                      {formatDateTime(r.created_at)}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={"px-2 py-0.5 text-xs rounded-full " + statusBadgeClass(r.status ?? "new")}>
-                      {toStatusLabel(r.status ?? "new")}
-                    </span>
-                    <span className="text-sm text-gray-700">{r.assignee || "—"}</span>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </ChartPanel>
-
-        <ChartPanel title="최근 7일 문의의 추이">
-          <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={last7}>
-              <CartesianGrid vertical={false} strokeDasharray="3 3" />
-              <XAxis dataKey="day" tick={{ fontSize: 12 }} />
-              <YAxis allowDecimals={false} tick={{ fontSize: 12 }} />
-              <Tooltip />
-              <Line type="monotone" dataKey="count" dot stroke={LINE_COLOR} />
-            </LineChart>
-          </ResponsiveContainer>
-        </ChartPanel>
-      </section>
 
       {loading && <SkeletonNote text="대시보드 데이터를 불러오는 중…" />}
     </div>
@@ -302,13 +388,10 @@ const DashboardPage: React.FC = () => {
 export default DashboardPage;
 
 /* =========================
- *  프레젠테이션 컴포넌트
+ *  프레젠테이션
  * ========================= */
 
-const COLOR_MAP: Record<
-  string,
-  { bg: string; border: string; text: string; ring: string }
-> = {
+const COLOR_MAP: Record<string, { bg: string; border: string; text: string; ring: string }> = {
   violet:  { bg: "bg-violet-50",  border: "border-violet-100",  text: "text-violet-700",  ring: "ring-violet-200" },
   blue:    { bg: "bg-blue-50",    border: "border-blue-100",    text: "text-blue-700",    ring: "ring-blue-200" },
   slate:   { bg: "bg-slate-50",   border: "border-slate-100",   text: "text-slate-800",   ring: "ring-slate-200" },
@@ -338,10 +421,7 @@ const ColoredStat: React.FC<{
   );
 };
 
-const ChartPanel: React.FC<React.PropsWithChildren<{ title: string }>> = ({
-  title,
-  children,
-}) => (
+const ChartPanel: React.FC<React.PropsWithChildren<{ title: string }>> = ({ title, children }) => (
   <div className="rounded-2xl bg-white border border-gray-100 shadow-sm p-5">
     <div className="mb-3 font-semibold">{title}</div>
     <div className="h-[280px]">{children}</div>
@@ -359,7 +439,6 @@ const SkeletonNote: React.FC<{ text: string }> = ({ text }) => (
  * ========================= */
 
 function toIso(d: Date) {
-  // YYYY-MM-DDTHH:mm:ss.sssZ 형태(로컬타임을 UTC로 보정)
   return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString();
 }
 
@@ -373,7 +452,6 @@ function listLastSixMonthLabels(now: Date) {
 }
 
 function listLast7Days(now: Date) {
-  // 월~일 순으로 정렬
   const days: string[] = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
@@ -398,30 +476,20 @@ function formatDateTime(iso: string) {
 
 function toStatusLabel(s: InquiryStatus) {
   switch (s) {
-    case "new":
-      return "신규";
-    case "in_progress":
-      return "진행중";
-    case "done":
-      return "완료";
-    case "canceled":
-      return "취소";
-    default:
-      return s;
+    case "new": return "신규";
+    case "in_progress": return "진행중";
+    case "done": return "완료";
+    case "canceled": return "취소";
+    default: return s;
   }
 }
 
 function statusBadgeClass(s: InquiryStatus): string {
   switch (s) {
-    case "new":
-      return "bg-violet-50 text-violet-700";
-    case "in_progress":
-      return "bg-blue-50 text-blue-700";
-    case "done":
-      return "bg-emerald-50 text-emerald-700";
-    case "canceled":
-      return "bg-gray-200 text-gray-700";
-    default:
-      return "bg-gray-100 text-gray-600";
+    case "new": return "bg-violet-50 text-violet-700";
+    case "in_progress": return "bg-blue-50 text-blue-700";
+    case "done": return "bg-emerald-50 text-emerald-700";
+    case "canceled": return "bg-gray-200 text-gray-700";
+    default: return "bg-gray-100 text-gray-600";
   }
 }
