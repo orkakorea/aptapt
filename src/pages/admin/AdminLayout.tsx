@@ -4,12 +4,12 @@ import { supabase } from "@/integrations/supabase/client";
 
 /**
  * AdminLayout
- * - /admin 하위 라우트의 공통 레이아웃(사이드바 + 메인)
- * - 관리자(role=admin) 가드
- * - /admin 진입 시 기본 경로로 1회 리다이렉트
+ * - /admin 하위 공통 레이아웃(사이드바 + 메인)
+ * - ✅ 관리자 가드: 세션이 준비되고 role=admin 일 때만 children 렌더
+ * - 초기 진입이 /admin 루트면 기본 경로로 리다이렉트
  *
- * ⚠️ 기본 경로는 당분간 /admin/inquiries 로 유지
- *    (대시보드 페이지가 생기면 '/admin/dashboard' 로 바꾸자)
+ * 중요: 가드가 끝나기 전까지 Outlet을 렌더하지 않아야
+ *       anon 토큰으로 SELECT가 먼저 나가 401/403이 나는 문제를 막을 수 있음.
  */
 const DEFAULT_ADMIN_ENTRY = "/admin/dashboard";
 
@@ -18,56 +18,74 @@ type NavItem = { label: string; to: string; emoji?: string; disabled?: boolean }
 const NAV_ITEMS: NavItem[] = [
   { label: "MAIN", to: "/admin/dashboard", emoji: "🏠" },
   { label: "문의상세", to: "/admin/inquiries", emoji: "🗂️" },
-  { label: "기간별 통계", to: "/admin/stats", emoji: "📈", disabled: true }, // TODO
-  { label: "계약서 확인", to: "/admin/contracts", emoji: "📄", disabled: true }, // TODO
+  { label: "기간별 통계", to: "/admin/stats", emoji: "📈", disabled: true },
+  { label: "계약서 확인", to: "/admin/contracts", emoji: "📄", disabled: true },
 ];
 
 const AdminLayout: React.FC = () => {
   const nav = useNavigate();
   const loc = useLocation();
 
-  const [checking, setChecking] = useState(true);
-  const [allowed, setAllowed] = useState<boolean | null>(null); // null = 미확인
+  // 가드 상태
+  const [checking, setChecking] = useState(true);   // 세션/권한 확인 중
+  const [allowed, setAllowed] = useState(false);    // 관리자 통과 여부
+
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  // 현재 경로가 /admin "루트" 인지 판정
+  // 현재 경로가 /admin 루트인지
   const isAdminRoot = useMemo(() => loc.pathname === "/admin", [loc.pathname]);
 
+  // ----- 관리자 가드 -----
   useEffect(() => {
     let mounted = true;
 
-    const check = async () => {
+    const run = async () => {
+      setChecking(true);
       try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
+        // 1) 세션 확보
+        const { data: { session } } = await supabase.auth.getSession();
 
-        const role = (session?.user as any)?.app_metadata?.role;
+        // 미로그인 → 접근 불가
+        if (!session) {
+          if (mounted) {
+            setAllowed(false);
+            // 필요 시 로그인 페이지로 유도하거나 홈으로
+            nav("/", { replace: true });
+          }
+          return;
+        }
+
+        // 2) 메타데이터 기반 역할 확인 (서버에서 role=admin 을 부여해 둔 상태)
+        const role = (session.user as any)?.app_metadata?.role;
         const isAdmin = role === "admin";
 
-        if (!mounted) return;
+        // 3) 결과 반영
+        if (mounted) {
+          setAllowed(isAdmin);
 
-        setAllowed(isAdmin);
+          // 관리자이면서 /admin 루트로 들어오면 기본 페이지로 1회 리다이렉트
+          if (isAdmin && isAdminRoot) {
+            nav(DEFAULT_ADMIN_ENTRY, { replace: true });
+          }
 
-        // 최초 진입 시에만 루트 리다이렉트 수행(중복 네비 방지)
-        if (isAdmin && isAdminRoot) {
-          nav(DEFAULT_ADMIN_ENTRY, { replace: true });
-        }
-        if (!isAdmin) {
-          nav("/", { replace: true });
+          // 관리자가 아니면 홈으로
+          if (!isAdmin) {
+            nav("/", { replace: true });
+          }
         }
       } finally {
         if (mounted) setChecking(false);
       }
     };
 
-    check();
+    run();
 
-    // 세션 변경 감지(로그인/로그아웃/토큰갱신)
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+    // 세션 변경(로그인/로그아웃/토큰 갱신) 시 재검사
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       const role = (session?.user as any)?.app_metadata?.role;
       const isAdmin = role === "admin";
-      setAllowed(isAdmin);
+
+      setAllowed(!!isAdmin);
 
       if (isAdmin && isAdminRoot) {
         nav(DEFAULT_ADMIN_ENTRY, { replace: true });
@@ -84,6 +102,7 @@ const AdminLayout: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdminRoot]);
 
+  // ----- 가드 화면 -----
   if (checking) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
@@ -96,11 +115,12 @@ const AdminLayout: React.FC = () => {
     return <NoAccess />;
   }
 
+  // ----- 레이아웃 -----
   return (
     <div className="min-h-screen bg-[#FAFAFB]">
       <div className="mx-auto max-w-[1280px] px-4 py-6">
         <div className="grid grid-cols-[240px_1fr] gap-6">
-          {/* === Sidebar === */}
+          {/* Sidebar */}
           <aside className="rounded-2xl bg-white shadow-sm border border-gray-100">
             <div className="px-4 py-4 border-b border-gray-100">
               <div className="text-sm text-gray-500">관리자 대시보드</div>
@@ -140,15 +160,15 @@ const AdminLayout: React.FC = () => {
             </div>
           </aside>
 
-          {/* === Main === */}
+          {/* Main */}
           <main className="min-w-0">
-            {/* 상단 헤더(간단 버전). 각 페이지가 자체 헤더를 가질 수 있으니 과도하게 중복하지 않음 */}
             <header className="mb-6">
               <h1 className="text-2xl font-bold">Admin</h1>
               <p className="text-sm text-gray-500">관리 전용 페이지</p>
             </header>
 
             <div className="rounded-2xl">
+              {/* ✅ 가드 통과 후에만 Outlet 렌더 */}
               <Outlet />
             </div>
           </main>
@@ -198,4 +218,3 @@ const NoAccess: React.FC = () => {
 };
 
 export default AdminLayout;
-
