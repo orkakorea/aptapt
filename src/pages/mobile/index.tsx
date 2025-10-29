@@ -1,3 +1,4 @@
+// src/pages/mobile/index.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
@@ -15,89 +16,15 @@ import useUserMarker from "@/hooks/useUserMarker";
 
 import type { SelectedApt, CartItem } from "@/core/types";
 import { calcMonthlyWithPolicy, normPolicyKey, DEFAULT_POLICY, rateFromRanges } from "@/core/pricing";
-import { supabase } from "@/integrations/supabase/client";
 
 const COLOR_PRIMARY = "#6F4BF2";
 
-/* =========================================================================
- * 로컬 유틸 (안전 매핑/파싱 + 이미지 폴백)
- * ========================================================================= */
-function getField(obj: any, keys: string[]) {
-  for (const k of keys) {
-    if (k in obj && obj[k] != null && obj[k] !== "") return obj[k];
-  }
-  return undefined;
-}
-function toNum(v: any): number | undefined {
-  if (v == null) return undefined;
-  if (typeof v === "number" && Number.isFinite(v)) return v;
-  const n = Number(String(v).replace(/[^0-9.-]/g, ""));
-  return Number.isFinite(n) ? n : undefined;
-}
-function fallbackProductImage(productName?: string) {
-  const p = (productName || "").toLowerCase().replace(/\s+/g, "");
-  if (p.includes("elevat")) return "/products/elevator-tv.png";
-  if (p.includes("townbord") || p.includes("townboard")) {
-    if (p.includes("_l") || p.endsWith("l")) return "/products/townbord-b.png";
-    return "/products/townbord-a.png";
-  }
-  if (p.includes("media")) return "/products/media-meet-a.png";
-  if (p.includes("space")) return "/products/space-living.png";
-  if (p.includes("hipost") || (p.includes("hi") && p.includes("post"))) return "/products/hi-post.png";
-  return "/placeholder.svg";
-}
-
-/** 마커에서 넘어온 apt를 UI에 안전하게 쓰도록 정규화 */
-function normalizeSelected(apt: any): SelectedApt {
-  const name = (getField(apt, ["name", "aptName", "단지명"]) as string) || "미상";
-  const productName = (getField(apt, ["productName", "product_name", "product", "상품명"]) as string) || "ELEVATOR TV";
-  const installLocation = (getField(apt, ["installLocation", "설치위치"]) as string) || undefined;
-  const address = (getField(apt, ["address", "주소"]) as string) || undefined;
-
-  const households = toNum(apt.households ?? apt["세대수"]);
-  const residents = toNum(apt.residents ?? apt["거주인원"]);
-  const monitors = toNum(apt.monitors ?? apt["모니터수량"]);
-  const monthlyImpressions = toNum(apt.monthlyImpressions ?? apt["월송출횟수"]);
-  const costPerPlay = toNum(apt.costPerPlay ?? apt["1회당 송출비용"]);
-  const monthlyFee = toNum(apt.monthlyFee ?? apt["월광고료"]);
-  const monthlyFeeY1 = toNum(apt.monthlyFeeY1 ?? apt["연간월광고료"]);
-  const hours = (getField(apt, ["hours", "운영시간"]) as string) || undefined;
-
-  let imageUrl =
-    (getField(apt, ["imageUrl", "image_url", "이미지", "썸네일", "thumbnail"]) as string | undefined) ||
-    fallbackProductImage(productName);
-
-  const lat = Number(apt.lat);
-  const lng = Number(apt.lng);
-
-  return {
-    rowKey: apt.rowKey,
-    rowId: apt.rowId != null ? String(apt.rowId) : apt.id != null ? String(apt.id) : undefined,
-    name,
-    address,
-    productName,
-    installLocation,
-    households,
-    residents,
-    monitors,
-    monthlyImpressions,
-    costPerPlay,
-    hours,
-    monthlyFee,
-    monthlyFeeY1,
-    imageUrl,
-    lat,
-    lng,
-  };
-}
-
-/* =========================================================================
- * 페이지 컴포넌트
- * ========================================================================= */
 type ActiveTab = "detail" | "cart" | "quote";
 
 export default function MapMobilePageV2() {
-  /** Kakao 지도 */
+  /** =========================
+   * Kakao 지도
+   * ========================= */
   const mapRef = useRef<HTMLDivElement | null>(null);
   const { kakao, error: kakaoError } = useKakaoLoader();
   const { map, clusterer } = useKakaoMap(mapRef, {
@@ -110,13 +37,15 @@ export default function MapMobilePageV2() {
   /** 내 위치(버튼 클릭 시 단발 요청) */
   const { locateNow } = useUserMarker({ kakao, map, autoCenterOnFirstFix: false, watch: false });
 
-  /** 검색 */
+  /** =========================
+   * 검색
+   * ========================= */
   const [searchQ, setSearchQ] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchAreaRef = useRef<HTMLDivElement>(null);
   const search = usePlaceSearch({ kakao, map, defaultLevel: 4, smoothPan: true });
 
-  /** 초기 검색어 적용 — /mobile?q=... */
+  /** ✅ 초기 검색어 적용 — /mobile?q=... 로 진입하면 자동 실행 */
   const [searchParams] = useSearchParams();
   const initialQ = (searchParams.get("q") || "").trim();
   useEffect(() => {
@@ -136,17 +65,23 @@ export default function MapMobilePageV2() {
     })();
   }, [kakao, map, initialQ, search]);
 
-  /** 선택/카트 */
+  /** =========================
+   * 선택/카트
+   * ========================= */
   const [selected, setSelected] = useState<SelectedApt | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const selectedRowKeys = useMemo(() => cart.map((c) => c.rowKey), [cart]);
 
-  /** 문의 시트 */
+  /** =========================
+   * 문의 시트
+   * ========================= */
   const [inqOpen, setInqOpen] = useState(false);
   const [inqMode, setInqMode] = useState<InquiryKind>("SEAT");
   const [inqPrefill, setInqPrefill] = useState<Prefill | undefined>(undefined);
 
-  /** 바텀시트 상태 */
+  /** =========================
+   * 바텀시트 상태
+   * ========================= */
   const [sheetOpen, setSheetOpen] = useState(false);
   const sheetOpenRef = useRef(false);
   const [activeTab, setActiveTab] = useState<ActiveTab>("detail");
@@ -169,51 +104,18 @@ export default function MapMobilePageV2() {
     if (sheetOpen) recalcSheetMax();
   }, [sheetOpen, recalcSheetMax]);
 
-  /** 마커 */
+  /** =========================
+   * 마커
+   * ========================= */
   const markers = useMarkers({
     kakao,
     map,
     clusterer,
-    onSelect: async (apt) => {
-      // 1) 마커에서 받은 값으로 우선 표출(키 이름 제각각 방어)
-      const base = normalizeSelected(apt);
-      setSelected(base);
+    onSelect: (apt) => {
+      setSelected(apt);
       setActiveTab("detail");
       setSheetOpen(true);
       recalcSheetMax();
-
-      // 2) place_id 있으면 DB 상세조회로 보강 (누락/이미지 포함)
-      const pidRaw = (apt as any).rowId ?? (apt as any).id ?? (apt as any).place_id;
-      const pid = Number(pidRaw);
-      if (!Number.isFinite(pid)) return;
-
-      try {
-        const { data, error } = await supabase.rpc("get_public_place_detail", { place_id: pid });
-        if (error || !data || data.length === 0) return;
-
-        const r = Array.isArray(data) ? data[0] : data;
-        const merged: SelectedApt = {
-          ...base,
-          name: (r.name ?? r["단지명"] ?? base.name) || base.name,
-          productName: (r.product_name ?? r["상품명"] ?? base.productName) || base.productName,
-          installLocation: r.install_location ?? r["설치위치"] ?? base.installLocation,
-          households: toNum(r.households ?? r["세대수"]) ?? base.households,
-          residents: toNum(r.residents ?? r["거주인원"]) ?? base.residents,
-          monitors: toNum(r.monitors ?? r["모니터수량"]) ?? base.monitors,
-          monthlyImpressions: toNum(r.monthly_impressions ?? r["월송출횟수"]) ?? base.monthlyImpressions,
-          costPerPlay: toNum(r.cost_per_play ?? r["1회당 송출비용"]) ?? base.costPerPlay,
-          hours: r.hours ?? r["운영시간"] ?? base.hours,
-          address: r.address ?? r["주소"] ?? base.address,
-          monthlyFee: toNum(r.monthly_fee ?? r["월광고료"]) ?? base.monthlyFee,
-          monthlyFeeY1: toNum(r.monthly_fee_y1 ?? r["연간월광고료"]) ?? base.monthlyFeeY1,
-          imageUrl: (r.image_url ?? r.imageUrl ?? base.imageUrl) || fallbackProductImage(base.productName),
-          lat: Number(r.lat ?? base.lat),
-          lng: Number(r.lng ?? base.lng),
-        };
-        setSelected(merged);
-      } catch {
-        // 무시 (기본값 이미 표출 중)
-      }
     },
     externalSelectedRowKeys: selectedRowKeys,
   });
@@ -236,7 +138,9 @@ export default function MapMobilePageV2() {
     return () => window.removeEventListener("resize", onResize);
   }, [recalcSheetMax]);
 
-  /** 뒤로가기 & beforeunload 가드 */
+  /** =========================
+   * 뒤로가기 & beforeunload 가드 (전화 클릭 예외)
+   * ========================= */
   const [exitAsk, setExitAsk] = useState(false);
   const popHandlerRef = useRef<(e: PopStateEvent) => void>();
   const allowUnloadRef = useRef(false);
@@ -293,9 +197,12 @@ export default function MapMobilePageV2() {
     } catch {}
   }, [searchQ, search]);
 
-  /** 카트 조작 */
+  /** =========================
+   * 카트 조작
+   * ========================= */
   const isInCart = useCallback((rowKey?: string | null) => !!rowKey && cart.some((c) => c.rowKey === rowKey), [cart]);
 
+  // 담기 시 항상 1개월 기본 (시트 닫지 않음)
   const addSelectedToCart = useCallback(() => {
     if (!selected) return;
     const next: CartItem = {
@@ -325,7 +232,9 @@ export default function MapMobilePageV2() {
     [applyAll],
   );
 
-  /** 할인/총액 계산 */
+  /** =========================
+   * 할인/총액 계산
+   * ========================= */
   type ComputedItem = Omit<CartItem, "productName" | "baseMonthly"> & {
     productName: string;
     baseMonthly: number;
@@ -350,8 +259,10 @@ export default function MapMobilePageV2() {
       const name = c.productName ?? "기본상품";
       const base = c.baseMonthly ?? 0;
 
+      // 총 할인 적용 월가/율
       const { monthly, rate } = calcMonthlyWithPolicy(name, c.months, base, c.monthlyFeeY1, same);
 
+      // 분리 할인률(표시용)
       const rules: any = (DEFAULT_POLICY as any)[key as any];
       const discPeriodRate = rateFromRanges(rules?.period, c.months);
       const discPrecompRate = rateFromRanges(rules?.precomp, same);
@@ -385,10 +296,12 @@ export default function MapMobilePageV2() {
   // 바텀시트 스크롤 초기화 키
   const resetScrollKey = `${sheetOpen ? 1 : 0}-${activeTab}-${selected?.rowKey ?? ""}`;
 
-  // Kakao 준비 여부
+  // Kakao 준비 여부 (버튼 가드)
   const kakaoReady = !!(kakao && map);
 
-  /** 카트 → 문의 prefill 스냅샷 */
+  /** =========================
+   * 카트 → 문의 prefill 스냅샷
+   * ========================= */
   const buildCartSnapshot = useCallback((items: typeof computedCart, total: number) => {
     const monthsMax = items.reduce((m, it) => Math.max(m, Number(it.months || 0)), 0);
     return {
@@ -405,7 +318,9 @@ export default function MapMobilePageV2() {
     };
   }, []);
 
-  /** 렌더 */
+  /** =========================
+   * 렌더
+   * ========================= */
   return (
     <div className="w-screen h-[100dvh] bg-white">
       {/* 상단바 */}
@@ -415,6 +330,7 @@ export default function MapMobilePageV2() {
           <button
             className="px-3 py-1 rounded-full border text-sm font-semibold"
             onClick={() => {
+              // 바텀시트가 열려 있으면 닫고 문의 시트만 띄움
               setSheetOpen(false);
               setInqMode("PACKAGE");
               setInqPrefill(undefined);
@@ -664,7 +580,9 @@ export default function MapMobilePageV2() {
   );
 }
 
-/** 소형 버튼 */
+/** =========================
+ * 소형 버튼
+ * ========================= */
 function TabBtn({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
   return (
     <button
@@ -677,7 +595,9 @@ function TabBtn({ active, onClick, label }: { active: boolean; onClick: () => vo
   );
 }
 
-/** 종료 확인 모달 */
+/** =========================
+ * 종료 확인 모달
+ * ========================= */
 function ConfirmExitModal({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
   return (
     <div className="fixed inset-0 z-[90]">
