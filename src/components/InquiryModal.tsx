@@ -1,3 +1,4 @@
+// src/components/InquiryModal.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -117,9 +118,6 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
 
-  // ❗ 스팸/봇 방지용 허니팟(사용자는 보지 못함)
-  const [hny, setHny] = useState<string>("");
-
   const page = useMemo(() => {
     if (sourcePage) return sourcePage;
     if (typeof window !== "undefined") return window.location.pathname;
@@ -139,7 +137,6 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
       setRequestText("");
       setPromoCode("");
       setAgreePrivacy(false);
-      setHny("");
 
       setSubmitting(false);
       setErrorMsg(null);
@@ -182,12 +179,6 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
     setErrorMsg(null);
     setOkMsg(null);
 
-    // 허니팟 채워졌으면 봇으로 판단
-    if (hny && hny.trim().length > 0) {
-      setErrorMsg("제출이 차단되었습니다. (봇 의심)");
-      return;
-    }
-
     if (!required(brand)) return setErrorMsg("브랜드명을 입력해 주세요.");
     if (!required(campaignType)) return setErrorMsg("캠페인유형을 선택해 주세요.");
     if (!required(managerName)) return setErrorMsg("담당자명을 입력해 주세요.");
@@ -200,25 +191,27 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
       setSubmitting(true);
       const utm = getUTM();
 
-      // ✅ 서버로 넘길 페이로드(서버에서 2차 검증/정규화)
+      // ✅ INSERT payload: 관리자 필드(status/assignee/valid)는 보내지 않음
       const payload: any = {
         inquiry_kind: mode, // "SEAT" | "PACKAGE" (대문자)
         customer_name: clean(managerName),
         phone: clean(phone),
         company: clean(brand),
         email: clean(email),
-        campaign_type: clean(campaignType),
+        campaign_type: clean(campaignType), // 어드민 매핑 컬럼
         memo: clean(requestText),
 
         source_page: page,
         utm: utm ?? undefined,
 
+        // SEAT일 때만 단지/상품 정보 포함
         apt_id: isSeat ? clean(prefill?.apt_id) : undefined,
         apt_name: isSeat ? clean(prefill?.apt_name) : undefined,
         product_code: isSeat ? clean(prefill?.product_code) : undefined,
         product_name: isSeat ? clean(prefill?.product_name) : undefined,
         cart_snapshot: isSeat ? (prefill?.cart_snapshot ?? undefined) : undefined,
 
+        // 기타 값은 extra에 보관(옵션)
         extra: {
           brand: clean(brand),
           campaign_type: clean(campaignType),
@@ -228,18 +221,13 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
           promo_code: clean(promoCode),
           agree_privacy: !!agreePrivacy,
         },
-
-        // 서버 로그/리스크 제어용 보조 정보
-        client_ts: new Date().toISOString(),
-        user_agent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
       };
 
-      // ❗❗ 프런트에서 직접 INSERT 금지 → 서버 RPC로 위임
-      //    (다음 턴에서 Postgres 함수(inquiries_submit) SQL을 줄게)
-      const { error: rpcError } = await (supabase as any).rpc("inquiries_submit", { payload });
-      if (rpcError) throw rpcError;
+      // ✅ anon의 SELECT RLS(using false)를 피하기 위해 returning: 'minimal'
+      const { error } = await (supabase as any).from("inquiries").insert(payload, { returning: "minimal" });
+      if (error) throw error;
 
-      // 접수증 데이터 구성 (기존 로직 유지)
+      // 접수증 데이터 구성
       const ticketCode = genTicketCode();
       const createdAtISO = new Date().toISOString();
       const token = makeToken();
@@ -342,7 +330,10 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
 
   const submitDisabled = submitting || !agreePrivacy;
 
-  /* ========================= 렌더 ========================= */
+  /* ========================= 렌더 =========================
+   * completeOpen === true 면 '문의 모달 UI'는 아예 렌더하지 않고
+   * 완료 모달(CompleteModal)만 중앙 오버레이로 표시된다.
+   * ====================================================== */
   return (
     <>
       {/* ✅ 완료 모달 (PC/모바일 자동 분기) — InquiryModal과 독립 표시 */}
@@ -391,21 +382,6 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
 
             {/* Body */}
             <form onSubmit={handleSubmit} className="px-6 py-5 space-y-5">
-              {/* 허니팟(사용자는 보지 못함) */}
-              <div style={{ display: "none" }} aria-hidden>
-                <label>
-                  홈페이지
-                  <input
-                    type="text"
-                    name="homepage"
-                    autoComplete="off"
-                    tabIndex={-1}
-                    value={hny}
-                    onChange={(e) => setHny(e.target.value)}
-                  />
-                </label>
-              </div>
-
               {/* ===== SEAT: 문의 내용 박스 ===== */}
               {mode === "SEAT" &&
                 (() => {
