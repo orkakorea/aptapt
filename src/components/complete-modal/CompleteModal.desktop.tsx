@@ -4,17 +4,13 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
-  Copy,
   FileDown,
   FileText,
   Mail,
   ExternalLink,
-  CalendarCheck2,
-  MessageSquare,
-  Phone,
-  X,
-  ClipboardList,
   FileSignature,
+  ClipboardList,
+  X,
 } from "lucide-react";
 import type { CompleteModalProps, ReceiptData, ReceiptSeat, ReceiptPackage } from "./types";
 import { isSeatReceipt, isPackageReceipt } from "./types";
@@ -67,7 +63,6 @@ function useBodyScrollLock(locked: boolean) {
     };
   }, [locked]);
 }
-/** 이메일: 로컬파트 앞 2글자만 노출, 나머지는 * 처리. 도메인은 그대로. */
 function maskEmail(email?: string | null) {
   if (!email) return "";
   const str = String(email);
@@ -106,21 +101,43 @@ function HeaderSuccess({ ticketCode, createdAtISO }: { ticketCode: string; creat
     </div>
   );
 }
-function StepItem({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+
+/* ================== 오른쪽: 다음 절차(공통) ================== */
+function NextSteps({ variant }: { variant: "SEAT" | "PACKAGE" }) {
   return (
-    <li className="grid grid-cols-[28px_1fr] items-start gap-3">
-      <span
-        className="inline-flex h-7 w-7 items-center justify-center rounded-full"
-        style={{ backgroundColor: BRAND_LIGHT }}
-      >
-        {icon}
-      </span>
-      <div className="text-sm leading-6">{children}</div>
-    </li>
+    <div className="rounded-xl border border-gray-100 p-4">
+      <div className="mb-2 text-sm font-semibold">다음 절차</div>
+      <ol className="space-y-3">
+        <li className="grid grid-cols-[28px_1fr] items-start gap-3">
+          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full" style={{ backgroundColor: BRAND_LIGHT }}>
+            <ClipboardList size={16} color={BRAND} />
+          </span>
+          <div className="text-sm leading-6">
+            <b>{variant === "SEAT" ? "구좌(T.O) 확인" : "문의 내용 확인"}</b> {variant === "PACKAGE" ? "(1~2일)" : ""}
+          </div>
+        </li>
+        <li className="grid grid-cols-[28px_1fr] items-start gap-3">
+          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full" style={{ backgroundColor: BRAND_LIGHT }}>
+            <Mail size={16} color={BRAND} />
+          </span>
+          <div className="text-sm leading-6">
+            <b>맞춤 견적 전달</b> (이메일,전화)
+          </div>
+        </li>
+        <li className="grid grid-cols-[28px_1fr] items-start gap-3">
+          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full" style={{ backgroundColor: BRAND_LIGHT }}>
+            <FileSignature size={16} color={BRAND} />
+          </span>
+          <div className="text-sm leading-6">
+            <b>상담/계약</b> (전자 계약)
+          </div>
+        </li>
+      </ol>
+    </div>
   );
 }
 
-/* ================== PACKAGE: 좌측 — 고객 문의 ================== */
+/* ================== 좌측: 고객 문의 (공통 + 접이식) ================== */
 function Row({ label, value }: { label: string; value?: string }) {
   return (
     <div className="grid grid-cols-3 items-start gap-3 py-2">
@@ -129,7 +146,9 @@ function Row({ label, value }: { label: string; value?: string }) {
     </div>
   );
 }
-function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptData }) {
+function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptSeat | ReceiptData }) {
+  const [open, setOpen] = useState(true);
+
   const c: any = (data as any).customer || {};
   const form: any = (data as any).form || {};
   const summary: any = (data as any).summary || {};
@@ -144,7 +163,7 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptData }
     c.campaignType ??
     c.campaign_type;
 
-  // 기간: ‘광고 송출 예정(희망)일’ 우선
+  // 광고 송출 예정(희망)일
   const preferredRaw =
     form.desiredDate ??
     form.hopeDate ??
@@ -153,8 +172,7 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptData }
     (data as any)?.meta?.desiredDate ??
     (data as any)?.meta?.startDate ??
     (data as any)?.meta?.start_date;
-
-  const periodValue =
+  const desiredValue =
     toYMD(preferredRaw) ??
     form.periodLabel ??
     form.period_label ??
@@ -177,108 +195,84 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptData }
     (data as any)?.meta?.promoCode ??
     (data as any)?.meta?.promo_code;
 
+  const scope = form.scopeLabel ?? summary.scopeLabel;
+
   const inquiryText: string =
-    form.request ??
-    form.message ??
-    form.memo ??
-    form.note ??
-    (data as any)?.meta?.note ??
-    (data as any)?.customer?.note ??
-    "";
+    form.request ?? form.message ?? form.memo ?? form.note ?? (data as any)?.meta?.note ?? (data as any)?.customer?.note ?? "";
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white">
-      <div className="px-4 py-3 text-sm font-semibold">고객 문의</div>
-      <div className="px-4">
-        <Row label="상호명" value={c.company ?? form.company} />
-        <Row label="담당자" value={c.name ?? form.manager ?? form.contactName} />
-        <Row label="연락처" value={c.phoneMasked ?? form.phoneMasked ?? form.phone} />
-        <Row label="이메일" value={emailMasked} />
-        <Row label="캠페인 유형" value={campaignType} />
-        <Row label="기간" value={periodValue} />
-        <Row label="프로모션코드" value={promoCode} />
-        <Row label="광고 범위" value={form.scopeLabel ?? summary.scopeLabel} />
-      </div>
+      {/* Header(토글) */}
+      <button
+        type="button"
+        className="flex w-full items-center justify-between px-4 py-3 text-left"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="text-sm font-semibold">고객 문의</span>
+        {open ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+      </button>
 
-      {/* 문의내용 (스크롤 가능) */}
-      <div className="mt-2 border-t border-gray-100 px-4 py-3">
-        <div className="mb-2 text-xs text-gray-500">문의내용</div>
-        <div className="max-h-[40vh] overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-gray-50 px-3 py-3 text-sm">
-          {inquiryText ? inquiryText : "-"}
-        </div>
-      </div>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            key="customer-body"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="px-4">
+              <Row label="상호명" value={c.company ?? form.company} />
+              <Row label="담당자" value={c.name ?? form.manager ?? form.contactName} />
+              <Row label="연락처" value={c.phoneMasked ?? form.phoneMasked ?? form.phone} />
+              <Row label="이메일" value={emailMasked} />
+              <Row label="캠페인 유형" value={campaignType} />
+              <Row label="광고 송출 예정(희망)일" value={desiredValue} />
+              <Row label="프로모션코드" value={promoCode} />
+              <Row label="광고 범위" value={scope} />
+            </div>
+
+            {/* 문의내용 (스크롤 가능) */}
+            <div className="mt-2 border-t border-gray-100 px-4 py-3">
+              <div className="mb-2 text-xs text-gray-500">문의내용</div>
+              <div className="max-h-[40vh] overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-gray-50 px-3 py-3 text-sm">
+                {inquiryText ? inquiryText : "-"}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
 
-/* ================== SEAT: 좌측 — 선택정보 중심 레이아웃 ================== */
-function SeatSelectionPanel({ data }: { data: ReceiptSeat }) {
-  const items = (data?.details as any)?.items ?? [];
-
-  // 합산 지표
-  const sums = useMemo(() => {
-    let households = 0;
-    let residents = 0;
-    let impressions = 0;
-    let monitors = 0;
-
-    items.forEach((it: any) => {
-      households += safeNum(it.households);
-      residents += safeNum(it.residents);
-      impressions += safeNum(it.monthlyImpressions ?? it.impressionsMonthly ?? it.impressions);
-      monitors += safeNum(it.monitors ?? it.monitorCount ?? it.screens);
-    });
-
-    return { households, residents, impressions, monitors, aptCount: items.length };
-  }, [items]);
-
-  // 상단 요약 라인(있는 값만 붙여서 표기)
-  const summaryLine = useMemo(() => {
-    const p: string[] = [];
-    p.push(`총 ${sums.aptCount}개 단지`);
-    if (sums.households) p.push(`세대수 ${sums.households.toLocaleString()} 세대`);
-    if (sums.residents) p.push(`거주인원 ${sums.residents.toLocaleString()} 명`);
-    if (sums.impressions) p.push(`송출횟수 ${sums.impressions.toLocaleString()} 회`);
-    if (sums.monitors) p.push(`모니터수량 ${sums.monitors.toLocaleString()} 대`);
-    return p.join(" · ");
-  }, [sums]);
-
-  // 총합(총광고료)
+/* ================== 좌측: SEAT 전용 “문의내역” 테이블 ================== */
+function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
+  const items: any[] = (data?.details as any)?.items ?? [];
   const periodTotal =
-    (data as any)?.details?.periodTotalKRW ?? items.reduce((acc: number, it: any) => acc + safeNum(it.lineTotal), 0);
-
-  // 희망일/프로모션 (폼에서 넘어온 값)
-  const form: any = (data as any).form || {};
-  const desiredYMD = toYMD(form.desiredDate ?? form.hopeDate);
-  const promo = form.promotionCode ?? form.promoCode ?? form.promo_code;
+    (data as any)?.details?.periodTotalKRW ??
+    items.reduce((acc: number, it: any) => acc + safeNum(it.lineTotal), 0);
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white">
-      {/* 상단: 요약 라인 */}
-      <div className="px-4 py-3">
-        <div className="text-[13px] text-gray-600">{summaryLine}</div>
-      </div>
-
-      {/* 상세 테이블: 단지명 | 광고기간 | 상품명 | 모니터수량 | 총광고료 */}
-      <div className="border-t border-gray-100">
-        <table className="min-w-full text-[13px]">
-          <thead className="sticky top-0 bg-gray-50 text-gray-600">
+      <div className="px-4 py-3 text-sm font-semibold">문의내역</div>
+      <div className="border-t border-gray-100 overflow-x-auto whitespace-nowrap">
+        <table className="text-[13px] min-w-[760px]">
+          <thead className="bg-gray-50 text-gray-600">
             <tr className="[&>th]:px-3 [&>th]:py-2">
-              <th className="text-left w-[28%]">단지명</th>
-              <th className="text-right w-[14%]">광고기간</th>
-              <th className="text-left w-[26%]">상품명</th>
-              <th className="text-right w-[14%]">모니터수량</th>
-              <th className="text-right w-[18%]">총광고료</th>
+              <th className="text-left">단지명</th>
+              <th className="text-right">광고기간</th>
+              <th className="text-left">상품명</th>
+              <th className="text-right">모니터수량</th>
+              <th className="text-right">총광고료</th>
             </tr>
           </thead>
           <tbody className="[&>tr>td]:px-3 [&>tr>td]:py-2">
             {items?.length ? (
               items.map((it: any, idx: number) => (
                 <tr key={idx} className="border-t border-gray-100">
-                  <td className="font-medium">{it.aptName}</td>
-                  <td className="text-right">
-                    {typeof it.months === "number" ? `${it.months}개월` : (it.months ?? "-")}
-                  </td>
+                  <td className="font-medium">{it.aptName ?? "-"}</td>
+                  <td className="text-right">{typeof it.months === "number" ? `${it.months}개월` : it.months ?? "-"}</td>
                   <td className="truncate">{it.productName ?? "-"}</td>
                   <td className="text-right">{(it.monitors ?? it.monitorCount ?? it.screens ?? "-").toString()}</td>
                   <td className="text-right">{formatKRW(it.lineTotal)}</td>
@@ -295,65 +289,15 @@ function SeatSelectionPanel({ data }: { data: ReceiptSeat }) {
           <tfoot className="bg-gray-50">
             <tr className="[&>td]:px-3 [&>td]:py-3">
               <td colSpan={4} className="text-right text-gray-600">
-                총광고료 합계
+                총 광고료 합계
               </td>
-              <td className="text-right font-semibold">{formatKRW(periodTotal)}</td>
+              <td className="text-right font-semibold" style={{ color: BRAND }}>
+                {formatKRW(periodTotal)}
+              </td>
             </tr>
           </tfoot>
         </table>
       </div>
-
-      {/* (옵션) 희망일/프로모션코드 */}
-      {(desiredYMD || promo) && (
-        <div className="grid grid-cols-2 gap-4 border-t border-gray-100 px-4 py-3 text-sm">
-          <div>
-            <div className="text-xs text-gray-500 mb-1">광고 송출 예정(희망)일</div>
-            <div className="text-gray-800">{desiredYMD ?? "-"}</div>
-          </div>
-          <div>
-            <div className="text-xs text-gray-500 mb-1">프로모션코드</div>
-            <div className="text-gray-800 break-words">{promo ?? "-"}</div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ================== 오른쪽 카드: 다음 절차 ================== */
-function NextStepsSeat() {
-  return (
-    <div className="rounded-xl border border-gray-100 p-4">
-      <div className="mb-2 text-sm font-semibold">다음 절차</div>
-      <ol className="space-y-3">
-        <StepItem icon={<CheckCircle2 size={16} color={BRAND} />}>
-          <b>데이터/재고 확인</b> (5–10분)
-        </StepItem>
-        <StepItem icon={<MessageSquare size={16} color={BRAND} />}>
-          <b>맞춤 견적 전달</b> (이메일/전화)
-        </StepItem>
-        <StepItem icon={<CalendarCheck2 size={16} color={BRAND} />}>
-          <b>미팅/확정</b> — 전자계약·세금계산서
-        </StepItem>
-      </ol>
-    </div>
-  );
-}
-function NextStepsPackage() {
-  return (
-    <div className="rounded-xl border border-gray-100 p-4">
-      <div className="mb-2 text-sm font-semibold">다음 절차</div>
-      <ol className="space-y-3">
-        <StepItem icon={<ClipboardList size={16} color={BRAND} />}>
-          <b>문의 내용 확인</b> (1~2일)
-        </StepItem>
-        <StepItem icon={<Mail size={16} color={BRAND} />}>
-          <b>맞춤 견적 전달</b> (이메일,전화)
-        </StepItem>
-        <StepItem icon={<FileSignature size={16} color={BRAND} />}>
-          <b>상담/계약</b> (전자 계약)
-        </StepItem>
-      </ol>
     </div>
   );
 }
@@ -364,30 +308,19 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
 
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  const hasTeam = !!data?.links?.teamUrl;
-  const hasYT = !!data?.links?.youtubeUrl;
-  const hasGuide = !!data?.links?.guideUrl;
-
-  const isPackage = isPackageReceipt(data);
+  const isPkg = isPackageReceipt(data);
+  const isSeat = isSeatReceipt(data);
 
   const openExternal = (url?: string) => {
     if (url) window.open(url, "_blank", "noopener,noreferrer");
   };
-  const handleCopyLink = async () => {
-    const url = data?.links?.receiptUrl;
-    if (!url) return void data?.actions?.onCopyLink?.();
-    try {
-      await navigator.clipboard.writeText(url);
-      data?.actions?.onCopyLink?.();
-    } catch {}
-  };
 
   if (!open) return null;
 
-  const saveButtonLabel = isPackage ? "문의 내용 저장" : "접수증 저장";
+  const saveButtonLabel = "문의 내용 저장";
   const sheetTitle = saveButtonLabel;
 
-  // PACKAGE 고정 링크(PC 전용)
+  // 고정 링크(PC 전용)
   const LINK_YT = "https://www.youtube.com/@ORKA_KOREA";
   const LINK_GUIDE = "https://orka.co.kr/ELAVATOR_CONTENTS";
   const LINK_TEAM = "https://orka.co.kr/orka_members";
@@ -409,7 +342,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
           <motion.div
             id="receipt-capture"
             key="panel"
-            className="w-[840px] max-w-[94vw] rounded-2xl bg-white shadow-2xl"
+            className="w-[900px] max-w-[94vw] rounded-2xl bg-white shadow-2xl"
             role="dialog"
             aria-modal="true"
             initial={{ scale: 0.96, opacity: 0 }}
@@ -427,145 +360,54 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
 
             {/* Body */}
             <div className="grid grid-cols-12 gap-6 px-6 py-6">
+              {/* 좌측 */}
               <div className="col-span-8 space-y-4">
-                {/* PACKAGE: 고객 정보 중심 */}
-                {isPackage ? (
-                  <CustomerInquirySection data={data as ReceiptPackage} />
-                ) : (
-                  // SEAT: 선택정보 중심
-                  <SeatSelectionPanel data={data as ReceiptSeat} />
-                )}
+                <CustomerInquirySection data={data as any} />
+                {isSeat && <SeatInquiryTable data={data as ReceiptSeat} />}
               </div>
 
+              {/* 우측: 두 모드 동일 */}
               <div className="col-span-4 space-y-4">
-                {/* 다음 절차 */}
-                {isPackage ? <NextStepsPackage /> : <NextStepsSeat />}
+                <NextSteps variant={isSeat ? "SEAT" : "PACKAGE"} />
 
-                {/* (PACKAGE 전용) “문의 내용 저장” 버튼 */}
-                {isPackage && (
-                  <button
-                    onClick={() => setPickerOpen(true)}
-                    className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white"
-                    style={{ backgroundColor: BRAND }}
-                  >
-                    {saveButtonLabel}
-                  </button>
-                )}
+                <button
+                  onClick={() => setPickerOpen(true)}
+                  className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white"
+                  style={{ backgroundColor: BRAND }}
+                >
+                  {saveButtonLabel}
+                </button>
 
-                {/* 오른쪽 카드 - PACKAGE: “더 많은 정보”, SEAT: 기존 동작 유지 */}
-                {isPackage ? (
-                  <div className="rounded-xl border border-gray-100 p-4">
-                    <div className="text-sm font-semibold">더 많은 정보</div>
-                    <div className="mt-3 grid grid-cols-1 gap-2">
-                      <button
-                        onClick={() => openExternal(LINK_YT)}
-                        className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
-                      >
-                        <ExternalLink size={16} />
-                        광고 소재 채널 바로가기
-                      </button>
-                      <button
-                        onClick={() => openExternal(LINK_GUIDE)}
-                        className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
-                      >
-                        <ExternalLink size={16} />
-                        제작 가이드 바로가기
-                      </button>
-                      <button
-                        onClick={() => openExternal(LINK_TEAM)}
-                        className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
-                      >
-                        <ExternalLink size={16} />
-                        오르카 구성원 확인하기
-                      </button>
-                    </div>
+                <div className="rounded-xl border border-gray-100 p-4">
+                  <div className="text-sm font-semibold">더 많은 정보</div>
+                  <div className="mt-3 grid grid-cols-1 gap-2">
+                    <button
+                      onClick={() => openExternal(LINK_YT)}
+                      className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
+                    >
+                      <ExternalLink size={16} />
+                      광고 소재 채널 바로가기
+                    </button>
+                    <button
+                      onClick={() => openExternal(LINK_GUIDE)}
+                      className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
+                    >
+                      <ExternalLink size={16} />
+                      제작 가이드 바로가기
+                    </button>
+                    <button
+                      onClick={() => openExternal(LINK_TEAM)}
+                      className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
+                    >
+                      <ExternalLink size={16} />
+                      오르카 구성원 확인하기
+                    </button>
                   </div>
-                ) : (
-                  <>
-                    {/* SEAT 액션 카드 */}
-                    <div className="rounded-xl border border-gray-100 p-4">
-                      <div className="text-sm font-semibold">다음 액션</div>
-                      <div className="mt-3 grid grid-cols-1 gap-2">
-                        <button
-                          onClick={() => setPickerOpen(true)}
-                          className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white"
-                          style={{ backgroundColor: BRAND }}
-                        >
-                          접수증 저장
-                        </button>
-
-                        {data?.actions?.onBookMeeting ? (
-                          <button
-                            onClick={data.actions.onBookMeeting}
-                            className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
-                          >
-                            상담 일정 잡기
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => {
-                              if (data?.links?.guideUrl) openExternal(data.links.guideUrl);
-                              data?.actions?.onDownloadGuide?.();
-                            }}
-                            className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
-                          >
-                            <FileText size={16} />
-                            제작 가이드 보기
-                          </button>
-                        )}
-                      </div>
-
-                      {(hasTeam || hasYT || hasGuide) && (
-                        <>
-                          <div className="mt-4 h-px w-full bg-gray-100" />
-                          <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-                            {hasTeam && (
-                              <button
-                                onClick={() => openExternal(data.links!.teamUrl)}
-                                className="inline-flex items-center justify-center gap-1 rounded-lg border border-gray-200 px-3 py-2"
-                              >
-                                <ExternalLink size={14} /> 오르카의 얼굴들
-                              </button>
-                            )}
-                            {hasYT && (
-                              <button
-                                onClick={() => openExternal(data.links!.youtubeUrl)}
-                                className="inline-flex items-center justify-center gap-1 rounded-lg border border-gray-200 px-3 py-2"
-                              >
-                                <ExternalLink size={14} /> 영상소재 템플릿
-                              </button>
-                            )}
-                            {hasGuide && (
-                              <button
-                                onClick={() => openExternal(data.links!.guideUrl)}
-                                className="inline-flex items-center justify-center gap-1 rounded-lg border border-gray-200 px-3 py-2"
-                              >
-                                <ExternalLink size={14} /> 제작 가이드
-                              </button>
-                            )}
-                          </div>
-                        </>
-                      )}
-                    </div>
-
-                    {/* SEAT 전용 전화 카드 (PACKAGE에서는 제거) */}
-                    <div className="rounded-xl border border-dashed border-gray-200 p-3 text-xs">
-                      <div className="flex items-center justify-between">
-                        <span className="text-gray-600">급하시면 지금 전화 주세요</span>
-                        <a
-                          href="tel:03115510810"
-                          className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5"
-                        >
-                          <Phone size={14} /> 031-1551-0810
-                        </a>
-                      </div>
-                    </div>
-                  </>
-                )}
+                </div>
               </div>
             </div>
 
-            {/* Footer (좌측 '접수증 링크 복사' 토글 제거) */}
+            {/* Footer */}
             <div className="flex items-center justify-end border-t border-gray-100 px-6 py-4">
               <button onClick={onClose} className="rounded-xl bg-black px-5 py-3 text-sm font-semibold text-white">
                 {confirmLabel}
@@ -574,7 +416,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
           </motion.div>
         </div>
 
-        {/* 저장 액션 시트 */}
+        {/* 저장 액션 시트 (두 모드 동일: PNG/PDF만) */}
         <AnimatePresence>
           {pickerOpen && (
             <>
@@ -605,7 +447,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
                   </button>
                 </div>
                 <div className="px-5 py-4">
-                  <div className={`grid ${isPackage ? "grid-cols-2" : "grid-cols-2"} gap-3`}>
+                  <div className="grid grid-cols-2 gap-3">
                     <button
                       onClick={() => {
                         data?.actions?.onSaveImage?.();
@@ -624,30 +466,6 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
                     >
                       <FileText size={16} /> PDF(A4)
                     </button>
-
-                    {/* SEAT에서는 링크복사/이메일 유지, PACKAGE에서는 제거 */}
-                    {!isPackage && (
-                      <>
-                        <button
-                          onClick={() => {
-                            handleCopyLink();
-                            setPickerOpen(false);
-                          }}
-                          className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
-                        >
-                          <Copy size={16} /> 링크 복사
-                        </button>
-                        <button
-                          onClick={() => {
-                            data?.actions?.onSendEmail?.();
-                            setPickerOpen(false);
-                          }}
-                          className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
-                        >
-                          <Mail size={16} /> 이메일로 보내기
-                        </button>
-                      </>
-                    )}
                   </div>
                   <button
                     onClick={() => setPickerOpen(false)}
