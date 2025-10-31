@@ -1,1 +1,1 @@
-/// <reference types="vite/client" />
+console.log("💜 build ping", Date.now());
