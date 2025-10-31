@@ -20,7 +20,7 @@ const ORKA_CLUSTER_STYLE = {
   borderRadius: "20px",
 };
 
-// 컨테이너가 준비될 때까지(존재 + 너비/높이 > 0) 기다리기
+// 컨테이너가 준비될 때까지(존재 + 너비/높이 > 0) 대기
 async function waitForContainer(
   ref: MutableRefObject<HTMLDivElement | null>,
   timeoutMs = 3000,
@@ -45,7 +45,8 @@ export function useKakaoMap(
   const [map, setMap] = useState<any>(null);
   const [clusterer, setClusterer] = useState<any>(null);
   const createdRef = useRef(false);
-  const resizeObsRef = useRef<ResizeObserver | null>(null);
+  // ResizeObserver 또는 정리용 디스커넥터를 보관
+  const resizeObsRef = useRef<{ disconnect: () => void } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,10 +54,9 @@ export function useKakaoMap(
     let c: any = null;
 
     (async () => {
-      // kakao SDK 미준비면 보류
       if (!kakao?.maps || createdRef.current) return;
 
-      // ✅ 모바일: 컨테이너가 렌더/표시될 때까지 대기
+      // ✅ 모바일: 컨테이너가 실제로 보일(크기 > 0) 때까지 기다림
       const el = await waitForContainer(mapRef, 4000);
       if (cancelled || !el) return;
 
@@ -91,28 +91,31 @@ export function useKakaoMap(
           setClusterer(null);
         }
 
-        // ✅ 컨테이너 크기 변화 시 자동 relayout (바텀시트 열림/닫힘 등)
+        // ✅ 컨테이너 크기 변화 감지 → 자동 relayout
         if ("ResizeObserver" in window) {
-          const ro = new ResizeObserver(() => {
+          // 타입 이슈 없이 안전하게 any로 캐스팅
+          const RO: any = (window as any).ResizeObserver;
+          const ro = new RO(() => {
             try {
               m.relayout();
             } catch {}
           });
           ro.observe(el);
-          resizeObsRef.current = ro;
+          resizeObsRef.current = { disconnect: () => ro.disconnect?.() };
         } else {
+          // 일부 환경(아주 오래된 브라우저)용 폴백: window 이벤트 사용
+          const w: any = window;
           const onResize = () => {
             try {
               m.relayout();
             } catch {}
           };
-          window.addEventListener("resize", onResize);
-          window.addEventListener("orientationchange", onResize);
-          // 정리 시 제거는 아래에서 ResizeObserver가 없을 때만 필요
-          (resizeObsRef as any).current = {
+          w.addEventListener?.("resize", onResize);
+          w.addEventListener?.("orientationchange", onResize);
+          resizeObsRef.current = {
             disconnect: () => {
-              window.removeEventListener("resize", onResize);
-              window.removeEventListener("orientationchange", onResize);
+              w.removeEventListener?.("resize", onResize);
+              w.removeEventListener?.("orientationchange", onResize);
             },
           };
         }
@@ -129,7 +132,7 @@ export function useKakaoMap(
     return () => {
       cancelled = true;
       try {
-        resizeObsRef.current?.disconnect?.();
+        resizeObsRef.current?.disconnect();
       } catch {}
       try {
         c?.setMap?.(null);
@@ -140,16 +143,14 @@ export function useKakaoMap(
       setClusterer(null);
       setMap(null);
       createdRef.current = false;
+      resizeObsRef.current = null;
     };
-    // kakao SDK 준비 후 1회만 시도 (컨테이너는 waitForContainer로 대기 처리)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kakao]);
 
   const relayout = useCallback(() => {
     try {
-      if (map) {
-        map.relayout();
-      }
+      map?.relayout?.();
     } catch {}
   }, [map]);
 
