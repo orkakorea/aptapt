@@ -7,7 +7,7 @@ type UseKakaoMapOpts = {
   idleDebounceMs?: number;
 };
 
-// 연한 보라(파스텔) 통일 스타일: 모든 구간 동일 적용
+// 연한 보라(파스텔) 통일 스타일
 const ORKA_CLUSTER_STYLE = {
   width: "40px",
   height: "40px",
@@ -18,9 +18,25 @@ const ORKA_CLUSTER_STYLE = {
   fontSize: "13px",
   fontWeight: "700",
   borderRadius: "20px",
-  // 필요시 살짝 테두리 느낌
-  // boxShadow: "0 0 0 1px #E8E0FF inset",
 };
+
+// 컨테이너가 준비될 때까지(존재 + 너비/높이 > 0) 기다리기
+async function waitForContainer(
+  ref: MutableRefObject<HTMLDivElement | null>,
+  timeoutMs = 3000,
+): Promise<HTMLDivElement | null> {
+  const start = performance.now();
+  return new Promise((resolve) => {
+    const tick = () => {
+      const el = ref.current;
+      const ready = !!el && el.clientWidth > 0 && el.clientHeight > 0;
+      if (ready) return resolve(el!);
+      if (performance.now() - start > timeoutMs) return resolve(el ?? null);
+      requestAnimationFrame(tick);
+    };
+    tick();
+  });
+}
 
 export function useKakaoMap(
   mapRef: MutableRefObject<HTMLDivElement | null>,
@@ -29,33 +45,38 @@ export function useKakaoMap(
   const [map, setMap] = useState<any>(null);
   const [clusterer, setClusterer] = useState<any>(null);
   const createdRef = useRef(false);
+  const resizeObsRef = useRef<ResizeObserver | null>(null);
 
   useEffect(() => {
-    const el = mapRef.current;
-    // ❗ kakao/maps 혹은 DOM 이 준비되지 않았으면 아무것도 하지 않음
-    if (!el || !kakao?.maps || createdRef.current) return;
-
+    let cancelled = false;
     let m: any = null;
     let c: any = null;
 
-    try {
-      const { maps } = kakao;
-      const centerLL = new maps.LatLng(center.lat, center.lng);
-      m = new maps.Map(el, { center: centerLL, level });
-      setMap(m);
+    (async () => {
+      // kakao SDK 미준비면 보류
+      if (!kakao?.maps || createdRef.current) return;
 
-      // clusterer 라이브러리가 없는 경우도 안전 처리
-      const MC = (maps as any).MarkerClusterer;
-      if (typeof MC === "function") {
-        try {
+      // ✅ 모바일: 컨테이너가 렌더/표시될 때까지 대기
+      const el = await waitForContainer(mapRef, 4000);
+      if (cancelled || !el) return;
+
+      try {
+        const { maps } = kakao;
+        const centerLL = new maps.LatLng(center.lat, center.lng);
+
+        // 지도 생성
+        m = new maps.Map(el, { center: centerLL, level });
+        setMap(m);
+
+        // 클러스터러(있을 때만)
+        const MC = (maps as any).MarkerClusterer;
+        if (typeof MC === "function") {
           c = new MC({
             map: m,
             averageCenter: true,
             minLevel: 6,
             disableClickZoom: true,
             gridSize: 80,
-
-            // ★ 연한 보라 클러스터 색상/모양 통일
             styles: [
               ORKA_CLUSTER_STYLE,
               ORKA_CLUSTER_STYLE,
@@ -63,28 +84,53 @@ export function useKakaoMap(
               ORKA_CLUSTER_STYLE,
               ORKA_CLUSTER_STYLE,
             ],
-
-            // (선택) 단계별 집계 경계는 유지하되 스타일은 동일
             calculator: [50, 100, 200],
           });
           setClusterer(c);
-        } catch {
+        } else {
           setClusterer(null);
         }
-      } else {
-        setClusterer(null);
-      }
 
-      createdRef.current = true;
-    } catch (err) {
-      console.error("[useKakaoMap] init failed:", err);
-      setMap(null);
-      setClusterer(null);
-      createdRef.current = false;
-    }
+        // ✅ 컨테이너 크기 변화 시 자동 relayout (바텀시트 열림/닫힘 등)
+        if ("ResizeObserver" in window) {
+          const ro = new ResizeObserver(() => {
+            try {
+              m.relayout();
+            } catch {}
+          });
+          ro.observe(el);
+          resizeObsRef.current = ro;
+        } else {
+          const onResize = () => {
+            try {
+              m.relayout();
+            } catch {}
+          };
+          window.addEventListener("resize", onResize);
+          window.addEventListener("orientationchange", onResize);
+          // 정리 시 제거는 아래에서 ResizeObserver가 없을 때만 필요
+          (resizeObsRef as any).current = {
+            disconnect: () => {
+              window.removeEventListener("resize", onResize);
+              window.removeEventListener("orientationchange", onResize);
+            },
+          };
+        }
+
+        createdRef.current = true;
+      } catch (err) {
+        console.error("[useKakaoMap] init failed:", err);
+        setMap(null);
+        setClusterer(null);
+        createdRef.current = false;
+      }
+    })();
 
     return () => {
-      // 안전한 정리
+      cancelled = true;
+      try {
+        resizeObsRef.current?.disconnect?.();
+      } catch {}
       try {
         c?.setMap?.(null);
       } catch {}
@@ -95,13 +141,15 @@ export function useKakaoMap(
       setMap(null);
       createdRef.current = false;
     };
-    // kakao/maps 가 준비된 이후에만 한번 실행
+    // kakao SDK 준비 후 1회만 시도 (컨테이너는 waitForContainer로 대기 처리)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kakao]);
 
   const relayout = useCallback(() => {
     try {
-      map?.relayout?.();
+      if (map) {
+        map.relayout();
+      }
     } catch {}
   }, [map]);
 
