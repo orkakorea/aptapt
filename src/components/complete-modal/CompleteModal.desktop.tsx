@@ -45,6 +45,18 @@ function formatKST(iso: string) {
     return "";
   }
 }
+function toYMD(input?: any): string | undefined {
+  if (input == null || input === "") return undefined;
+  const v = typeof input === "string" ? input.trim() : input;
+  const d = new Date(v);
+  if (!isNaN(d.getTime())) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+  return typeof v === "string" ? v : undefined;
+}
 function useBodyScrollLock(locked: boolean) {
   useEffect(() => {
     if (!locked) return;
@@ -69,8 +81,9 @@ function maskEmail(email?: string | null) {
   const masked = local.length > 2 ? "*".repeat(local.length - 2) : "";
   return `${shown}${masked}@${domain}`;
 }
+const safeNum = (v: any) => (typeof v === "number" && isFinite(v) ? v : 0);
 
-/* ================== Sub Components ================== */
+/* ================== Shared Sub Components ================== */
 function HeaderSuccess({ ticketCode, createdAtISO }: { ticketCode: string; createdAtISO: string }) {
   const kst = useMemo(() => formatKST(createdAtISO), [createdAtISO]);
   return (
@@ -93,128 +106,21 @@ function HeaderSuccess({ ticketCode, createdAtISO }: { ticketCode: string; creat
     </div>
   );
 }
-
-/* ---------- SEAT 전용(좌측) ---------- */
-function SummaryCard({ data }: { data: ReceiptData }) {
-  const customerLine = useMemo(() => {
-    const c: any = data.customer || {};
-    const parts: string[] = [];
-    if (c.company) parts.push(c.company);
-    if (c.name) parts.push(c.name);
-    if (c.phoneMasked) parts.push(c.phoneMasked);
-    if (c.emailDomain) parts.push(c.emailDomain);
-    return parts.join(" · ");
-  }, [data.customer]);
-
-  const cartLine = useMemo(() => {
-    if (isSeatReceipt(data)) {
-      const s = (data as ReceiptSeat).summary;
-      const left = `담은 단지 ${s.aptCount}곳`;
-      const right = typeof s.monthlyTotalKRW === "number" ? `예상 월액 ${formatKRW(s.monthlyTotalKRW)}` : undefined;
-      return right ? `${left} · ${right}` : left;
-    }
-    if (isPackageReceipt(data)) {
-      const p = (data as ReceiptPackage).summary;
-      const left = p.scopeLabel || "영역 선택";
-      const mid = p.areaCount ? ` · ${p.areaCount}개 영역` : "";
-      const tail = p.budgetRangeText ? ` · ${p.budgetRangeText}` : "";
-      return `${left}${mid}${tail}`;
-    }
-    return "";
-  }, [data]);
-
+function StepItem({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-gray-100 bg-white p-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <div className="text-xs text-gray-500">고객 · 문의 요약</div>
-          <div className="mt-1 truncate text-sm font-medium">{customerLine || "-"}</div>
-        </div>
-        <div className="text-right">
-          <div className="text-xs text-gray-500">장바구니/범위</div>
-          <div className="mt-1 truncate text-sm text-gray-700">{cartLine || "-"}</div>
-        </div>
-      </div>
-    </div>
-  );
-}
-function SeatTable({ data }: { data: ReceiptSeat }) {
-  const { items } = data.details || { items: [] };
-  return (
-    <table className="min-w-full text-[13px]">
-      <thead className="sticky top-0 bg-gray-50 text-gray-600">
-        <tr className="[&>th]:px-3 [&>th]:py-2">
-          <th className="text-left w-[26%]">단지명</th>
-          <th className="text-left w-[18%]">상품</th>
-          <th className="text-right w-[8%]">개월</th>
-          <th className="text-right w-[16%]">월가(정가)</th>
-          <th className="text-right w-[16%]">월예상</th>
-          <th className="text-right w-[16%]">기간합계</th>
-        </tr>
-      </thead>
-      <tbody className="[&>tr>td]:px-3 [&>tr>td]:py-2">
-        {items?.length ? (
-          items.map((it, idx) => (
-            <tr key={idx} className="border-t border-gray-100">
-              <td className="font-medium">{it.aptName}</td>
-              <td className="truncate">{it.productName ?? "-"}</td>
-              <td className="text-right">{it.months ?? "-"}</td>
-              <td className="text-right">{formatKRW(it.baseMonthly)}</td>
-              <td className="text-right">{formatKRW(it.monthlyAfter)}</td>
-              <td className="text-right">{formatKRW(it.lineTotal)}</td>
-            </tr>
-          ))
-        ) : (
-          <tr>
-            <td colSpan={6} className="py-6 text-center text-xs text-gray-500">
-              항목이 없습니다.
-            </td>
-          </tr>
-        )}
-      </tbody>
-      <tfoot className="bg-gray-50">
-        <tr className="[&>td]:px-3 [&>td]:py-3">
-          <td colSpan={3} />
-          <td className="text-right text-gray-600">월 예상 합계</td>
-          <td className="text-right font-semibold">{formatKRW(data.details.monthlyTotalKRW)}</td>
-          <td className="text-right font-semibold">{formatKRW(data.details.periodTotalKRW)}</td>
-        </tr>
-      </tfoot>
-    </table>
-  );
-}
-function DetailsSection({ data }: { data: ReceiptData }) {
-  const [open, setOpen] = useState(true);
-  const vatNote =
-    (data as any)?.meta?.vatNote ?? "표시된 금액은 부가세 별도이며, 운영사 정책/재고에 따라 변동될 수 있습니다.";
-
-  return (
-    <div className="rounded-xl border border-gray-100">
-      <button className="flex w-full items-center justify-between px-4 py-3" onClick={() => setOpen((v) => !v)}>
-        <span className="text-sm font-semibold">자세히 보기</span>
-        {open ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-      </button>
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            key="details"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden"
-          >
-            <div className="max-h-[40vh] overflow-auto border-t border-gray-100">
-              {isSeatReceipt(data) ? <SeatTable data={data as ReceiptSeat} /> : null}
-            </div>
-            <div className="border-t border-gray-100 px-4 py-2 text-xs text-gray-500">{vatNote}</div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+    <li className="grid grid-cols-[28px_1fr] items-start gap-3">
+      <span
+        className="inline-flex h-7 w-7 items-center justify-center rounded-full"
+        style={{ backgroundColor: BRAND_LIGHT }}
+      >
+        {icon}
+      </span>
+      <div className="text-sm leading-6">{children}</div>
+    </li>
   );
 }
 
-/* ---------- PACKAGE 전용 “고객 문의” 섹션 (좌측) ---------- */
+/* ================== PACKAGE: 좌측 — 고객 문의 ================== */
 function Row({ label, value }: { label: string; value?: string }) {
   return (
     <div className="grid grid-cols-3 items-start gap-3 py-2">
@@ -225,12 +131,11 @@ function Row({ label, value }: { label: string; value?: string }) {
 }
 function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptData }) {
   const c: any = (data as any).customer || {};
-  const form: any = (data as any).form || (data as any).request || (data as any).fields || (data as any).payload || {};
+  const form: any = (data as any).form || {};
   const summary: any = (data as any).summary || {};
 
   const emailMasked = maskEmail(c.email ?? form.email ?? null) || (c.emailDomain ? `**${String(c.emailDomain)}` : "-");
 
-  // ▶ 캠페인유형: 여러 위치/케이스에서 조회
   const campaignType =
     form.campaignType ??
     form.campaign_type ??
@@ -239,55 +144,12 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptData }
     c.campaignType ??
     c.campaign_type;
 
-  // ▶ 기간: '광고 송출 예정(희망)일'을 최우선으로 표시 + 다양한 키 대응
-  const toYMD = (input?: any): string | undefined => {
-    if (input == null || input === "") return undefined;
-    const v = typeof input === "string" ? input.trim() : input;
-    const d = new Date(v);
-    if (!isNaN(d.getTime())) {
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      return `${y}-${m}-${day}`;
-    }
-    return typeof v === "string" ? v : undefined;
-  };
-
+  // 기간: ‘광고 송출 예정(희망)일’ 우선
   const preferredRaw =
     form.desiredDate ??
-    form.desired_date ??
-    form.desiredAt ??
-    form.desired_at ??
-    form.preferredDate ??
-    form.preferred_date ??
-    form.preferredStartDate ??
-    form.preferred_start_date ??
     form.hopeDate ??
-    form.hope_date ??
-    form.hopedDate ??
-    form.hoped_date ??
-    form.startDate ??
-    form.start_date ??
-    form.startAt ??
-    form.start_at ??
-    form.scheduleDate ??
-    form.schedule_date ??
     summary.desiredDate ??
-    summary.desired_date ??
-    summary.preferredDate ??
-    summary.preferred_date ??
-    summary.preferredStartDate ??
-    summary.preferred_start_date ??
-    summary.startDate ??
-    summary.start_date ??
-    summary.startAt ??
-    summary.start_at ??
-    summary.scheduleDate ??
-    summary.schedule_date ??
-    c.desiredDate ??
-    c.desired_date ??
-    c.preferredDate ??
-    c.preferred_date ??
+    summary.hopeDate ??
     (data as any)?.meta?.desiredDate ??
     (data as any)?.meta?.startDate ??
     (data as any)?.meta?.start_date;
@@ -301,37 +163,16 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptData }
     summary.period_label ??
     (typeof summary.months === "number" ? `${summary.months}개월` : undefined);
 
-  // ▶ 프로모션코드: 다양한 입력 키 대응
+  // 프로모션 코드
   const promoCode =
     form.promotionCode ??
     form.promoCode ??
     form.promotion_code ??
     form.promo_code ??
-    form.couponCode ??
-    form.coupon_code ??
-    form.coupon ??
-    form.referralCode ??
-    form.referral_code ??
-    form.refCode ??
-    form.ref_code ??
-    form.eventCode ??
-    form.event_code ??
     summary.promotionCode ??
     summary.promoCode ??
     summary.promotion_code ??
     summary.promo_code ??
-    summary.couponCode ??
-    summary.coupon_code ??
-    summary.referralCode ??
-    summary.referral_code ??
-    summary.refCode ??
-    summary.ref_code ??
-    summary.eventCode ??
-    summary.event_code ??
-    c.promotionCode ??
-    c.promoCode ??
-    c.promotion_code ??
-    c.promo_code ??
     (data as any)?.meta?.promotionCode ??
     (data as any)?.meta?.promoCode ??
     (data as any)?.meta?.promo_code;
@@ -354,7 +195,6 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptData }
         <Row label="연락처" value={c.phoneMasked ?? form.phoneMasked ?? form.phone} />
         <Row label="이메일" value={emailMasked} />
         <Row label="캠페인 유형" value={campaignType} />
-        {/* 예산 행 삭제 */}
         <Row label="기간" value={periodValue} />
         <Row label="프로모션코드" value={promoCode} />
         <Row label="광고 범위" value={form.scopeLabel ?? summary.scopeLabel} />
@@ -371,20 +211,116 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptData }
   );
 }
 
-/* ---------- 오른쪽 카드: “다음 절차”(정렬 개선) ---------- */
-function StepItem({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+/* ================== SEAT: 좌측 — 선택정보 중심 레이아웃 ================== */
+function SeatSelectionPanel({ data }: { data: ReceiptSeat }) {
+  const items = (data?.details as any)?.items ?? [];
+
+  // 합산 지표
+  const sums = useMemo(() => {
+    let households = 0;
+    let residents = 0;
+    let impressions = 0;
+    let monitors = 0;
+
+    items.forEach((it: any) => {
+      households += safeNum(it.households);
+      residents += safeNum(it.residents);
+      impressions += safeNum(it.monthlyImpressions ?? it.impressionsMonthly ?? it.impressions);
+      monitors += safeNum(it.monitors ?? it.monitorCount ?? it.screens);
+    });
+
+    return { households, residents, impressions, monitors, aptCount: items.length };
+  }, [items]);
+
+  // 상단 요약 라인(있는 값만 붙여서 표기)
+  const summaryLine = useMemo(() => {
+    const p: string[] = [];
+    p.push(`총 ${sums.aptCount}개 단지`);
+    if (sums.households) p.push(`세대수 ${sums.households.toLocaleString()} 세대`);
+    if (sums.residents) p.push(`거주인원 ${sums.residents.toLocaleString()} 명`);
+    if (sums.impressions) p.push(`송출횟수 ${sums.impressions.toLocaleString()} 회`);
+    if (sums.monitors) p.push(`모니터수량 ${sums.monitors.toLocaleString()} 대`);
+    return p.join(" · ");
+  }, [sums]);
+
+  // 총합(총광고료)
+  const periodTotal =
+    (data as any)?.details?.periodTotalKRW ?? items.reduce((acc: number, it: any) => acc + safeNum(it.lineTotal), 0);
+
+  // 희망일/프로모션 (폼에서 넘어온 값)
+  const form: any = (data as any).form || {};
+  const desiredYMD = toYMD(form.desiredDate ?? form.hopeDate);
+  const promo = form.promotionCode ?? form.promoCode ?? form.promo_code;
+
   return (
-    <li className="grid grid-cols-[28px_1fr] items-start gap-3">
-      <span
-        className="inline-flex h-7 w-7 items-center justify-center rounded-full"
-        style={{ backgroundColor: BRAND_LIGHT }}
-      >
-        {icon}
-      </span>
-      <div className="text-sm leading-6">{children}</div>
-    </li>
+    <div className="rounded-xl border border-gray-100 bg-white">
+      {/* 상단: 요약 라인 */}
+      <div className="px-4 py-3">
+        <div className="text-[13px] text-gray-600">{summaryLine}</div>
+      </div>
+
+      {/* 상세 테이블: 단지명 | 광고기간 | 상품명 | 모니터수량 | 총광고료 */}
+      <div className="border-t border-gray-100">
+        <table className="min-w-full text-[13px]">
+          <thead className="sticky top-0 bg-gray-50 text-gray-600">
+            <tr className="[&>th]:px-3 [&>th]:py-2">
+              <th className="text-left w-[28%]">단지명</th>
+              <th className="text-right w-[14%]">광고기간</th>
+              <th className="text-left w-[26%]">상품명</th>
+              <th className="text-right w-[14%]">모니터수량</th>
+              <th className="text-right w-[18%]">총광고료</th>
+            </tr>
+          </thead>
+          <tbody className="[&>tr>td]:px-3 [&>tr>td]:py-2">
+            {items?.length ? (
+              items.map((it: any, idx: number) => (
+                <tr key={idx} className="border-t border-gray-100">
+                  <td className="font-medium">{it.aptName}</td>
+                  <td className="text-right">
+                    {typeof it.months === "number" ? `${it.months}개월` : (it.months ?? "-")}
+                  </td>
+                  <td className="truncate">{it.productName ?? "-"}</td>
+                  <td className="text-right">{(it.monitors ?? it.monitorCount ?? it.screens ?? "-").toString()}</td>
+                  <td className="text-right">{formatKRW(it.lineTotal)}</td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={5} className="py-6 text-center text-xs text-gray-500">
+                  항목이 없습니다.
+                </td>
+              </tr>
+            )}
+          </tbody>
+          <tfoot className="bg-gray-50">
+            <tr className="[&>td]:px-3 [&>td]:py-3">
+              <td colSpan={4} className="text-right text-gray-600">
+                총광고료 합계
+              </td>
+              <td className="text-right font-semibold">{formatKRW(periodTotal)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      {/* (옵션) 희망일/프로모션코드 */}
+      {(desiredYMD || promo) && (
+        <div className="grid grid-cols-2 gap-4 border-t border-gray-100 px-4 py-3 text-sm">
+          <div>
+            <div className="text-xs text-gray-500 mb-1">광고 송출 예정(희망)일</div>
+            <div className="text-gray-800">{desiredYMD ?? "-"}</div>
+          </div>
+          <div>
+            <div className="text-xs text-gray-500 mb-1">프로모션코드</div>
+            <div className="text-gray-800 break-words">{promo ?? "-"}</div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
+
+/* ================== 오른쪽 카드: 다음 절차 ================== */
 function NextStepsSeat() {
   return (
     <div className="rounded-xl border border-gray-100 p-4">
@@ -492,14 +428,12 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
             {/* Body */}
             <div className="grid grid-cols-12 gap-6 px-6 py-6">
               <div className="col-span-8 space-y-4">
-                {/* PACKAGE: 고객 정보만 노출 */}
+                {/* PACKAGE: 고객 정보 중심 */}
                 {isPackage ? (
                   <CustomerInquirySection data={data as ReceiptPackage} />
                 ) : (
-                  <>
-                    <SummaryCard data={data} />
-                    <DetailsSection data={data} />
-                  </>
+                  // SEAT: 선택정보 중심
+                  <SeatSelectionPanel data={data as ReceiptSeat} />
                 )}
               </div>
 
@@ -548,7 +482,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
                   </div>
                 ) : (
                   <>
-                    {/* 기존 SEAT 액션 카드 (원형 유지) */}
+                    {/* SEAT 액션 카드 */}
                     <div className="rounded-xl border border-gray-100 p-4">
                       <div className="text-sm font-semibold">다음 액션</div>
                       <div className="mt-3 grid grid-cols-1 gap-2">
