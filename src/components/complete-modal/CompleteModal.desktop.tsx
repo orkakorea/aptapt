@@ -56,13 +56,12 @@ function useBodyScrollLock(locked: boolean) {
     };
   }, [locked]);
 }
-/** 이메일은 로컬파트 앞 2글자만 보이고 나머지는 * 처리. 도메인은 그대로 노출 */
+/** 이메일: 로컬파트 앞 2글자만 노출, 나머지는 * 처리. 도메인은 그대로. */
 function maskEmail(email?: string | null) {
   if (!email) return "";
   const str = String(email);
   const at = str.indexOf("@");
   if (at <= 0) {
-    // 도메인만 있는 형태("@domain") 등은 앞을 ** 로 고정
     return str.startsWith("@") ? `**${str}` : str.slice(0, 2) + "…";
   }
   const local = str.slice(0, at);
@@ -275,45 +274,34 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptData }
   );
 }
 
-/* ---------- 오른쪽 카드: “다음 절차” ---------- */
+/* ---------- 오른쪽 카드: “다음 절차” (정렬 개선 버전) ---------- */
+function StepItem({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <li className="grid grid-cols-[28px_1fr] items-start gap-3">
+      <span
+        className="inline-flex h-7 w-7 items-center justify-center rounded-full"
+        style={{ backgroundColor: BRAND_LIGHT }}
+      >
+        {icon}
+      </span>
+      <div className="text-sm leading-6">{children}</div>
+    </li>
+  );
+}
 function NextStepsSeat() {
   return (
     <div className="rounded-xl border border-gray-100 p-4">
       <div className="mb-2 text-sm font-semibold">다음 절차</div>
       <ol className="space-y-3">
-        <li className="flex items-start gap-3">
-          <span
-            className="mt-0.5 inline-flex h-7 w-7 flex-none items-center justify-center rounded-full"
-            style={{ backgroundColor: BRAND_LIGHT }}
-          >
-            <CheckCircle2 size={16} color={BRAND} />
-          </span>
-          <div className="text-sm">
-            <b>데이터/재고 확인</b> (5–10분)
-          </div>
-        </li>
-        <li className="flex items-start gap-3">
-          <span
-            className="mt-0.5 inline-flex h-7 w-7 flex-none items-center justify-center rounded-full"
-            style={{ backgroundColor: BRAND_LIGHT }}
-          >
-            <MessageSquare size={16} color={BRAND} />
-          </span>
-          <div className="text-sm">
-            <b>맞춤 견적 전달</b> (이메일/전화)
-          </div>
-        </li>
-        <li className="flex items-start gap-3">
-          <span
-            className="mt-0.5 inline-flex h-7 w-7 flex-none items-center justify-center rounded-full"
-            style={{ backgroundColor: BRAND_LIGHT }}
-          >
-            <CalendarCheck2 size={16} color={BRAND} />
-          </span>
-          <div className="text-sm">
-            <b>미팅/확정</b> — 전자계약·세금계산서
-          </div>
-        </li>
+        <StepItem icon={<CheckCircle2 size={16} color={BRAND} />}>
+          <b>데이터/재고 확인</b> (5–10분)
+        </StepItem>
+        <StepItem icon={<MessageSquare size={16} color={BRAND} />}>
+          <b>맞춤 견적 전달</b> (이메일/전화)
+        </StepItem>
+        <StepItem icon={<CalendarCheck2 size={16} color={BRAND} />}>
+          <b>미팅/확정</b> — 전자계약·세금계산서
+        </StepItem>
       </ol>
     </div>
   );
@@ -323,39 +311,15 @@ function NextStepsPackage() {
     <div className="rounded-xl border border-gray-100 p-4">
       <div className="mb-2 text-sm font-semibold">다음 절차</div>
       <ol className="space-y-3">
-        <li className="flex items-start gap-3">
-          <span
-            className="mt-0.5 inline-flex h-7 w-7 flex-none items-center justify-center rounded-full"
-            style={{ backgroundColor: BRAND_LIGHT }}
-          >
-            <ClipboardList size={16} color={BRAND} />
-          </span>
-          <div className="text-sm">
-            <b>문의 내용 확인</b> (1~2일)
-          </div>
-        </li>
-        <li className="flex items-start gap-3">
-          <span
-            className="mt-0.5 inline-flex h-7 w-7 flex-none items-center justify-center rounded-full"
-            style={{ backgroundColor: BRAND_LIGHT }}
-          >
-            <Mail size={16} color={BRAND} />
-          </span>
-          <div className="text-sm">
-            <b>맞춤 견적 전달</b> (이메일,전화)
-          </div>
-        </li>
-        <li className="flex items-start gap-3">
-          <span
-            className="mt-0.5 inline-flex h-7 w-7 flex-none items-center justify-center rounded-full"
-            style={{ backgroundColor: BRAND_LIGHT }}
-          >
-            <FileSignature size={16} color={BRAND} />
-          </span>
-          <div className="text-sm">
-            <b>상담/계약</b> (전자 계약)
-          </div>
-        </li>
+        <StepItem icon={<ClipboardList size={16} color={BRAND} />}>
+          <b>문의 내용 확인</b> (1~2일)
+        </StepItem>
+        <StepItem icon={<Mail size={16} color={BRAND} />}>
+          <b>맞춤 견적 전달</b> (이메일,전화)
+        </StepItem>
+        <StepItem icon={<FileSignature size={16} color={BRAND} />}>
+          <b>상담/계약</b> (전자 계약)
+        </StepItem>
       </ol>
     </div>
   );
@@ -390,6 +354,11 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
 
   const saveButtonLabel = isPackage ? "문의내용 저장" : "접수증 저장";
   const sheetTitle = saveButtonLabel;
+
+  // PACKAGE 고정 링크(PC 전용)
+  const LINK_YT = "https://www.youtube.com/@ORKA_KOREA";
+  const LINK_GUIDE = "https://orka.co.kr/ELAVATOR_CONTENTS";
+  const LINK_TEAM = "https://orka.co.kr/orka_members";
 
   return createPortal(
     <AnimatePresence>
@@ -442,48 +411,43 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
                 {/* 다음 절차 */}
                 {isPackage ? <NextStepsPackage /> : <NextStepsSeat />}
 
+                {/* (PACKAGE 전용) “문의내용 저장” 버튼을 절차와 정보 카드 사이에 배치 */}
+                {isPackage && (
+                  <button
+                    onClick={() => setPickerOpen(true)}
+                    className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white"
+                    style={{ backgroundColor: BRAND }}
+                  >
+                    {saveButtonLabel}
+                  </button>
+                )}
+
                 {/* 오른쪽 카드 - PACKAGE: “더 많은 정보”, SEAT: 기존 동작 유지 */}
                 {isPackage ? (
                   <div className="rounded-xl border border-gray-100 p-4">
                     <div className="text-sm font-semibold">더 많은 정보</div>
                     <div className="mt-3 grid grid-cols-1 gap-2">
-                      {/* 문의내용 저장 */}
                       <button
-                        onClick={() => setPickerOpen(true)}
-                        className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white"
-                        style={{ backgroundColor: BRAND }}
+                        onClick={() => openExternal(LINK_YT)}
+                        className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
                       >
-                        {saveButtonLabel}
+                        <ExternalLink size={16} />
+                        광고 소재 채널 바로가기
                       </button>
-
-                      {/* 외부 링크 버튼들 (존재할 때만 노출) */}
-                      {data?.links?.youtubeUrl && (
-                        <button
-                          onClick={() => openExternal(data.links!.youtubeUrl)}
-                          className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
-                        >
-                          <ExternalLink size={16} />
-                          광고 소재 채널 바로가기
-                        </button>
-                      )}
-                      {data?.links?.guideUrl && (
-                        <button
-                          onClick={() => openExternal(data.links!.guideUrl)}
-                          className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
-                        >
-                          <ExternalLink size={16} />
-                          제작 가이드 바로가기
-                        </button>
-                      )}
-                      {data?.links?.teamUrl && (
-                        <button
-                          onClick={() => openExternal(data.links!.teamUrl)}
-                          className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
-                        >
-                          <ExternalLink size={16} />
-                          오르카 구성원 확인하기
-                        </button>
-                      )}
+                      <button
+                        onClick={() => openExternal(LINK_GUIDE)}
+                        className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
+                      >
+                        <ExternalLink size={16} />
+                        제작 가이드 바로가기
+                      </button>
+                      <button
+                        onClick={() => openExternal(LINK_TEAM)}
+                        className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
+                      >
+                        <ExternalLink size={16} />
+                        오르카 구성원 확인하기
+                      </button>
                     </div>
                   </div>
                 ) : (
