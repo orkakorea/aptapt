@@ -7,17 +7,17 @@ import InquiryModal from "./InquiryModal";
  *  ========================= */
 export type QuoteLineItem = {
   id: string;
-  name: string;                 // 단지명
+  name: string; // 단지명
   months: number;
   startDate?: string;
   endDate?: string;
 
-  mediaName?: string;           // 상품명
+  mediaName?: string; // 상품명
   households?: number;
   residents?: number;
   monthlyImpressions?: number;
   monitors?: number;
-  baseMonthly?: number;         // 월광고료(기준)
+  baseMonthly?: number; // 월광고료(기준)
 
   productKeyHint?: keyof DiscountPolicy;
 };
@@ -42,7 +42,7 @@ const DEFAULT_POLICY: DiscountPolicy = {
       { min: 12, max: 12, rate: 0.2 },
     ],
   },
-  "TOWNBORD_S": {
+  TOWNBORD_S: {
     period: [
       { min: 1, max: 2, rate: 0 },
       { min: 3, max: 5, rate: 0.1 },
@@ -50,7 +50,7 @@ const DEFAULT_POLICY: DiscountPolicy = {
       { min: 12, max: 12, rate: 0.2 },
     ],
   },
-  "TOWNBORD_L": {
+  TOWNBORD_L: {
     period: [
       { min: 1, max: 2, rate: 0 },
       { min: 3, max: 5, rate: 0.1 },
@@ -93,13 +93,19 @@ function classifyProductForPolicy(productName?: string): keyof DiscountPolicy | 
   if (!pn) return undefined;
 
   if (
-    pn.includes("townbord_l") || pn.includes("townboard_l") ||
-    /\btownbord[-_\s]?l\b/.test(pn) || /\btownboard[-_\s]?l\b/.test(pn)
-  ) return "TOWNBORD_L";
+    pn.includes("townbord_l") ||
+    pn.includes("townboard_l") ||
+    /\btownbord[-_\s]?l\b/.test(pn) ||
+    /\btownboard[-_\s]?l\b/.test(pn)
+  )
+    return "TOWNBORD_L";
   if (
-    pn.includes("townbord_s") || pn.includes("townboard_s") ||
-    /\btownbord[-_\s]?s\b/.test(pn) || /\btownboard[-_\s]?s\b/.test(pn)
-  ) return "TOWNBORD_S";
+    pn.includes("townbord_s") ||
+    pn.includes("townboard_s") ||
+    /\btownbord[-_\s]?s\b/.test(pn) ||
+    /\btownboard[-_\s]?s\b/.test(pn)
+  )
+    return "TOWNBORD_S";
 
   if (pn.includes("elevatortv") || pn.includes("엘리베이터tv") || pn.includes("elevator")) return "ELEVATOR TV";
   if (pn.includes("mediameet") || pn.includes("media-meet") || pn.includes("미디어")) return "MEDIA MEET";
@@ -113,8 +119,7 @@ function classifyProductForPolicy(productName?: string): keyof DiscountPolicy | 
 /** =========================
  *  포맷터
  *  ========================= */
-const fmtWon = (n?: number) =>
-  typeof n === "number" && Number.isFinite(n) ? `${n.toLocaleString()}원` : "—";
+const fmtWon = (n?: number) => (typeof n === "number" && Number.isFinite(n) ? `${n.toLocaleString()}원` : "—");
 const fmtNum = (n?: number, unit = "") =>
   typeof n === "number" && Number.isFinite(n) ? `${n.toLocaleString()}${unit ? unit : ""}` : "—";
 const safe = (s?: string) => (s && s.trim().length > 0 ? s : "—");
@@ -144,12 +149,7 @@ type QuoteModalProps = {
   items: QuoteLineItem[];
   vatRate?: number;
   onClose?: () => void;
-  onSubmitInquiry?: (payload: {
-    items: QuoteLineItem[];
-    subtotal: number;
-    vat: number;
-    total: number;
-  }) => void;
+  onSubmitInquiry?: (payload: { items: QuoteLineItem[]; subtotal: number; vat: number; total: number }) => void;
   title?: string;
   subtitle?: string;
 };
@@ -163,9 +163,7 @@ export default function QuoteModal({
   vatRate = 0.1,
   onClose,
   onSubmitInquiry,
-  // 타이틀의 가운데 "-" 제거
   title = "응답하라 입주민이여",
-  // 부제목 교체
   subtitle = "주식회사 오르카코리아 아파트 엘리베이터 광고 견적안",
 }: QuoteModalProps) {
   if (typeof document === "undefined") return null;
@@ -195,7 +193,9 @@ export default function QuoteModal({
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose?.(); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose?.();
+    };
     window.addEventListener("keydown", onKey);
     return () => {
       document.body.style.overflow = prev;
@@ -247,6 +247,7 @@ export default function QuoteModal({
     const cart_snapshot = {
       months: monthsMax || undefined,
       cartTotal: computed.subtotal,
+      // ✅ 접수증 빌더가 이해할 수 있도록 snake/camel 혼용 필드 모두 포함
       items: (items ?? []).map((it) => {
         const productKey = it.productKeyHint || classifyProductForPolicy(it.mediaName);
         const rule = productKey ? DEFAULT_POLICY[productKey] : undefined;
@@ -258,12 +259,27 @@ export default function QuoteModal({
         const lineTotal = monthlyAfter * it.months;
 
         return {
+          // 표/요약용 기본값
           apt_name: it.name,
           product_name: it.mediaName,
           product_code: productKey,
           months: it.months,
+
+          // 금액 필드(양쪽 표기 모두)
+          baseMonthly,
+          base_monthly: baseMonthly,
+          monthlyAfter,
+          monthly_after: monthlyAfter,
+          lineTotal,
+          line_total: lineTotal,
           item_total_won: lineTotal,
           total_won: lineTotal,
+
+          // 합산/카운터용 메타
+          households: it.households,
+          residents: it.residents,
+          monthlyImpressions: it.monthlyImpressions,
+          monitors: it.monitors,
         };
       }),
     };
@@ -316,10 +332,18 @@ export default function QuoteModal({
               <div className="px-6 pt-4 pb-2 flex items-center justify-between">
                 <div className="text-sm text-[#4B5563] flex flex-wrap gap-x-4 gap-y-1">
                   <span className="font-semibold">{`총 ${computed.totals.count}개 단지`}</span>
-                  <span>· 세대수 <b>{fmtNum(computed.totals.households)}</b> 세대</span>
-                  <span>· 거주인원 <b>{fmtNum(computed.totals.residents)}</b> 명</span>
-                  <span>· 송출횟수 <b>{fmtNum(computed.totals.monthlyImpressions)}</b> 회</span>
-                  <span>· 모니터수량 <b>{fmtNum(computed.totals.monitors)}</b> 대</span>
+                  <span>
+                    · 세대수 <b>{fmtNum(computed.totals.households)}</b> 세대
+                  </span>
+                  <span>
+                    · 거주인원 <b>{fmtNum(computed.totals.residents)}</b> 명
+                  </span>
+                  <span>
+                    · 송출횟수 <b>{fmtNum(computed.totals.monthlyImpressions)}</b> 회
+                  </span>
+                  <span>
+                    · 모니터수량 <b>{fmtNum(computed.totals.monitors)}</b> 대
+                  </span>
                 </div>
                 <div className="text-xs text-[#9CA3AF]">(단위 · 원 / VAT별도)</div>
               </div>
@@ -356,17 +380,39 @@ export default function QuoteModal({
                         computed.rows.map(({ it, periodRate, precompRate, baseMonthly, baseTotal, lineTotal }) => (
                           <tr key={it.id} className="border-t border-[#F3F4F6]">
                             <Td className="text-left font-medium text-black">{it.name}</Td>
-                            <Td center nowrap>{fmtNum(it.months, "개월")}</Td>
-                            <Td center nowrap>{safe(it.mediaName)}</Td>
-                            <Td center nowrap>{fmtNum(it.households, "세대")}</Td>
-                            <Td center nowrap>{fmtNum(it.residents, "명")}</Td>
-                            <Td center nowrap>{fmtNum(it.monthlyImpressions, "회")}</Td>
-                            <Td center nowrap>{fmtNum(it.monitors, "대")}</Td>
-                            <Td center nowrap>{fmtWon(baseMonthly)}</Td>
-                            <Td center nowrap>{fmtWon(baseTotal)}</Td>
-                            <Td center nowrap>{periodRate > 0 ? `${Math.round(periodRate * 100)}%` : "-"}</Td>
-                            <Td center nowrap>{precompRate > 0 ? `${Math.round(precompRate * 100)}%` : "-"}</Td>
-                            <Td center nowrap className="font-bold text-[#6C2DFF]">{fmtWon(lineTotal)}</Td>
+                            <Td center nowrap>
+                              {fmtNum(it.months, "개월")}
+                            </Td>
+                            <Td center nowrap>
+                              {safe(it.mediaName)}
+                            </Td>
+                            <Td center nowrap>
+                              {fmtNum(it.households, "세대")}
+                            </Td>
+                            <Td center nowrap>
+                              {fmtNum(it.residents, "명")}
+                            </Td>
+                            <Td center nowrap>
+                              {fmtNum(it.monthlyImpressions, "회")}
+                            </Td>
+                            <Td center nowrap>
+                              {fmtNum(it.monitors, "대")}
+                            </Td>
+                            <Td center nowrap>
+                              {fmtWon(baseMonthly)}
+                            </Td>
+                            <Td center nowrap>
+                              {fmtWon(baseTotal)}
+                            </Td>
+                            <Td center nowrap>
+                              {periodRate > 0 ? `${Math.round(periodRate * 100)}%` : "-"}
+                            </Td>
+                            <Td center nowrap>
+                              {precompRate > 0 ? `${Math.round(precompRate * 100)}%` : "-"}
+                            </Td>
+                            <Td center nowrap className="font-bold text-[#6C2DFF]">
+                              {fmtWon(lineTotal)}
+                            </Td>
                           </tr>
                         ))
                       )}
@@ -393,9 +439,7 @@ export default function QuoteModal({
                     <span className="text-black">{fmtWon(computed.vat)}</span>
                   </div>
                   <div className="mt-2 flex items-center justify-between">
-                    <span className="text-[18px] text-[#6C2DFF] font-semibold">
-                      최종광고료
-                    </span>
+                    <span className="text-[18px] text-[#6C2DFF] font-semibold">최종광고료</span>
                     <span className="text-[21px] font-bold text-[#6C2DFF]">
                       {fmtWon(computed.total)} <span className="text-xs text-[#6B7280] font-medium">(VAT 포함)</span>
                     </span>
@@ -436,16 +480,14 @@ export default function QuoteModal({
         />
       )}
     </>,
-    document.body
+    document.body,
   );
 }
 
 /** 헤더 셀: 가운데 정렬 + 내용과 동일한 크기(text-sm) + Bold */
 function Th({ children, className = "" }: React.PropsWithChildren<{ className?: string }>) {
   return (
-    <th className={`px-6 py-4 text-center text-sm font-bold border-b border-[#E5E7EB] ${className}`}>
-      {children}
-    </th>
+    <th className={`px-6 py-4 text-center text-sm font-bold border-b border-[#E5E7EB] ${className}`}>{children}</th>
   );
 }
 
