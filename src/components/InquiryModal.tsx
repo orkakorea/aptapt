@@ -279,6 +279,7 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
             monthlyTotalKRW: summary.monthlyTotalKRW ?? null,
             periodTotalKRW: summary.periodTotalKRW ?? null,
           },
+          form: { desiredDate: hopeDate || undefined, promotionCode: promoCode || undefined },
           links: { receiptUrl },
           actions: {
             onSaveImage: () => {
@@ -308,6 +309,7 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
             budgetRangeText: undefined,
           },
           details: { areas: [] },
+          form: { desiredDate: hopeDate || undefined, promotionCode: promoCode || undefined },
           links: { receiptUrl },
           actions: {
             onSaveImage: () => {
