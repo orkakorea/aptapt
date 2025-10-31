@@ -3,10 +3,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { useKakaoLoader } from "@/hooks/useKakaoLoader";
 
 /**
- * 🔐 중요
- * - 이전 버전처럼 Kakao REST 키를 브라우저에 하드코딩하지 않습니다.
- * - Kakao JS SDK (자바스크립트 키, 도메인 제한) 의 Geocoder를 사용합니다.
- * - useKakaoLoader 가 sdk 로더를 담당해야 하며, 'libraries=services' 옵션이 포함되어야 합니다.
+ * - REST 키 하드코딩 제거 (JS SDK만 사용)
+ * - Geocoder 사용을 위해 useKakaoLoader는 반드시 `libraries=services`를 포함해야 함
  */
 
 declare global {
@@ -15,15 +13,20 @@ declare global {
   }
 }
 
-/* ====== 설정값(필요 시 조정) ====== */
-const PER_REQ_DELAY_MS = 300; // 요청 간 기본 딜레이(서버 과부하/쿼터 보호)
-const MAX_RETRIES = 3; // 일시 오류 재시도
-const BASE_BACKOFF_MS = 500; // 지수 백오프 시작(ms)
+/* ===== 결과 타입 (분리) ===== */
+type GeocodeResultOk = { lat: number; lng: number; raw?: any; error?: undefined };
+type GeocodeResultNone = { lat: null; lng: null; error?: undefined };
+type GeocodeResultFail = { lat: undefined; lng: undefined; error: string };
+type GeocodeResult = GeocodeResultOk | GeocodeResultNone | GeocodeResultFail;
 
-/* 유틸: sleep */
+/* ===== 설정 ===== */
+const PER_REQ_DELAY_MS = 300;
+const MAX_RETRIES = 3;
+const BASE_BACKOFF_MS = 500;
+
+/* 유틸 */
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/* Kakao SDK 준비 대기 */
 async function ensureKakaoReady(timeoutMs = 8000) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
@@ -35,14 +38,14 @@ async function ensureKakaoReady(timeoutMs = 8000) {
 }
 
 /* JS SDK Geocoder로 주소 1건 변환 */
-async function geocodeOneViaJsSdk(addr: string) {
+async function geocodeOneViaJsSdk(addr: string): Promise<GeocodeResult> {
   let attempt = 0;
 
   while (attempt <= MAX_RETRIES) {
     try {
       const geocoder = new window.kakao.maps.services.Geocoder();
 
-      const result = await new Promise<{ lat: number | null; lng: number | null; raw?: any }>((resolve) => {
+      const result: GeocodeResult = await new Promise((resolve) => {
         geocoder.addressSearch(addr, (data: any[], status: string) => {
           const S = window.kakao.maps.services.Status;
           if (status === S.OK && data?.[0]) {
@@ -54,43 +57,52 @@ async function geocodeOneViaJsSdk(addr: string) {
           } else if (status === S.ZERO_RESULT) {
             resolve({ lat: null, lng: null });
           } else {
-            // ERROR 등 기타 상태 → 재시도 대상
-            resolve({ lat: undefined as any, lng: undefined as any });
+            // ERROR 등 기타 상태 → 재시도
+            resolve({ lat: undefined as unknown as undefined, lng: undefined as unknown as undefined, error: "error" });
           }
         });
       });
 
       // 정상/없음 처리
-      if (result.lat === null && result.lng === null) return { lat: null, lng: null };
-      if (typeof result.lat === "number" && typeof result.lng === "number") return result;
+      if ("error" in result) {
+        // 재시도
+      } else if (result.lat === null && result.lng === null) {
+        return result;
+      } else if (typeof result.lat === "number" && typeof result.lng === "number") {
+        return result;
+      }
 
       // 재시도 (ERROR 등)
       attempt += 1;
       if (attempt > MAX_RETRIES) {
-        return { lat: undefined as any, lng: undefined as any, error: "retry_exhausted" };
+        return {
+          lat: undefined as unknown as undefined,
+          lng: undefined as unknown as undefined,
+          error: "retry_exhausted",
+        };
       }
       const wait = BASE_BACKOFF_MS * Math.pow(2, attempt - 1);
       await sleep(wait);
     } catch {
       attempt += 1;
-      if (attempt > MAX_RETRIES) return { lat: undefined as any, lng: undefined as any, error: "exception" };
+      if (attempt > MAX_RETRIES)
+        return { lat: undefined as unknown as undefined, lng: undefined as unknown as undefined, error: "exception" };
       const wait = BASE_BACKOFF_MS * Math.pow(2, attempt - 1);
       await sleep(wait);
     }
   }
 
-  return { lat: undefined as any, lng: undefined as any, error: "unexpected" };
+  return { lat: undefined as unknown as undefined, lng: undefined as unknown as undefined, error: "unexpected" };
 }
 
-/* ====== 페이지 컴포넌트 ====== */
+/* ===== 페이지 컴포넌트 ===== */
 export default function AdminGeocode() {
-  useKakaoLoader(); // SDK 로더(도메인 등록된 JS 키 사용). 반환값 없이 side-effect일 수 있음.
+  useKakaoLoader(); // SDK 로더 (도메인 등록된 JavaScript 키 사용)
   const [running, setRunning] = useState(false);
   const [log, setLog] = useState<string[]>([]);
   const [left, setLeft] = useState<number | null>(null);
   const [sdkReady, setSdkReady] = useState(false);
 
-  /* SDK 준비 */
   useEffect(() => {
     (async () => {
       const ok = await ensureKakaoReady();
@@ -104,7 +116,6 @@ export default function AdminGeocode() {
     })();
   }, []);
 
-  /* 남은 pending 집계 */
   async function getPendingCount() {
     const { count, error } = await supabase
       .from("places")
@@ -120,7 +131,6 @@ export default function AdminGeocode() {
     }
   }
 
-  /* 배치 실행 */
   async function runBatch(batchSize = 12) {
     if (!sdkReady) {
       setLog((l) => ["⚠️ SDK가 아직 준비되지 않았습니다.", ...l]);
@@ -129,7 +139,6 @@ export default function AdminGeocode() {
 
     setRunning(true);
     try {
-      // 1) pending 일부 가져오기
       const { data, error } = await supabase
         .from("places")
         .select("address")
@@ -152,17 +161,17 @@ export default function AdminGeocode() {
       for (const addr of targets) {
         const r = await geocodeOneViaJsSdk(addr);
 
-        if (r.lat === undefined && r.lng === undefined) {
+        if ("error" in r) {
           // 완전 실패(예외/재시도 초과)
           await supabase.from("places").update({ geocode_status: "fail" }).eq("address", addr);
           fail++;
-          setLog((l) => [`요청 실패: ${addr} (${r.error ?? "unknown"})`, ...l]);
+          setLog((l) => [`요청 실패: ${addr} (${r.error})`, ...l]);
         } else if (r.lat === null && r.lng === null) {
           // 결과 없음
           await supabase.from("places").update({ geocode_status: "fail" }).eq("address", addr);
           fail++;
         } else {
-          // 성공: 좌표 업데이트
+          // 성공
           const { error: uerr } = await supabase
             .from("places")
             .update({ lat: r.lat, lng: r.lng, geocode_status: "ok" })
@@ -176,7 +185,6 @@ export default function AdminGeocode() {
           }
         }
 
-        // 과도한 연속호출 방지
         await sleep(PER_REQ_DELAY_MS + Math.floor(Math.random() * 120));
       }
 
@@ -200,7 +208,7 @@ export default function AdminGeocode() {
       <div style={{ display: "flex", gap: 12, margin: "8px 0 16px" }}>
         <button
           disabled={running || !sdkReady}
-          onClick={() => runBatch(12)} // 권장: 10~15
+          onClick={() => runBatch(12)}
           style={{ padding: "8px 12px", borderRadius: 8 }}
         >
           {running ? "실행 중…" : "배치 실행(12건)"}
