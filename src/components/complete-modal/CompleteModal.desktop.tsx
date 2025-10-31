@@ -230,7 +230,7 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptData }
 
   const emailMasked = maskEmail(c.email ?? form.email ?? null) || (c.emailDomain ? `**${String(c.emailDomain)}` : "-");
 
-  // ▶ 캠페인유형: camelCase/snake_case/여러 위치에서 폭넓게 조회
+  // ▶ 캠페인유형: 여러 위치/케이스에서 조회
   const campaignType =
     form.campaignType ??
     form.campaign_type ??
@@ -239,8 +239,61 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptData }
     c.campaignType ??
     c.campaign_type;
 
-  // ▶ 기간: label 우선, 없으면 months 숫자를 "n개월"로 표시 (camel/snake + summary 폴백)
+  // ▶ 기간: '광고 송출 예정(희망)일'을 최우선으로 표시 + 다양한 키 대응
+  const toYMD = (input?: any): string | undefined => {
+    if (input == null || input === "") return undefined;
+    const v = typeof input === "string" ? input.trim() : input;
+    const d = new Date(v);
+    if (!isNaN(d.getTime())) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    }
+    return typeof v === "string" ? v : undefined;
+  };
+
+  const preferredRaw =
+    form.desiredDate ??
+    form.desired_date ??
+    form.desiredAt ??
+    form.desired_at ??
+    form.preferredDate ??
+    form.preferred_date ??
+    form.preferredStartDate ??
+    form.preferred_start_date ??
+    form.hopeDate ??
+    form.hope_date ??
+    form.hopedDate ??
+    form.hoped_date ??
+    form.startDate ??
+    form.start_date ??
+    form.startAt ??
+    form.start_at ??
+    form.scheduleDate ??
+    form.schedule_date ??
+    summary.desiredDate ??
+    summary.desired_date ??
+    summary.preferredDate ??
+    summary.preferred_date ??
+    summary.preferredStartDate ??
+    summary.preferred_start_date ??
+    summary.startDate ??
+    summary.start_date ??
+    summary.startAt ??
+    summary.start_at ??
+    summary.scheduleDate ??
+    summary.schedule_date ??
+    c.desiredDate ??
+    c.desired_date ??
+    c.preferredDate ??
+    c.preferred_date ??
+    (data as any)?.meta?.desiredDate ??
+    (data as any)?.meta?.startDate ??
+    (data as any)?.meta?.start_date;
+
   const periodValue =
+    toYMD(preferredRaw) ??
     form.periodLabel ??
     form.period_label ??
     (typeof form.months === "number" ? `${form.months}개월` : undefined) ??
@@ -248,16 +301,40 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptData }
     summary.period_label ??
     (typeof summary.months === "number" ? `${summary.months}개월` : undefined);
 
-  // ▶ 프로모션코드: 다양한 키 대응
+  // ▶ 프로모션코드: 다양한 입력 키 대응
   const promoCode =
     form.promotionCode ??
     form.promoCode ??
     form.promotion_code ??
     form.promo_code ??
+    form.couponCode ??
+    form.coupon_code ??
+    form.coupon ??
+    form.referralCode ??
+    form.referral_code ??
+    form.refCode ??
+    form.ref_code ??
+    form.eventCode ??
+    form.event_code ??
     summary.promotionCode ??
+    summary.promoCode ??
     summary.promotion_code ??
+    summary.promo_code ??
+    summary.couponCode ??
+    summary.coupon_code ??
+    summary.referralCode ??
+    summary.referral_code ??
+    summary.refCode ??
+    summary.ref_code ??
+    summary.eventCode ??
+    summary.event_code ??
     c.promotionCode ??
-    c.promotion_code;
+    c.promoCode ??
+    c.promotion_code ??
+    c.promo_code ??
+    (data as any)?.meta?.promotionCode ??
+    (data as any)?.meta?.promoCode ??
+    (data as any)?.meta?.promo_code;
 
   const inquiryText: string =
     form.request ??
@@ -277,17 +354,7 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptData }
         <Row label="연락처" value={c.phoneMasked ?? form.phoneMasked ?? form.phone} />
         <Row label="이메일" value={emailMasked} />
         <Row label="캠페인 유형" value={campaignType} />
-        <Row
-          label="예산"
-          value={
-            form.budgetRangeText ??
-            form.budgetText ??
-            form.budget ??
-            summary.budgetRangeText ??
-            summary.budgetText ??
-            summary.budget
-          }
-        />
+        {/* 예산 행 삭제 */}
         <Row label="기간" value={periodValue} />
         <Row label="프로모션코드" value={promoCode} />
         <Row label="광고 범위" value={form.scopeLabel ?? summary.scopeLabel} />
@@ -440,7 +507,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
                 {/* 다음 절차 */}
                 {isPackage ? <NextStepsPackage /> : <NextStepsSeat />}
 
-                {/* (PACKAGE 전용) “문의 내용 저장” 버튼을 절차와 정보 카드 사이에 배치 */}
+                {/* (PACKAGE 전용) “문의 내용 저장” 버튼 */}
                 {isPackage && (
                   <button
                     onClick={() => setPickerOpen(true)}
