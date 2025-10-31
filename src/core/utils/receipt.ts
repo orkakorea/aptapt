@@ -1,5 +1,17 @@
-// src/core/utils/receipt.ts
 import type { SeatItem, SeatSummary } from "@/components/complete-modal/types";
+
+/** 내부 유틸 */
+const num = (v: any): number | null => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+const firstOf = <T = any,>(obj: any, keys: string[], map?: (v: any) => T, fallback?: T): T | undefined => {
+  for (const k of keys) {
+    const v = obj?.[k];
+    if (v !== undefined && v !== null && v !== "") return map ? map(v) : (v as T);
+  }
+  return fallback;
+};
 
 /** 1탭 '총 비용'을 최대한 호환성 있게 추출 */
 export function pickCartTotal(snap: any): number | null {
@@ -21,7 +33,9 @@ export function pickCartTotal(snap: any): number | null {
   }
   if (Array.isArray(snap.items) && snap.items.length > 0) {
     const sum = snap.items.reduce((acc: number, it: any) => {
-      const n = Number(it?.itemTotalWon ?? it?.item_total_won ?? it?.totalWon ?? it?.total_won ?? 0);
+      const n = Number(
+        it?.lineTotal ?? it?.line_total ?? it?.itemTotalWon ?? it?.item_total_won ?? it?.totalWon ?? it?.total_won ?? 0,
+      );
       return acc + (isFinite(n) ? n : 0);
     }, 0);
     return sum > 0 ? sum : null;
@@ -53,7 +67,7 @@ function extractMonths(snap: any): { max: number | null; uniqueCount: number } {
   let max = 0;
   const items: any[] = Array.isArray(snap?.items) ? snap.items : [];
   items.forEach((i) => {
-    const n = Number(i?.months ?? 0);
+    const n = Number(i?.months ?? i?.month ?? 0);
     if (isFinite(n) && n > 0) {
       set.add(n);
       if (n > max) max = n;
@@ -85,16 +99,21 @@ export function buildSeatHeaderLabels(prefill?: {
   const items: any[] = Array.isArray(snap?.items) ? snap.items : [];
   const first = items[0] ?? null;
 
-  const topAptName = first?.apt_name ?? prefill?.apt_name ?? "-";
+  const topAptName = first?.apt_name ?? first?.aptName ?? prefill?.apt_name ?? "-";
   const aptCount = items.length > 0 ? items.length : prefill?.apt_name ? 1 : 0;
   const aptLabel = aptCount > 1 ? `${topAptName} 외 ${aptCount - 1}개 단지` : topAptName;
 
   const productFirst =
-    first?.product_name ?? first?.product_code ?? prefill?.product_name ?? prefill?.product_code ?? "-";
+    first?.product_name ??
+    first?.productName ??
+    first?.product_code ??
+    prefill?.product_name ??
+    prefill?.product_code ??
+    "-";
   const uniqProducts = new Set<string>();
   if (items.length > 0) {
     items.forEach((i) => {
-      const key = i?.product_name ?? i?.product_code ?? "";
+      const key = i?.product_name ?? i?.productName ?? i?.product_code ?? "";
       if (key) uniqProducts.add(String(key));
     });
   } else {
@@ -133,31 +152,77 @@ export function makeSeatSummary(prefill?: {
   };
 }
 
-/** SEAT 라인아이템 목록 생성 (접수증 자세히 테이블) */
+/**
+ * SEAT 라인아이템 목록 생성 (접수증 자세히 테이블)
+ * - 다양한 스냅샷 키(camelCase/snake_case)를 모두 허용
+ * - 누락된 총액은 (monthlyAfter || baseMonthly) * months 로 보강
+ * - 추가 필드(모니터수량/세대수/거주인원/월송출횟수)를 함께 전달
+ */
 export function buildSeatItemsFromSnapshot(snap: any): SeatItem[] {
   const items: any[] = Array.isArray(snap?.items) ? snap.items : [];
-  return items.map((it) => {
-    const baseMonthly = numOrNull(it?.baseMonthly ?? it?.base_monthly ?? it?.priceMonthly ?? null);
-    const monthlyAfter = numOrNull(it?.monthlyAfter ?? it?.monthly_after ?? it?.priceMonthlyAfter ?? null);
-    const months = numOrNull(it?.months ?? null);
-    const lineTotal =
-      months && (monthlyAfter ?? baseMonthly) ? Math.round((monthlyAfter ?? baseMonthly!) * months) : null;
+  const fallbackMonths = num(snap?.months);
 
-    const discountNote: string | null = it?.discountNote ?? it?.discount_note ?? it?.applied_discounts_text ?? null;
+  return items.map((raw) => {
+    // 표시에 필요한 기본값들
+    const aptName = firstOf<string>(raw, ["aptName", "apt_name", "name"]) ?? "-";
 
-    return {
-      aptName: it?.apt_name ?? "-",
-      productName: it?.product_name ?? it?.product_code ?? "-",
-      months,
+    const productName =
+      firstOf<string>(raw, ["productName", "product_name", "mediaName"]) ??
+      firstOf<string>(raw, ["product_code"]) ??
+      "-";
+
+    const months = num(firstOf(raw, ["months", "month"])) ?? fallbackMonths ?? null;
+
+    const baseMonthly =
+      num(firstOf(raw, ["baseMonthly", "base_monthly", "priceMonthly", "monthlyBase", "monthly_base"])) ?? null;
+
+    const monthlyAfter =
+      num(
+        firstOf(raw, [
+          "monthlyAfter",
+          "monthly_after",
+          "priceMonthlyAfter",
+          "monthlyAfterDiscount",
+          "monthly_after_discount",
+        ]),
+      ) ?? baseMonthly;
+
+    // 총액(lineTotal) 우선순위
+    const lineTotalExplicit = num(
+      firstOf(raw, ["lineTotal", "line_total", "itemTotalWon", "item_total_won", "totalWon", "total_won"]),
+    );
+    const lineTotal = lineTotalExplicit ?? (months && monthlyAfter ? Math.round(monthlyAfter * months) : null);
+
+    // 부가정보(표/카운터용) — 타입 충돌 방지 위해 아래서 any로 붙여줌
+    const monitors = num(firstOf(raw, ["monitors", "monitorCount", "monitor_count", "screens"])) ?? null;
+    const households = num(firstOf(raw, ["households"])) ?? null;
+    const residents = num(firstOf(raw, ["residents"])) ?? null;
+    const monthlyImpressions =
+      num(firstOf(raw, ["monthlyImpressions", "monthly_impressions", "impressions_per_month"])) ?? null;
+
+    const discountNote: string | null =
+      firstOf<string>(raw, ["discountNote", "discount_note", "applied_discounts_text"]) ?? null;
+
+    // SeatItem(필수 스키마) 구성
+    const base: SeatItem = {
+      aptName,
+      productName,
+      months: months ?? null,
       baseMonthly,
       discountNote,
-      monthlyAfter: monthlyAfter ?? baseMonthly ?? null,
+      monthlyAfter: monthlyAfter ?? null,
       lineTotal,
     };
-  });
-}
 
-function numOrNull(v: any): number | null {
-  const n = Number(v);
-  return isFinite(n) ? n : null;
+    // 추가 필드를 얹어서 반환(호환성 위해 any로 확장)
+    const withExtras = {
+      ...base,
+      monitors,
+      households,
+      residents,
+      monthlyImpressions,
+    } as any;
+
+    return withExtras;
+  });
 }
