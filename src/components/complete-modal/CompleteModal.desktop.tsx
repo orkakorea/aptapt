@@ -113,7 +113,7 @@ function NextSteps({ variant }: { variant: "SEAT" | "PACKAGE" }) {
             <ClipboardList size={16} color={BRAND} />
           </span>
           <div className="text-sm leading-6">
-            <b>{variant === "SEAT" ? "구좌(T.O) 확인" : "문의 내용 확인"}</b> {variant === "PACKAGE" ? "(1~2일)" : ""}
+            <b>{variant === "SEAT" ? "구좌(T.O) 확인 (1~2일 소요)" : "문의 내용 확인 (1~2일)"}</b>
           </div>
         </li>
         <li className="grid grid-cols-[28px_1fr] items-start gap-3">
@@ -146,8 +146,18 @@ function Row({ label, value }: { label: string; value?: string }) {
     </div>
   );
 }
-function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptSeat | ReceiptData }) {
+function CustomerInquirySection({
+  data,
+  forceOpen = false,
+}: {
+  data: ReceiptPackage | ReceiptSeat | ReceiptData;
+  forceOpen?: boolean;
+}) {
   const [open, setOpen] = useState(true);
+
+  useEffect(() => {
+    if (forceOpen) setOpen(true);
+  }, [forceOpen]);
 
   const c: any = (data as any).customer || {};
   const form: any = (data as any).form || {};
@@ -195,8 +205,6 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptSeat |
     (data as any)?.meta?.promoCode ??
     (data as any)?.meta?.promo_code;
 
-  const scope = form.scopeLabel ?? summary.scopeLabel;
-
   const inquiryText: string =
     form.request ?? form.message ?? form.memo ?? form.note ?? (data as any)?.meta?.note ?? (data as any)?.customer?.note ?? "";
 
@@ -229,7 +237,7 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptSeat |
               <Row label="캠페인 유형" value={campaignType} />
               <Row label="광고 송출 예정(희망)일" value={desiredValue} />
               <Row label="프로모션코드" value={promoCode} />
-              <Row label="광고 범위" value={scope} />
+              {/* 광고 범위 행 삭제됨 */}
             </div>
 
             {/* 문의내용 (스크롤 가능) */}
@@ -246,16 +254,43 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptSeat |
   );
 }
 
-/* ================== 좌측: SEAT 전용 “문의내역” 테이블 ================== */
+/* ================== 좌측: SEAT 전용 “문의 내역” 테이블 ================== */
 function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
   const items: any[] = (data?.details as any)?.items ?? [];
+
+  const getVal = (obj: any, keys: string[], fallback?: any) => {
+    for (const k of keys) {
+      const v = obj?.[k];
+      if (v !== undefined && v !== null && v !== "") return v;
+    }
+    return fallback;
+  };
+
+  const rows = (items ?? []).map((it: any) => {
+    const aptName = getVal(it, ["aptName", "apt_name", "name"], "-");
+    const months = getVal(it, ["months", "month"], undefined);
+    const periodLabel = typeof months === "number" ? `${months}개월` : months ?? "-";
+    const productName = getVal(it, ["productName", "product_name", "mediaName"], "-");
+    const monitors = getVal(it, ["monitors", "monitorCount", "screens", "monitor_count"], "-");
+    const lineTotalRaw = getVal(it, ["lineTotal", "item_total_won", "total_won", "line_total"], undefined);
+
+    let lineTotal = lineTotalRaw;
+    if (lineTotal === undefined) {
+      const monthlyAfter = getVal(it, ["monthlyAfter", "monthly_after"], undefined);
+      const baseMonthly = getVal(it, ["baseMonthly", "base_monthly", "base"], 0);
+      const m = typeof months === "number" ? months : parseInt(months, 10) || 0;
+      lineTotal = Number.isFinite(monthlyAfter) ? monthlyAfter * m : baseMonthly * m;
+    }
+    return { aptName, periodLabel, productName, monitors, lineTotal: Number(lineTotal) || 0 };
+  });
+
   const periodTotal =
     (data as any)?.details?.periodTotalKRW ??
-    items.reduce((acc: number, it: any) => acc + safeNum(it.lineTotal), 0);
+    rows.reduce((acc: number, r: any) => acc + (Number.isFinite(r.lineTotal) ? r.lineTotal : 0), 0);
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white">
-      <div className="px-4 py-3 text-sm font-semibold">문의내역</div>
+      <div className="px-4 py-3 text-sm font-semibold">문의 내역</div>
       <div className="border-t border-gray-100 overflow-x-auto whitespace-nowrap">
         <table className="text-[13px] min-w-[760px]">
           <thead className="bg-gray-50 text-gray-600">
@@ -268,14 +303,14 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
             </tr>
           </thead>
           <tbody className="[&>tr>td]:px-3 [&>tr>td]:py-2">
-            {items?.length ? (
-              items.map((it: any, idx: number) => (
+            {rows.length ? (
+              rows.map((r: any, idx: number) => (
                 <tr key={idx} className="border-t border-gray-100">
-                  <td className="font-medium">{it.aptName ?? "-"}</td>
-                  <td className="text-right">{typeof it.months === "number" ? `${it.months}개월` : it.months ?? "-"}</td>
-                  <td className="truncate">{it.productName ?? "-"}</td>
-                  <td className="text-right">{(it.monitors ?? it.monitorCount ?? it.screens ?? "-").toString()}</td>
-                  <td className="text-right">{formatKRW(it.lineTotal)}</td>
+                  <td className="font-medium">{r.aptName}</td>
+                  <td className="text-right">{r.periodLabel}</td>
+                  <td className="truncate">{r.productName}</td>
+                  <td className="text-right">{r.monitors?.toString?.() ?? r.monitors}</td>
+                  <td className="text-right">{formatKRW(r.lineTotal)}</td>
                 </tr>
               ))
             ) : (
@@ -307,6 +342,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
   useBodyScrollLock(open);
 
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [forceOpen, setForceOpen] = useState(false); // 저장 시 고객문의 강제 펼침
 
   const isPkg = isPackageReceipt(data);
   const isSeat = isSeatReceipt(data);
@@ -320,10 +356,26 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
   const saveButtonLabel = "문의 내용 저장";
   const sheetTitle = saveButtonLabel;
 
-  // 고정 링크(PC 전용)
+  // PC 고정 링크
   const LINK_YT = "https://www.youtube.com/@ORKA_KOREA";
   const LINK_GUIDE = "https://orka.co.kr/ELAVATOR_CONTENTS";
   const LINK_TEAM = "https://orka.co.kr/orka_members";
+
+  // PNG/PDF 공통 저장 래퍼: 고객문의 섹션 강제 펼치기 후 캡처
+  const saveWithExpand = (fn?: () => void) => {
+    setForceOpen(true);
+    // 레이아웃 반영을 위해 다음 프레임/약간의 지연 후 실행
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        try {
+          fn?.();
+        } finally {
+          // 필요 시 닫기 복귀를 원하면 아래 주석 해제
+          // setTimeout(() => setForceOpen(false), 400);
+        }
+      }, 60);
+    });
+  };
 
   return createPortal(
     <AnimatePresence>
@@ -362,7 +414,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
             <div className="grid grid-cols-12 gap-6 px-6 py-6">
               {/* 좌측 */}
               <div className="col-span-8 space-y-4">
-                <CustomerInquirySection data={data as any} />
+                <CustomerInquirySection data={data as any} forceOpen={forceOpen} />
                 {isSeat && <SeatInquiryTable data={data as ReceiptSeat} />}
               </div>
 
@@ -416,7 +468,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
           </motion.div>
         </div>
 
-        {/* 저장 액션 시트 (두 모드 동일: PNG/PDF만) */}
+        {/* 저장 액션 시트 (PNG/PDF만) */}
         <AnimatePresence>
           {pickerOpen && (
             <>
@@ -450,7 +502,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       onClick={() => {
-                        data?.actions?.onSaveImage?.();
+                        saveWithExpand(data?.actions?.onSaveImage);
                         setPickerOpen(false);
                       }}
                       className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
@@ -459,7 +511,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
                     </button>
                     <button
                       onClick={() => {
-                        data?.actions?.onSavePDF?.();
+                        saveWithExpand(data?.actions?.onSavePDF);
                         setPickerOpen(false);
                       }}
                       className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
