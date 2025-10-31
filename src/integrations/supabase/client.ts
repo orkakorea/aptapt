@@ -5,24 +5,22 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "./types";
 
 // ────────────────────────────────────────────────────────────────
-// .env 에 반드시 필요
+// .env 에 반드시 아래 3개가 있어야 합니다.
 // VITE_SUPABASE_URL="https://<project>.supabase.co"
 // VITE_SUPABASE_PUBLISHABLE_KEY="sb_publishable_..."
-// VITE_SUPABASE_ANON_KEY="eyJ..."   ← 익명 JWT(점 2개 포함)
+// VITE_SUPABASE_ANON_KEY="eyJ..."   ← 익명 JWT
 // ────────────────────────────────────────────────────────────────
-const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const publishable = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined; // sb_publishable_...
-const anonJwt = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined; // eyJ... (JWT)
+const url = (import.meta.env.VITE_SUPABASE_URL as string | undefined) || "";
+const publishable = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined) || "";
+const anonJwt = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) || "";
 
-if (!url || !publishable || !anonJwt) {
-  const missing = [
-    !url ? "VITE_SUPABASE_URL" : null,
-    !publishable ? "VITE_SUPABASE_PUBLISHABLE_KEY" : null,
-    !anonJwt ? "VITE_SUPABASE_ANON_KEY" : null,
-  ]
-    .filter(Boolean)
-    .join(", ");
-  throw new Error(`[supabase/client] Missing required env: ${missing}`);
+// ❗ 빌드/분석기에서 터지지 않도록 "예외를 던지지" 말고 경고만 남깁니다.
+const hasEnv = !!(url && publishable && anonJwt);
+if (!hasEnv) {
+  // 이 경고는 콘솔에만 남고, 런타임에서는 동작(네트워크 호출 시 실패)하도록 둡니다.
+  // 빌더는 이 파일을 임포트만 해도 지나가야 하므로 throw 금지!
+  // eslint-disable-next-line no-console
+  console.warn("[supabase/client] Missing env. Build will continue with placeholders.");
 }
 
 // HMR-safe 전역 가드
@@ -33,64 +31,57 @@ declare global {
 
 const AUTH_STORAGE_KEY = "aptapt-auth";
 
-// 로그인된 세션 토큰 캐시(REST에 사용)
-let currentAccessToken: string | null = null;
+// Node(분석기)에서 localStorage/window가 없어도 안전하도록 가드
+const safeStorage = typeof window !== "undefined" && "localStorage" in window ? window.localStorage : undefined;
 
-// URL 보고 헤더 분기: REST ↔ AUTH
-function buildFetchWithHeaderBranch() {
-  return async (input: RequestInfo, init?: RequestInit) => {
-    const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : String(input);
+// 공통 fetch 래퍼: 헤더를 안전하게 세팅
+function withAuthHeaders(input: RequestInfo | URL, init?: RequestInit) {
+  const reqUrl = typeof input === "string" ? input : input instanceof URL ? input.toString() : (input as Request).url;
 
-    const isREST = urlStr.includes("/rest/v1/");
-    const isAUTH = urlStr.includes("/auth/v1/");
+  const h = new Headers(init?.headers ?? {});
+  // 항상 최신 Publishable 키 설정
+  if (publishable) h.set("apikey", publishable);
 
-    const headers = new Headers(init?.headers || {});
-    // 모든 요청에 퍼블리셔블 키는 포함
-    headers.set("apikey", publishable!);
-
-    if (isAUTH) {
-      // ✅ Auth endpoint 에는 'Bearer sb_publishable_...' 이 필수
-      headers.set("Authorization", `Bearer ${publishable!}`);
-      // 나머지 헤더는 그대로 두고 진행
-    } else if (isREST) {
-      // ✅ REST(PostgREST) 에는 세션 토큰(로그인시) 또는 익명 JWT(비로그인시)
-      const token = currentAccessToken ?? anonJwt!;
-      headers.set("Authorization", `Bearer ${token}`);
-    } else {
-      // storage 등 기타 엔드포인트는 supabase-js 기본 동작 존중 (필요시 여기서 분기 추가)
-      // Authorization 은 건드리지 않음
+  // Auth 엔드포인트는 Publishable 키를 Authorization에 사용해야 함
+  if (reqUrl.includes("/auth/v1/")) {
+    if (publishable) h.set("Authorization", `Bearer ${publishable}`);
+  } else {
+    // 그 외 REST 호출은 세션 토큰이 없을 때만 익명 JWT로 보정
+    if (!h.has("Authorization") && anonJwt) {
+      h.set("Authorization", `Bearer ${anonJwt}`);
     }
+  }
 
-    return fetch(input as any, { ...init, headers });
-  };
+  return { ...init, headers: h };
 }
 
 export const supabase: SupabaseClient<Database> =
   globalThis.__SB_CLIENT__ ??
-  (globalThis.__SB_CLIENT__ = createClient<Database>(url, publishable!, {
-    global: {
-      // ⚠️ 전역 Authorization 을 넣지 말고, 커스텀 fetch 로 엔드포인트별 분기
-      fetch: buildFetchWithHeaderBranch(),
+  (globalThis.__SB_CLIENT__ = createClient<Database>(
+    // 빌더가 넘어가도록 placeholder도 허용
+    hasEnv ? url : "https://placeholder.supabase.co",
+    hasEnv ? publishable : "sb_publishable_placeholder",
+    {
+      global: {
+        headers: {
+          // 기본 apikey (Authorization은 fetch 래퍼에서 분기)
+          apikey: publishable || "sb_publishable_placeholder",
+        },
+        // Authorization 헤더 분기( /auth/v1/* vs 그 외 )를 일괄 적용
+        fetch: (input, init) => fetch(input as any, withAuthHeaders(input, init)),
+      },
+      auth: {
+        storage: safeStorage, // Node에서도 안전
+        persistSession: true,
+        autoRefreshToken: true,
+        storageKey: AUTH_STORAGE_KEY,
+      },
     },
-    auth: {
-      storage: localStorage,
-      persistSession: true,
-      autoRefreshToken: true,
-      storageKey: AUTH_STORAGE_KEY,
-    },
-  }));
+  ));
 
-// 최초 로드 시 세션 토큰 캐싱
-supabase.auth.getSession().then(({ data: { session } }) => {
-  currentAccessToken = session?.access_token ?? null;
-});
-
-// 로그인/로그아웃/리프레시 시 토큰 갱신
-supabase.auth.onAuthStateChange((_e, session) => {
-  currentAccessToken = session?.access_token ?? null;
-});
-
-// 디버깅 편의
-(window as any).supabase = supabase;
+// 디버깅 편의 (Node 분석기에서 window가 없어 터지지 않도록 가드)
+if (typeof window !== "undefined") {
+  (window as any).supabase = supabase;
+}
 
 export default supabase;
