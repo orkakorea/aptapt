@@ -12,7 +12,6 @@ import {
   CalendarCheck2,
   MessageSquare,
   Phone,
-  Link as LinkIcon,
   X,
   ClipboardList,
   FileSignature,
@@ -95,7 +94,7 @@ function HeaderSuccess({ ticketCode, createdAtISO }: { ticketCode: string; creat
   );
 }
 
-/* ---------- 기존 SEAT 전용 카드들 (좌측) ---------- */
+/* ---------- SEAT 전용(좌측) ---------- */
 function SummaryCard({ data }: { data: ReceiptData }) {
   const customerLine = useMemo(() => {
     const c: any = data.customer || {};
@@ -227,8 +226,38 @@ function Row({ label, value }: { label: string; value?: string }) {
 function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptData }) {
   const c: any = (data as any).customer || {};
   const form: any = (data as any).form || (data as any).request || (data as any).fields || (data as any).payload || {};
+  const summary: any = (data as any).summary || {};
 
   const emailMasked = maskEmail(c.email ?? form.email ?? null) || (c.emailDomain ? `**${String(c.emailDomain)}` : "-");
+
+  // ▶ 캠페인유형: camelCase/snake_case/여러 위치에서 폭넓게 조회
+  const campaignType =
+    form.campaignType ??
+    form.campaign_type ??
+    summary.campaignType ??
+    summary.campaign_type ??
+    c.campaignType ??
+    c.campaign_type;
+
+  // ▶ 기간: label 우선, 없으면 months 숫자를 "n개월"로 표시 (camel/snake + summary 폴백)
+  const periodValue =
+    form.periodLabel ??
+    form.period_label ??
+    (typeof form.months === "number" ? `${form.months}개월` : undefined) ??
+    summary.periodLabel ??
+    summary.period_label ??
+    (typeof summary.months === "number" ? `${summary.months}개월` : undefined);
+
+  // ▶ 프로모션코드: 다양한 키 대응
+  const promoCode =
+    form.promotionCode ??
+    form.promoCode ??
+    form.promotion_code ??
+    form.promo_code ??
+    summary.promotionCode ??
+    summary.promotion_code ??
+    c.promotionCode ??
+    c.promotion_code;
 
   const inquiryText: string =
     form.request ??
@@ -247,20 +276,21 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptData }
         <Row label="담당자" value={c.name ?? form.manager ?? form.contactName} />
         <Row label="연락처" value={c.phoneMasked ?? form.phoneMasked ?? form.phone} />
         <Row label="이메일" value={emailMasked} />
-        <Row label="캠페인 유형" value={form.campaignType ?? (data as any)?.summary?.campaignType} />
+        <Row label="캠페인 유형" value={campaignType} />
         <Row
           label="예산"
-          value={form.budgetRangeText ?? form.budgetText ?? form.budget ?? (data as any)?.summary?.budgetRangeText}
-        />
-        <Row
-          label="기간"
           value={
-            form.periodLabel ??
-            (typeof form.months === "number" ? `${form.months}개월` : undefined) ??
-            (data as any)?.summary?.periodLabel
+            form.budgetRangeText ??
+            form.budgetText ??
+            form.budget ??
+            summary.budgetRangeText ??
+            summary.budgetText ??
+            summary.budget
           }
         />
-        <Row label="광고 범위" value={form.scopeLabel ?? (data as any)?.summary?.scopeLabel} />
+        <Row label="기간" value={periodValue} />
+        <Row label="프로모션코드" value={promoCode} />
+        <Row label="광고 범위" value={form.scopeLabel ?? summary.scopeLabel} />
       </div>
 
       {/* 문의내용 (스크롤 가능) */}
@@ -274,7 +304,7 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptData }
   );
 }
 
-/* ---------- 오른쪽 카드: “다음 절차” (정렬 개선 버전) ---------- */
+/* ---------- 오른쪽 카드: “다음 절차”(정렬 개선) ---------- */
 function StepItem({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
   return (
     <li className="grid grid-cols-[28px_1fr] items-start gap-3">
@@ -334,7 +364,6 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
   const hasTeam = !!data?.links?.teamUrl;
   const hasYT = !!data?.links?.youtubeUrl;
   const hasGuide = !!data?.links?.guideUrl;
-  const hasReceiptLink = !!data?.links?.receiptUrl;
 
   const isPackage = isPackageReceipt(data);
 
@@ -352,7 +381,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
 
   if (!open) return null;
 
-  const saveButtonLabel = isPackage ? "문의내용 저장" : "접수증 저장";
+  const saveButtonLabel = isPackage ? "문의 내용 저장" : "접수증 저장";
   const sheetTitle = saveButtonLabel;
 
   // PACKAGE 고정 링크(PC 전용)
@@ -411,7 +440,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
                 {/* 다음 절차 */}
                 {isPackage ? <NextStepsPackage /> : <NextStepsSeat />}
 
-                {/* (PACKAGE 전용) “문의내용 저장” 버튼을 절차와 정보 카드 사이에 배치 */}
+                {/* (PACKAGE 전용) “문의 내용 저장” 버튼을 절차와 정보 카드 사이에 배치 */}
                 {isPackage && (
                   <button
                     onClick={() => setPickerOpen(true)}
@@ -429,21 +458,21 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
                     <div className="mt-3 grid grid-cols-1 gap-2">
                       <button
                         onClick={() => openExternal(LINK_YT)}
-                        className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
+                        className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
                       >
                         <ExternalLink size={16} />
                         광고 소재 채널 바로가기
                       </button>
                       <button
                         onClick={() => openExternal(LINK_GUIDE)}
-                        className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
+                        className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
                       >
                         <ExternalLink size={16} />
                         제작 가이드 바로가기
                       </button>
                       <button
                         onClick={() => openExternal(LINK_TEAM)}
-                        className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
+                        className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
                       >
                         <ExternalLink size={16} />
                         오르카 구성원 확인하기
@@ -535,19 +564,8 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
               </div>
             </div>
 
-            {/* Footer */}
-            <div className="flex items-center justify-between border-t border-gray-100 px-6 py-4">
-              {hasReceiptLink ? (
-                <button
-                  onClick={handleCopyLink}
-                  className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-2 text-xs"
-                >
-                  <LinkIcon size={14} /> 접수증 링크 복사
-                </button>
-              ) : (
-                <span />
-              )}
-
+            {/* Footer (좌측 '접수증 링크 복사' 토글 제거) */}
+            <div className="flex items-center justify-end border-t border-gray-100 px-6 py-4">
               <button onClick={onClose} className="rounded-xl bg-black px-5 py-3 text-sm font-semibold text-white">
                 {confirmLabel}
               </button>
@@ -555,7 +573,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
           </motion.div>
         </div>
 
-        {/* 저장 액션 시트 (라벨/제목: PACKAGE는 '문의내용 저장', SEAT는 '접수증 저장') */}
+        {/* 저장 액션 시트 */}
         <AnimatePresence>
           {pickerOpen && (
             <>
@@ -586,7 +604,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
                   </button>
                 </div>
                 <div className="px-5 py-4">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className={`grid ${isPackage ? "grid-cols-2" : "grid-cols-2"} gap-3`}>
                     <button
                       onClick={() => {
                         data?.actions?.onSaveImage?.();
@@ -605,24 +623,30 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
                     >
                       <FileText size={16} /> PDF(A4)
                     </button>
-                    <button
-                      onClick={() => {
-                        handleCopyLink();
-                        setPickerOpen(false);
-                      }}
-                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
-                    >
-                      <Copy size={16} /> 링크 복사
-                    </button>
-                    <button
-                      onClick={() => {
-                        data?.actions?.onSendEmail?.();
-                        setPickerOpen(false);
-                      }}
-                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
-                    >
-                      <Mail size={16} /> 이메일로 보내기
-                    </button>
+
+                    {/* SEAT에서는 링크복사/이메일 유지, PACKAGE에서는 제거 */}
+                    {!isPackage && (
+                      <>
+                        <button
+                          onClick={() => {
+                            handleCopyLink();
+                            setPickerOpen(false);
+                          }}
+                          className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
+                        >
+                          <Copy size={16} /> 링크 복사
+                        </button>
+                        <button
+                          onClick={() => {
+                            data?.actions?.onSendEmail?.();
+                            setPickerOpen(false);
+                          }}
+                          className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
+                        >
+                          <Mail size={16} /> 이메일로 보내기
+                        </button>
+                      </>
+                    )}
                   </div>
                   <button
                     onClick={() => setPickerOpen(false)}
