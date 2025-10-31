@@ -1,4 +1,3 @@
-// src/components/complete-modal/CompleteModal.desktop.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -15,6 +14,8 @@ import {
   Phone,
   Link as LinkIcon,
   X,
+  ClipboardList,
+  FileSignature,
 } from "lucide-react";
 import type { CompleteModalProps, ReceiptData, ReceiptSeat, ReceiptPackage } from "./types";
 import { isSeatReceipt, isPackageReceipt } from "./types";
@@ -23,6 +24,7 @@ import { createPortal } from "react-dom";
 const BRAND = "#6F4BF2";
 const BRAND_LIGHT = "#EEE8FF";
 
+/* ================== Utils ================== */
 function formatKRW(n?: number | null) {
   if (n == null || !isFinite(Number(n))) return "-";
   return "₩" + Number(n).toLocaleString("ko-KR");
@@ -54,6 +56,21 @@ function useBodyScrollLock(locked: boolean) {
     };
   }, [locked]);
 }
+/** 이메일은 로컬파트 앞 2글자만 보이고 나머지는 * 처리. 도메인은 그대로 노출 */
+function maskEmail(email?: string | null) {
+  if (!email) return "";
+  const str = String(email);
+  const at = str.indexOf("@");
+  if (at <= 0) {
+    // 도메인만 있는 형태("@domain") 등은 앞을 ** 로 고정
+    return str.startsWith("@") ? `**${str}` : str.slice(0, 2) + "…";
+  }
+  const local = str.slice(0, at);
+  const domain = str.slice(at + 1);
+  const shown = local.slice(0, 2);
+  const masked = local.length > 2 ? "*".repeat(local.length - 2) : "";
+  return `${shown}${masked}@${domain}`;
+}
 
 /* ================== Sub Components ================== */
 function HeaderSuccess({ ticketCode, createdAtISO }: { ticketCode: string; createdAtISO: string }) {
@@ -78,9 +95,11 @@ function HeaderSuccess({ ticketCode, createdAtISO }: { ticketCode: string; creat
     </div>
   );
 }
+
+/* ---------- 기존 SEAT 전용 카드들 (좌측) ---------- */
 function SummaryCard({ data }: { data: ReceiptData }) {
   const customerLine = useMemo(() => {
-    const c = data.customer || {};
+    const c: any = data.customer || {};
     const parts: string[] = [];
     if (c.company) parts.push(c.company);
     if (c.name) parts.push(c.name);
@@ -88,6 +107,7 @@ function SummaryCard({ data }: { data: ReceiptData }) {
     if (c.emailDomain) parts.push(c.emailDomain);
     return parts.join(" · ");
   }, [data.customer]);
+
   const cartLine = useMemo(() => {
     if (isSeatReceipt(data)) {
       const s = (data as ReceiptSeat).summary;
@@ -104,6 +124,7 @@ function SummaryCard({ data }: { data: ReceiptData }) {
     }
     return "";
   }, [data]);
+
   return (
     <div className="rounded-xl border border-gray-100 bg-white p-4">
       <div className="grid grid-cols-2 gap-4">
@@ -116,35 +137,6 @@ function SummaryCard({ data }: { data: ReceiptData }) {
           <div className="mt-1 truncate text-sm text-gray-700">{cartLine || "-"}</div>
         </div>
       </div>
-    </div>
-  );
-}
-function DetailsSection({ data }: { data: ReceiptData }) {
-  const [open, setOpen] = useState(true);
-  const vatNote = data?.meta?.vatNote ?? "표시된 금액은 부가세 별도이며, 운영사 정책/재고에 따라 변동될 수 있습니다.";
-  return (
-    <div className="rounded-xl border border-gray-100">
-      <button className="flex w-full items-center justify-between px-4 py-3" onClick={() => setOpen((v) => !v)}>
-        <span className="text-sm font-semibold">자세히 보기</span>
-        {open ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-      </button>
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            key="details"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden"
-          >
-            <div className="max-h-[40vh] overflow-auto border-t border-gray-100">
-              {isSeatReceipt(data) ? <SeatTable data={data as ReceiptSeat} /> : null}
-              {isPackageReceipt(data) ? <PackageList data={data as ReceiptPackage} /> : null}
-            </div>
-            <div className="border-t border-gray-100 px-4 py-2 text-xs text-gray-500">{vatNote}</div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
@@ -193,26 +185,98 @@ function SeatTable({ data }: { data: ReceiptSeat }) {
     </table>
   );
 }
-function PackageList({ data }: { data: ReceiptPackage }) {
-  const { areas = [] } = data.details || { areas: [] };
+function DetailsSection({ data }: { data: ReceiptData }) {
+  const [open, setOpen] = useState(true);
+  const vatNote =
+    (data as any)?.meta?.vatNote ?? "표시된 금액은 부가세 별도이며, 운영사 정책/재고에 따라 변동될 수 있습니다.";
+
   return (
-    <div className="p-4">
-      <div className="mb-2 text-[12px] text-gray-500">선택한 행정구역</div>
-      {areas.length ? (
-        <ul className="grid grid-cols-2 gap-2 text-sm">
-          {areas.map((a) => (
-            <li key={a.code} className="truncate rounded-lg bg-gray-50 px-3 py-2">
-              {a.label}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <div className="py-4 text-center text-xs text-gray-500">선택한 영역이 없습니다.</div>
-      )}
+    <div className="rounded-xl border border-gray-100">
+      <button className="flex w-full items-center justify-between px-4 py-3" onClick={() => setOpen((v) => !v)}>
+        <span className="text-sm font-semibold">자세히 보기</span>
+        {open ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            key="details"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="max-h-[40vh] overflow-auto border-t border-gray-100">
+              {isSeatReceipt(data) ? <SeatTable data={data as ReceiptSeat} /> : null}
+            </div>
+            <div className="border-t border-gray-100 px-4 py-2 text-xs text-gray-500">{vatNote}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
-function NextSteps() {
+
+/* ---------- PACKAGE 전용 “고객 문의” 섹션 (좌측) ---------- */
+function Row({ label, value }: { label: string; value?: string }) {
+  return (
+    <div className="grid grid-cols-3 items-start gap-3 py-2">
+      <div className="col-span-1 text-xs text-gray-500">{label}</div>
+      <div className="col-span-2 text-sm text-gray-800 break-words">{value || "-"}</div>
+    </div>
+  );
+}
+function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptData }) {
+  const c: any = (data as any).customer || {};
+  const form: any = (data as any).form || (data as any).request || (data as any).fields || (data as any).payload || {};
+
+  const emailMasked = maskEmail(c.email ?? form.email ?? null) || (c.emailDomain ? `**${String(c.emailDomain)}` : "-");
+
+  const inquiryText: string =
+    form.request ??
+    form.message ??
+    form.memo ??
+    form.note ??
+    (data as any)?.meta?.note ??
+    (data as any)?.customer?.note ??
+    "";
+
+  return (
+    <div className="rounded-xl border border-gray-100 bg-white">
+      <div className="px-4 py-3 text-sm font-semibold">고객 문의</div>
+      <div className="px-4">
+        <Row label="상호명" value={c.company ?? form.company} />
+        <Row label="담당자" value={c.name ?? form.manager ?? form.contactName} />
+        <Row label="연락처" value={c.phoneMasked ?? form.phoneMasked ?? form.phone} />
+        <Row label="이메일" value={emailMasked} />
+        <Row label="캠페인 유형" value={form.campaignType ?? (data as any)?.summary?.campaignType} />
+        <Row
+          label="예산"
+          value={form.budgetRangeText ?? form.budgetText ?? form.budget ?? (data as any)?.summary?.budgetRangeText}
+        />
+        <Row
+          label="기간"
+          value={
+            form.periodLabel ??
+            (typeof form.months === "number" ? `${form.months}개월` : undefined) ??
+            (data as any)?.summary?.periodLabel
+          }
+        />
+        <Row label="광고 범위" value={form.scopeLabel ?? (data as any)?.summary?.scopeLabel} />
+      </div>
+
+      {/* 문의내용 (스크롤 가능) */}
+      <div className="mt-2 border-t border-gray-100 px-4 py-3">
+        <div className="mb-2 text-xs text-gray-500">문의내용</div>
+        <div className="max-h-[40vh] overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-gray-50 px-3 py-3 text-sm">
+          {inquiryText ? inquiryText : "-"}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- 오른쪽 카드: “다음 절차” ---------- */
+function NextStepsSeat() {
   return (
     <div className="rounded-xl border border-gray-100 p-4">
       <div className="mb-2 text-sm font-semibold">다음 절차</div>
@@ -254,16 +318,61 @@ function NextSteps() {
     </div>
   );
 }
+function NextStepsPackage() {
+  return (
+    <div className="rounded-xl border border-gray-100 p-4">
+      <div className="mb-2 text-sm font-semibold">다음 절차</div>
+      <ol className="space-y-3">
+        <li className="flex items-start gap-3">
+          <span
+            className="mt-0.5 inline-flex h-7 w-7 flex-none items-center justify-center rounded-full"
+            style={{ backgroundColor: BRAND_LIGHT }}
+          >
+            <ClipboardList size={16} color={BRAND} />
+          </span>
+          <div className="text-sm">
+            <b>문의 내용 확인</b> (1~2일)
+          </div>
+        </li>
+        <li className="flex items-start gap-3">
+          <span
+            className="mt-0.5 inline-flex h-7 w-7 flex-none items-center justify-center rounded-full"
+            style={{ backgroundColor: BRAND_LIGHT }}
+          >
+            <Mail size={16} color={BRAND} />
+          </span>
+          <div className="text-sm">
+            <b>맞춤 견적 전달</b> (이메일,전화)
+          </div>
+        </li>
+        <li className="flex items-start gap-3">
+          <span
+            className="mt-0.5 inline-flex h-7 w-7 flex-none items-center justify-center rounded-full"
+            style={{ backgroundColor: BRAND_LIGHT }}
+          >
+            <FileSignature size={16} color={BRAND} />
+          </span>
+          <div className="text-sm">
+            <b>상담/계약</b> (전자 계약)
+          </div>
+        </li>
+      </ol>
+    </div>
+  );
+}
 
 /* ================== Main ================== */
 export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확인" }: CompleteModalProps) {
   useBodyScrollLock(open);
 
   const [pickerOpen, setPickerOpen] = useState(false);
+
   const hasTeam = !!data?.links?.teamUrl;
   const hasYT = !!data?.links?.youtubeUrl;
   const hasGuide = !!data?.links?.guideUrl;
   const hasReceiptLink = !!data?.links?.receiptUrl;
+
+  const isPackage = isPackageReceipt(data);
 
   const openExternal = (url?: string) => {
     if (url) window.open(url, "_blank", "noopener,noreferrer");
@@ -279,7 +388,9 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
 
   if (!open) return null;
 
-  // ✅ body 포털 + flex 중앙정렬 래퍼 (정중앙 보장)
+  const saveButtonLabel = isPackage ? "문의내용 저장" : "접수증 저장";
+  const sheetTitle = saveButtonLabel;
+
   return createPortal(
     <AnimatePresence>
       <>
@@ -292,7 +403,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
           onClick={onClose}
         />
 
-        {/* 👉 중앙정렬 래퍼 */}
+        {/* 중앙 정렬 컨테이너 */}
         <div className="fixed inset-0 z-[1201] flex items-center justify-center">
           <motion.div
             id="receipt-capture"
@@ -316,87 +427,147 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
             {/* Body */}
             <div className="grid grid-cols-12 gap-6 px-6 py-6">
               <div className="col-span-8 space-y-4">
-                <SummaryCard data={data} />
-                <DetailsSection data={data} />
+                {/* PACKAGE: 고객 정보만 노출 */}
+                {isPackage ? (
+                  <CustomerInquirySection data={data as ReceiptPackage} />
+                ) : (
+                  <>
+                    <SummaryCard data={data} />
+                    <DetailsSection data={data} />
+                  </>
+                )}
               </div>
+
               <div className="col-span-4 space-y-4">
-                <NextSteps />
-                <div className="rounded-xl border border-gray-100 p-4">
-                  <div className="text-sm font-semibold">다음 액션</div>
-                  <div className="mt-3 grid grid-cols-1 gap-2">
-                    <button
-                      onClick={() => setPickerOpen(true)}
-                      className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white"
-                      style={{ backgroundColor: BRAND }}
-                    >
-                      접수증 저장
-                    </button>
+                {/* 다음 절차 */}
+                {isPackage ? <NextStepsPackage /> : <NextStepsSeat />}
 
-                    {data?.actions?.onBookMeeting ? (
+                {/* 오른쪽 카드 - PACKAGE: “더 많은 정보”, SEAT: 기존 동작 유지 */}
+                {isPackage ? (
+                  <div className="rounded-xl border border-gray-100 p-4">
+                    <div className="text-sm font-semibold">더 많은 정보</div>
+                    <div className="mt-3 grid grid-cols-1 gap-2">
+                      {/* 문의내용 저장 */}
                       <button
-                        onClick={data.actions.onBookMeeting}
-                        className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
+                        onClick={() => setPickerOpen(true)}
+                        className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white"
+                        style={{ backgroundColor: BRAND }}
                       >
-                        상담 일정 잡기
+                        {saveButtonLabel}
                       </button>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          if (data?.links?.guideUrl) openExternal(data.links.guideUrl);
-                          data?.actions?.onDownloadGuide?.();
-                        }}
-                        className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
-                      >
-                        <FileText size={16} />
-                        제작 가이드 보기
-                      </button>
-                    )}
+
+                      {/* 외부 링크 버튼들 (존재할 때만 노출) */}
+                      {data?.links?.youtubeUrl && (
+                        <button
+                          onClick={() => openExternal(data.links!.youtubeUrl)}
+                          className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
+                        >
+                          <ExternalLink size={16} />
+                          광고 소재 채널 바로가기
+                        </button>
+                      )}
+                      {data?.links?.guideUrl && (
+                        <button
+                          onClick={() => openExternal(data.links!.guideUrl)}
+                          className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
+                        >
+                          <ExternalLink size={16} />
+                          제작 가이드 바로가기
+                        </button>
+                      )}
+                      {data?.links?.teamUrl && (
+                        <button
+                          onClick={() => openExternal(data.links!.teamUrl)}
+                          className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
+                        >
+                          <ExternalLink size={16} />
+                          오르카 구성원 확인하기
+                        </button>
+                      )}
+                    </div>
                   </div>
+                ) : (
+                  <>
+                    {/* 기존 SEAT 액션 카드 (원형 유지) */}
+                    <div className="rounded-xl border border-gray-100 p-4">
+                      <div className="text-sm font-semibold">다음 액션</div>
+                      <div className="mt-3 grid grid-cols-1 gap-2">
+                        <button
+                          onClick={() => setPickerOpen(true)}
+                          className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white"
+                          style={{ backgroundColor: BRAND }}
+                        >
+                          접수증 저장
+                        </button>
 
-                  {(hasTeam || hasYT || hasGuide) && (
-                    <>
-                      <div className="mt-4 h-px w-full bg-gray-100" />
-                      <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-                        {hasTeam && (
+                        {data?.actions?.onBookMeeting ? (
                           <button
-                            onClick={() => openExternal(data.links!.teamUrl)}
-                            className="inline-flex items-center justify-center gap-1 rounded-lg border border-gray-200 px-3 py-2"
+                            onClick={data.actions.onBookMeeting}
+                            className="w-full rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
                           >
-                            <ExternalLink size={14} /> 오르카의 얼굴들
+                            상담 일정 잡기
                           </button>
-                        )}
-                        {hasYT && (
+                        ) : (
                           <button
-                            onClick={() => openExternal(data.links!.youtubeUrl)}
-                            className="inline-flex items-center justify-center gap-1 rounded-lg border border-gray-200 px-3 py-2"
+                            onClick={() => {
+                              if (data?.links?.guideUrl) openExternal(data.links.guideUrl);
+                              data?.actions?.onDownloadGuide?.();
+                            }}
+                            className="w-full inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
                           >
-                            <ExternalLink size={14} /> 영상소재 템플릿
-                          </button>
-                        )}
-                        {hasGuide && (
-                          <button
-                            onClick={() => openExternal(data.links!.guideUrl)}
-                            className="inline-flex items-center justify-center gap-1 rounded-lg border border-gray-200 px-3 py-2"
-                          >
-                            <ExternalLink size={14} /> 제작 가이드
+                            <FileText size={16} />
+                            제작 가이드 보기
                           </button>
                         )}
                       </div>
-                    </>
-                  )}
-                </div>
 
-                <div className="rounded-xl border border-dashed border-gray-200 p-3 text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="text-gray-600">급하시면 지금 전화 주세요</span>
-                    <a
-                      href="tel:03115510810"
-                      className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5"
-                    >
-                      <Phone size={14} /> 031-1551-0810
-                    </a>
-                  </div>
-                </div>
+                      {(hasTeam || hasYT || hasGuide) && (
+                        <>
+                          <div className="mt-4 h-px w-full bg-gray-100" />
+                          <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                            {hasTeam && (
+                              <button
+                                onClick={() => openExternal(data.links!.teamUrl)}
+                                className="inline-flex items-center justify-center gap-1 rounded-lg border border-gray-200 px-3 py-2"
+                              >
+                                <ExternalLink size={14} /> 오르카의 얼굴들
+                              </button>
+                            )}
+                            {hasYT && (
+                              <button
+                                onClick={() => openExternal(data.links!.youtubeUrl)}
+                                className="inline-flex items-center justify-center gap-1 rounded-lg border border-gray-200 px-3 py-2"
+                              >
+                                <ExternalLink size={14} /> 영상소재 템플릿
+                              </button>
+                            )}
+                            {hasGuide && (
+                              <button
+                                onClick={() => openExternal(data.links!.guideUrl)}
+                                className="inline-flex items-center justify-center gap-1 rounded-lg border border-gray-200 px-3 py-2"
+                              >
+                                <ExternalLink size={14} /> 제작 가이드
+                              </button>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+
+                    {/* SEAT 전용 전화 카드 (PACKAGE에서는 제거) */}
+                    <div className="rounded-xl border border-dashed border-gray-200 p-3 text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-gray-600">급하시면 지금 전화 주세요</span>
+                        <a
+                          href="tel:03115510810"
+                          className="inline-flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5"
+                        >
+                          <Phone size={14} /> 031-1551-0810
+                        </a>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
@@ -420,7 +591,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
           </motion.div>
         </div>
 
-        {/* 저장 액션 시트 */}
+        {/* 저장 액션 시트 (라벨/제목: PACKAGE는 '문의내용 저장', SEAT는 '접수증 저장') */}
         <AnimatePresence>
           {pickerOpen && (
             <>
@@ -441,7 +612,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
                 transition={{ type: "spring", stiffness: 260, damping: 22 }}
               >
                 <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
-                  <div className="text-sm font-semibold">접수증 저장</div>
+                  <div className="text-sm font-semibold">{sheetTitle}</div>
                   <button
                     aria-label="close-picker"
                     className="rounded-full p-2 hover:bg-gray-50"
