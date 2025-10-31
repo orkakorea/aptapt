@@ -1,67 +1,110 @@
-// src/pages/AdminGeocode.tsx
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { useKakaoLoader } from "@/hooks/useKakaoLoader";
 
-// ✅ Kakao Developers 에서 발급받은 REST API 키 (도메인 등록 필수)
-const KAKAO_REST_KEY = "011e2458d92062bcccfc5a5af333df56"; // 예: 01e2458d9...
+/**
+ * 🔐 중요
+ * - 이전 버전처럼 Kakao REST 키를 브라우저에 하드코딩하지 않습니다.
+ * - Kakao JS SDK (자바스크립트 키, 도메인 제한) 의 Geocoder를 사용합니다.
+ * - useKakaoLoader 가 sdk 로더를 담당해야 하며, 'libraries=services' 옵션이 포함되어야 합니다.
+ */
 
-// 카카오 주소 검색 엔드포인트
-const KAKAO_ADDR_URL =
-  "https://dapi.kakao.com/v2/local/search/address.json?query=";
+declare global {
+  interface Window {
+    kakao: any;
+  }
+}
 
-// --------- 레이트 리밋 대응 유틸 ---------
+/* ====== 설정값(필요 시 조정) ====== */
+const PER_REQ_DELAY_MS = 300; // 요청 간 기본 딜레이(서버 과부하/쿼터 보호)
+const MAX_RETRIES = 3; // 일시 오류 재시도
+const BASE_BACKOFF_MS = 500; // 지수 백오프 시작(ms)
+
+/* 유틸: sleep */
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const PER_REQ_DELAY_MS = 350; // 각 요청 사이 기본 지연 (429 회피)
-const MAX_RETRIES = 4;        // 429 발생 시 재시도 횟수
-const BASE_BACKOFF_MS = 800;  // 지수 백오프 시작값(ms)
 
-// 1건 지오코딩 + 429 재시도 로직
-async function geocodeOne(addr: string, kakaoKey: string) {
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+/* Kakao SDK 준비 대기 */
+async function ensureKakaoReady(timeoutMs = 8000) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const ok = !!window.kakao?.maps?.services;
+    if (ok) return true;
+    await sleep(100);
+  }
+  return false;
+}
+
+/* JS SDK Geocoder로 주소 1건 변환 */
+async function geocodeOneViaJsSdk(addr: string) {
+  let attempt = 0;
+
+  while (attempt <= MAX_RETRIES) {
     try {
-      const res = await fetch(KAKAO_ADDR_URL + encodeURIComponent(addr), {
-        headers: { Authorization: `KakaoAK ${kakaoKey}` },
+      const geocoder = new window.kakao.maps.services.Geocoder();
+
+      const result = await new Promise<{ lat: number | null; lng: number | null; raw?: any }>((resolve) => {
+        geocoder.addressSearch(addr, (data: any[], status: string) => {
+          const S = window.kakao.maps.services.Status;
+          if (status === S.OK && data?.[0]) {
+            resolve({
+              lat: parseFloat(data[0].y),
+              lng: parseFloat(data[0].x),
+              raw: data[0],
+            });
+          } else if (status === S.ZERO_RESULT) {
+            resolve({ lat: null, lng: null });
+          } else {
+            // ERROR 등 기타 상태 → 재시도 대상
+            resolve({ lat: undefined as any, lng: undefined as any });
+          }
+        });
       });
 
-      // 정상 응답
-      if (res.ok) {
-        const body = await res.json();
-        const doc = body?.documents?.[0];
-        if (doc?.x && doc?.y) {
-          return { lat: parseFloat(doc.y), lng: parseFloat(doc.x) };
-        }
-        // 결과 없음
-        return { lat: null, lng: null };
-      }
+      // 정상/없음 처리
+      if (result.lat === null && result.lng === null) return { lat: null, lng: null };
+      if (typeof result.lat === "number" && typeof result.lng === "number") return result;
 
-      // 429: Too Many Requests -> 백오프 후 재시도
-      if (res.status === 429) {
-        const retryAfter = res.headers.get("Retry-After");
-        const wait = retryAfter
-          ? Math.min(8000, Math.max(1000, Number(retryAfter) * 1000))
-          : BASE_BACKOFF_MS * Math.pow(2, attempt); // 0.8s → 1.6s → 3.2s → 6.4s
-        await sleep(wait + Math.floor(Math.random() * 200)); // 지터
-        continue;
+      // 재시도 (ERROR 등)
+      attempt += 1;
+      if (attempt > MAX_RETRIES) {
+        return { lat: undefined as any, lng: undefined as any, error: "retry_exhausted" };
       }
-
-      // 그 외 상태코드는 실패 취급
-      return { lat: undefined, lng: undefined, error: `HTTP ${res.status}` };
-    } catch (e) {
-      // 네트워크/중단 등 -> 짧게 쉬고 재시도
-      await sleep(BASE_BACKOFF_MS * Math.pow(2, attempt));
+      const wait = BASE_BACKOFF_MS * Math.pow(2, attempt - 1);
+      await sleep(wait);
+    } catch {
+      attempt += 1;
+      if (attempt > MAX_RETRIES) return { lat: undefined as any, lng: undefined as any, error: "exception" };
+      const wait = BASE_BACKOFF_MS * Math.pow(2, attempt - 1);
+      await sleep(wait);
     }
   }
 
-  return { lat: undefined, lng: undefined, error: "retry_exhausted" };
+  return { lat: undefined as any, lng: undefined as any, error: "unexpected" };
 }
 
-// ---------- 페이지 컴포넌트 ----------
+/* ====== 페이지 컴포넌트 ====== */
 export default function AdminGeocode() {
+  useKakaoLoader(); // SDK 로더(도메인 등록된 JS 키 사용). 반환값 없이 side-effect일 수 있음.
   const [running, setRunning] = useState(false);
   const [log, setLog] = useState<string[]>([]);
   const [left, setLeft] = useState<number | null>(null);
+  const [sdkReady, setSdkReady] = useState(false);
 
-  // 남은 pending 집계
+  /* SDK 준비 */
+  useEffect(() => {
+    (async () => {
+      const ok = await ensureKakaoReady();
+      setSdkReady(ok);
+      if (!ok) {
+        setLog((l) => [
+          "⚠️ Kakao SDK가 준비되지 않았습니다. useKakaoLoader가 'libraries=services'를 포함하는지 확인하세요.",
+          ...l,
+        ]);
+      }
+    })();
+  }, []);
+
+  /* 남은 pending 집계 */
   async function getPendingCount() {
     const { count, error } = await supabase
       .from("places")
@@ -70,11 +113,20 @@ export default function AdminGeocode() {
       .is("lat", null)
       .is("lng", null);
 
-    if (!error) setLeft(count ?? 0);
+    if (error) {
+      setLog((l) => [`집계 오류: ${error.message}`, ...l]);
+    } else {
+      setLeft(count ?? 0);
+    }
   }
 
-  // ✅ 배치 실행 (레이트리밋/재시도 포함)
+  /* 배치 실행 */
   async function runBatch(batchSize = 12) {
+    if (!sdkReady) {
+      setLog((l) => ["⚠️ SDK가 아직 준비되지 않았습니다.", ...l]);
+      return;
+    }
+
     setRunning(true);
     try {
       // 1) pending 일부 가져오기
@@ -92,31 +144,22 @@ export default function AdminGeocode() {
         return;
       }
 
-      const targets = (data ?? [])
-        .map((r) => (r.address ?? "").trim())
-        .filter(Boolean);
+      const targets = (data ?? []).map((r) => (r.address ?? "").trim()).filter(Boolean);
 
       let ok = 0;
       let fail = 0;
 
-      // 2) 각 주소 순차 처리(속도 조절)
       for (const addr of targets) {
-        const r = await geocodeOne(addr, KAKAO_REST_KEY);
+        const r = await geocodeOneViaJsSdk(addr);
 
         if (r.lat === undefined && r.lng === undefined) {
-          // 완전 실패(네트워크/HTTP 오류/재시도 초과)
-          await supabase
-            .from("places")
-            .update({ geocode_status: "fail" })
-            .eq("address", addr);
+          // 완전 실패(예외/재시도 초과)
+          await supabase.from("places").update({ geocode_status: "fail" }).eq("address", addr);
           fail++;
           setLog((l) => [`요청 실패: ${addr} (${r.error ?? "unknown"})`, ...l]);
         } else if (r.lat === null && r.lng === null) {
           // 결과 없음
-          await supabase
-            .from("places")
-            .update({ geocode_status: "fail" })
-            .eq("address", addr);
+          await supabase.from("places").update({ geocode_status: "fail" }).eq("address", addr);
           fail++;
         } else {
           // 성공: 좌표 업데이트
@@ -133,8 +176,8 @@ export default function AdminGeocode() {
           }
         }
 
-        // 카카오 레이트리밋 보호
-        await sleep(PER_REQ_DELAY_MS + Math.floor(Math.random() * 100));
+        // 과도한 연속호출 방지
+        await sleep(PER_REQ_DELAY_MS + Math.floor(Math.random() * 120));
       }
 
       setLog((l) => [`Batch 완료: ok=${ok}, fail=${fail}`, ...l]);
@@ -150,19 +193,20 @@ export default function AdminGeocode() {
 
   return (
     <div style={{ padding: 16, maxWidth: 720 }}>
-      <h2>지오코딩 배치 실행기</h2>
+      <h2>지오코딩 배치 실행기 (JS SDK 사용 / REST 키 미노출)</h2>
+      <p>SDK 상태: {sdkReady ? "✅ Ready" : "⏳ Loading..."}</p>
       <p>남은 pending: {left ?? "…"}</p>
 
       <div style={{ display: "flex", gap: 12, margin: "8px 0 16px" }}>
         <button
-          disabled={running}
+          disabled={running || !sdkReady}
           onClick={() => runBatch(12)} // 권장: 10~15
           style={{ padding: "8px 12px", borderRadius: 8 }}
         >
           {running ? "실행 중…" : "배치 실행(12건)"}
         </button>
         <button
-          disabled={running}
+          disabled={running || !sdkReady}
           onClick={() => runBatch(5)}
           style={{ padding: "8px 12px", borderRadius: 8 }}
         >
