@@ -1,160 +1,470 @@
 // src/core/utils/capture.ts
-import { toPng, toCanvas } from "html-to-image";
+import { toPng } from "html-to-image";
 import jsPDF from "jspdf";
 
-/** 내부 유틸: 픽셀/밀리미터 변환(브라우저 논리 DPI 96 기준) */
-const PX_PER_MM = 96 / 25.4;
+/* =========================================================================
+ * 1) 기존: 보이는 영역만 PNG 저장
+ * ========================================================================= */
+export async function saveNodeAsPNG(node: HTMLElement, filename: string) {
+  const dataUrl = await toPng(node, { cacheBust: true, pixelRatio: 2, backgroundColor: "#ffffff" });
+  const a = document.createElement("a");
+  a.href = dataUrl;
+  a.download = filename.endsWith(".png") ? filename : `${filename}.png`;
+  a.click();
+}
 
-/** 캡처 전용: 노드 및 하위 스크롤 컨테이너를 일시적으로 펼쳐 전체 높이를 캡처 가능하게 만들기 */
-function expandDomForCapture(root: HTMLElement): () => void {
-  const changed: Array<{ el: HTMLElement; style: Partial<CSSStyleDeclaration> }> = [];
+/* =========================================================================
+ * 2) 기존: 보이는 영역만 PDF 저장(단일 페이지 스냅샷)
+ *    - 긴 콘텐츠는 잘릴 수 있습니다. (호환 유지용)
+ * ========================================================================= */
+export async function saveNodeAsPDF(node: HTMLElement, filename: string) {
+  const dataUrl = await toPng(node, { cacheBust: true, pixelRatio: 2, backgroundColor: "#ffffff" });
 
-  const setStyle = (el: HTMLElement, patch: Partial<CSSStyleDeclaration>) => {
-    const prev: Partial<CSSStyleDeclaration> = {};
-    for (const k of Object.keys(patch) as Array<keyof CSSStyleDeclaration>) {
-      // @ts-expect-error - index access
-      prev[k] = el.style[k];
-      // @ts-expect-error
-      el.style[k] = patch[k] ?? "";
-    }
-    changed.push({ el, style: prev });
+  const pdf = new jsPDF({ orientation: "p", unit: "mm", format: "a4" });
+  const img = new Image();
+  img.src = dataUrl;
+  await img.decode();
+
+  const pageW = 210; // A4(mm)
+  const pageH = 297;
+  const margin = 10;
+  const imgWmm = pageW - margin * 2;
+  const ratio = img.height / img.width;
+  const imgHmm = imgWmm * ratio;
+
+  pdf.addImage(dataUrl, "PNG", margin, margin, imgWmm, imgHmm);
+  pdf.save(filename.endsWith(".pdf") ? filename : `${filename}.pdf`);
+}
+
+/* =========================================================================
+ * 공통 유틸: 캡처 전 임시로 섹션 펼치고 스크롤 해제
+ *  - data-capture-scroll : 스크롤 영역(높이/오버플로 해제)
+ *  - data-capture-force-open : 접힘 방지(강제 표시)
+ *  - scrollContainers 파라미터로 명시 전달 가능(우선 적용)
+ * ========================================================================= */
+type SavedStyle = {
+  el: HTMLElement;
+  prev: Partial<CSSStyleDeclaration>;
+  // 스크롤 위치 복원용
+  prevScrollTop?: number;
+  prevScrollLeft?: number;
+};
+
+function ensureOpenDuringCapture(root: HTMLElement, scrollContainers?: HTMLElement[] | null): { restore: () => void } {
+  const touched: SavedStyle[] = [];
+
+  const push = (el: HTMLElement, next: Partial<CSSStyleDeclaration>) => {
+    const prev: Partial<CSSStyleDeclaration> = {
+      maxHeight: el.style.maxHeight,
+      height: el.style.height,
+      overflow: el.style.overflow,
+      overflowY: el.style.overflowY,
+      overflowX: el.style.overflowX,
+      display: el.style.display,
+      visibility: el.style.visibility,
+      position: el.style.position,
+    };
+    touched.push({ el, prev });
+    Object.assign(el.style, next);
   };
 
-  // 루트 자체 확장
-  setStyle(root, {
-    overflow: "visible",
-    maxHeight: "none",
-    height: "auto",
+  // 1) 강제 표시 대상: data-capture-force-open
+  const forceNodes = Array.from(root.querySelectorAll<HTMLElement>("[data-capture-force-open]"));
+  forceNodes.forEach((el) => {
+    push(el, {
+      display: "block",
+      visibility: "visible",
+      height: "auto",
+      maxHeight: "none",
+      overflow: "visible",
+    });
   });
 
-  // 하위 모든 요소 중 스크롤/클리핑 유발하는 컨테이너 확장
-  const all = Array.from(root.querySelectorAll<HTMLElement>("*"));
-  for (const el of all) {
-    const cs = getComputedStyle(el);
-    const isScrollable =
-      /(auto|scroll)/.test(cs.overflowY) || /(auto|scroll)/.test(cs.overflow) || el.scrollHeight > el.clientHeight;
+  // 2) 스크롤 영역: 전달 인자 우선, 없으면 data-capture-scroll 자동 수집
+  const scrollNodes =
+    (scrollContainers && scrollContainers.length > 0
+      ? scrollContainers
+      : Array.from(root.querySelectorAll<HTMLElement>("[data-capture-scroll]"))) || [];
 
-    // 캡처를 방해하는 transform/sticky/fixed도 가급적 무력화
-    if (isScrollable) {
-      setStyle(el, { overflow: "visible", maxHeight: "none" });
-    }
-    if (cs.position === "sticky") {
-      setStyle(el, { position: "static", top: "auto" });
-    }
-    // 매우 드물지만 transform이 캔버스 좌표계를 왜곡해 잘리는 경우 방지
-    if (cs.transform && cs.transform !== "none") {
-      setStyle(el, { transform: "none", transformOrigin: "initial" });
-    }
-  }
+  scrollNodes.forEach((el) => {
+    const saved: SavedStyle = {
+      el,
+      prev: {
+        maxHeight: el.style.maxHeight,
+        height: el.style.height,
+        overflow: el.style.overflow,
+        overflowY: el.style.overflowY,
+        overflowX: el.style.overflowX,
+      },
+      prevScrollTop: el.scrollTop,
+      prevScrollLeft: el.scrollLeft,
+    };
+    touched.push(saved);
 
-  // 되돌리기
-  return () => {
-    for (let i = changed.length - 1; i >= 0; i--) {
-      const { el, style } = changed[i];
-      for (const k of Object.keys(style) as Array<keyof CSSStyleDeclaration>) {
-        // @ts-expect-error
-        el.style[k] = style[k] ?? "";
-      }
+    // 스크롤 해제 + 맨 위로
+    el.scrollTop = 0;
+    el.scrollLeft = 0;
+    Object.assign(el.style, {
+      maxHeight: "none",
+      height: "auto",
+      overflow: "visible",
+      overflowY: "visible",
+      overflowX: "visible",
+    } as Partial<CSSStyleDeclaration>);
+  });
+
+  // 3) 루트 자체도 스크롤 해제(가능한 경우)
+  push(root, {
+    maxHeight: "none",
+    height: "auto",
+    overflow: "visible",
+  });
+
+  const restore = () => {
+    for (const t of touched) {
+      Object.assign(t.el.style, t.prev);
+      if (typeof t.prevScrollTop === "number") t.el.scrollTop = t.prevScrollTop;
+      if (typeof t.prevScrollLeft === "number") t.el.scrollLeft = t.prevScrollLeft;
     }
   };
+
+  return { restore };
 }
 
-/** 노드의 전체 렌더 크기(스크롤 포함) 계산 */
-function getFullSize(node: HTMLElement) {
-  const w = Math.max(node.scrollWidth, node.clientWidth, node.offsetWidth);
-  const h = Math.max(node.scrollHeight, node.clientHeight, node.offsetHeight);
-  return { width: w, height: h };
+/* =========================================================================
+ * 내부: HTML → PNG(DataURL)
+ *  - 캡처 직전 ensureOpenDuringCapture로 펼친 뒤 이미지 생성
+ * ========================================================================= */
+async function captureExpandedToDataURL(
+  root: HTMLElement,
+  options?: {
+    scrollContainers?: HTMLElement[] | null;
+    pixelRatio?: number;
+    backgroundColor?: string;
+  },
+): Promise<string> {
+  const { restore } = ensureOpenDuringCapture(root, options?.scrollContainers);
+  try {
+    // 레이아웃 안정화(리플로우 보장)
+    await new Promise((r) => setTimeout(r, 40));
+    return await toPng(root, {
+      cacheBust: true,
+      pixelRatio: options?.pixelRatio ?? 2,
+      backgroundColor: options?.backgroundColor ?? "#ffffff",
+    });
+  } finally {
+    restore();
+  }
 }
 
-/** PNG 저장: 잘림 없이 전체 영역을 한 장으로 */
+/* =========================================================================
+ * 3) 전체 콘텐츠 PNG 저장 (접힘/스크롤 무시하고 전부 펼쳐서 캡처)
+ *    - CompleteModal에서 root(예: #receipt-capture)와 스크롤 영역 노드들을
+ *      넘기면, 잘림 없이 한 장의 긴 PNG로 저장됩니다.
+ * ========================================================================= */
+export async function saveFullContentAsPNG(
+  root: HTMLElement,
+  filename: string,
+  scrollContainers?: HTMLElement[] | null,
+) {
+  const dataUrl = await captureExpandedToDataURL(root, { scrollContainers, pixelRatio: 2, backgroundColor: "#ffffff" });
+  const a = document.createElement("a");
+  a.href = dataUrl;
+  a.download = filename.endsWith(".png") ? filename : `${filename}.png`;
+  a.click();
+}
+
+/* =========================================================================
+ * 4) 전체 콘텐츠 PDF 저장 (멀티페이지 분할)
+ *    - 한 장의 긴 이미지를 A4 폭에 맞춰 여러 페이지로 잘라 넣습니다.
+ * ========================================================================= */
+export async function saveFullContentAsPDF(
+  root: HTMLElement,
+  filename: string,
+  scrollContainers?: HTMLElement[] | null,
+) {
+  const dataUrl = await captureExpandedToDataURL(root, { scrollContainers, pixelRatio: 2, backgroundColor: "#ffffff" });
+
+  // 원본 이미지 로드
+  const img = new Image();
+  img.src = dataUrl;
+  await img.decode();
+
+  // PDF 설정
+  const pageWmm = 210; // A4
+  const pageHmm = 297;
+  const margin = 10; // 상하좌우 10mm
+  const contentWmm = pageWmm - margin * 2;
+  const contentHmm = pageHmm - margin * 2;
+
+  // 픽셀-밀리미터 환산(폭 기준 스케일)
+  const pxPerMm = img.width / contentWmm; // 이미지 폭(px) / PDF 내용 폭(mm)
+  const sliceHeightPx = Math.floor(pxPerMm * contentHmm); // 페이지 한 장당 담을 수 있는 이미지 높이(px)
+
+  const pdf = new jsPDF({ orientation: "p", unit: "mm", format: "a4" });
+
+  // 슬라이스 반복
+  const totalHeight = img.height;
+  let yPx = 0;
+  let isFirstPage = true;
+
+  // 슬라이스용 캔버스
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d")!;
+
+  while (yPx < totalHeight) {
+    const slicePx = Math.min(sliceHeightPx, totalHeight - yPx);
+    canvas.width = img.width;
+    canvas.height = slicePx;
+
+    // drawImage(source, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight)
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, yPx, img.width, slicePx, 0, 0, canvas.width, canvas.height);
+
+    const sliceUrl = canvas.toDataURL("image/png");
+    const sliceHmm = slicePx / pxPerMm; // 해당 조각의 PDF 높이(mm)
+
+    if (!isFirstPage) pdf.addPage();
+    pdf.addImage(sliceUrl, "PNG", margin, margin, contentWmm, sliceHmm);
+
+    yPx += slicePx;
+    isFirstPage = false;
+  }
+
+  pdf.save(filename.endsWith(".pdf") ? filename : `${filename}.pdf`);
+}
+// src/core/utils/capture.ts
+import { toPng } from "html-to-image";
+import jsPDF from "jspdf";
+
+/* =========================================================================
+ * 1) 기존: 보이는 영역만 PNG 저장
+ * ========================================================================= */
 export async function saveNodeAsPNG(node: HTMLElement, filename: string) {
-  const restore = expandDomForCapture(node);
-  try {
-    const { width, height } = getFullSize(node);
-    const pixelRatio = 2; // 해상도(메모리 여유에 따라 2~3)
-    const dataUrl = await toPng(node, {
-      cacheBust: true,
-      backgroundColor: "#ffffff",
-      pixelRatio,
-      width,
-      height,
-      canvasWidth: width,
-      canvasHeight: height,
-    });
+  const dataUrl = await toPng(node, { cacheBust: true, pixelRatio: 2, backgroundColor: "#ffffff" });
+  const a = document.createElement("a");
+  a.href = dataUrl;
+  a.download = filename.endsWith(".png") ? filename : `${filename}.png`;
+  a.click();
+}
 
-    const a = document.createElement("a");
-    a.href = dataUrl;
-    a.download = filename.endsWith(".png") ? filename : `${filename}.png`;
-    a.click();
+/* =========================================================================
+ * 2) 기존: 보이는 영역만 PDF 저장(단일 페이지 스냅샷)
+ *    - 긴 콘텐츠는 잘릴 수 있습니다. (호환 유지용)
+ * ========================================================================= */
+export async function saveNodeAsPDF(node: HTMLElement, filename: string) {
+  const dataUrl = await toPng(node, { cacheBust: true, pixelRatio: 2, backgroundColor: "#ffffff" });
+
+  const pdf = new jsPDF({ orientation: "p", unit: "mm", format: "a4" });
+  const img = new Image();
+  img.src = dataUrl;
+  await img.decode();
+
+  const pageW = 210; // A4(mm)
+  const pageH = 297;
+  const margin = 10;
+  const imgWmm = pageW - margin * 2;
+  const ratio = img.height / img.width;
+  const imgHmm = imgWmm * ratio;
+
+  pdf.addImage(dataUrl, "PNG", margin, margin, imgWmm, imgHmm);
+  pdf.save(filename.endsWith(".pdf") ? filename : `${filename}.pdf`);
+}
+
+/* =========================================================================
+ * 공통 유틸: 캡처 전 임시로 섹션 펼치고 스크롤 해제
+ *  - data-capture-scroll : 스크롤 영역(높이/오버플로 해제)
+ *  - data-capture-force-open : 접힘 방지(강제 표시)
+ *  - scrollContainers 파라미터로 명시 전달 가능(우선 적용)
+ * ========================================================================= */
+type SavedStyle = {
+  el: HTMLElement;
+  prev: Partial<CSSStyleDeclaration>;
+  // 스크롤 위치 복원용
+  prevScrollTop?: number;
+  prevScrollLeft?: number;
+};
+
+function ensureOpenDuringCapture(root: HTMLElement, scrollContainers?: HTMLElement[] | null): { restore: () => void } {
+  const touched: SavedStyle[] = [];
+
+  const push = (el: HTMLElement, next: Partial<CSSStyleDeclaration>) => {
+    const prev: Partial<CSSStyleDeclaration> = {
+      maxHeight: el.style.maxHeight,
+      height: el.style.height,
+      overflow: el.style.overflow,
+      overflowY: el.style.overflowY,
+      overflowX: el.style.overflowX,
+      display: el.style.display,
+      visibility: el.style.visibility,
+      position: el.style.position,
+    };
+    touched.push({ el, prev });
+    Object.assign(el.style, next);
+  };
+
+  // 1) 강제 표시 대상: data-capture-force-open
+  const forceNodes = Array.from(root.querySelectorAll<HTMLElement>("[data-capture-force-open]"));
+  forceNodes.forEach((el) => {
+    push(el, {
+      display: "block",
+      visibility: "visible",
+      height: "auto",
+      maxHeight: "none",
+      overflow: "visible",
+    });
+  });
+
+  // 2) 스크롤 영역: 전달 인자 우선, 없으면 data-capture-scroll 자동 수집
+  const scrollNodes =
+    (scrollContainers && scrollContainers.length > 0
+      ? scrollContainers
+      : Array.from(root.querySelectorAll<HTMLElement>("[data-capture-scroll]"))) || [];
+
+  scrollNodes.forEach((el) => {
+    const saved: SavedStyle = {
+      el,
+      prev: {
+        maxHeight: el.style.maxHeight,
+        height: el.style.height,
+        overflow: el.style.overflow,
+        overflowY: el.style.overflowY,
+        overflowX: el.style.overflowX,
+      },
+      prevScrollTop: el.scrollTop,
+      prevScrollLeft: el.scrollLeft,
+    };
+    touched.push(saved);
+
+    // 스크롤 해제 + 맨 위로
+    el.scrollTop = 0;
+    el.scrollLeft = 0;
+    Object.assign(el.style, {
+      maxHeight: "none",
+      height: "auto",
+      overflow: "visible",
+      overflowY: "visible",
+      overflowX: "visible",
+    } as Partial<CSSStyleDeclaration>);
+  });
+
+  // 3) 루트 자체도 스크롤 해제(가능한 경우)
+  push(root, {
+    maxHeight: "none",
+    height: "auto",
+    overflow: "visible",
+  });
+
+  const restore = () => {
+    for (const t of touched) {
+      Object.assign(t.el.style, t.prev);
+      if (typeof t.prevScrollTop === "number") t.el.scrollTop = t.prevScrollTop;
+      if (typeof t.prevScrollLeft === "number") t.el.scrollLeft = t.prevScrollLeft;
+    }
+  };
+
+  return { restore };
+}
+
+/* =========================================================================
+ * 내부: HTML → PNG(DataURL)
+ *  - 캡처 직전 ensureOpenDuringCapture로 펼친 뒤 이미지 생성
+ * ========================================================================= */
+async function captureExpandedToDataURL(
+  root: HTMLElement,
+  options?: {
+    scrollContainers?: HTMLElement[] | null;
+    pixelRatio?: number;
+    backgroundColor?: string;
+  },
+): Promise<string> {
+  const { restore } = ensureOpenDuringCapture(root, options?.scrollContainers);
+  try {
+    // 레이아웃 안정화(리플로우 보장)
+    await new Promise((r) => setTimeout(r, 40));
+    return await toPng(root, {
+      cacheBust: true,
+      pixelRatio: options?.pixelRatio ?? 2,
+      backgroundColor: options?.backgroundColor ?? "#ffffff",
+    });
   } finally {
     restore();
   }
 }
 
-/** PDF 저장: A4 여러 페이지로 자동 분할 (여백 10mm) */
-export async function saveNodeAsPDF(node: HTMLElement, filename: string) {
-  const restore = expandDomForCapture(node);
-  try {
-    const { width, height } = getFullSize(node);
-    const pixelRatio = 2;
+/* =========================================================================
+ * 3) 전체 콘텐츠 PNG 저장 (접힘/스크롤 무시하고 전부 펼쳐서 캡처)
+ *    - CompleteModal에서 root(예: #receipt-capture)와 스크롤 영역 노드들을
+ *      넘기면, 잘림 없이 한 장의 긴 PNG로 저장됩니다.
+ * ========================================================================= */
+export async function saveFullContentAsPNG(
+  root: HTMLElement,
+  filename: string,
+  scrollContainers?: HTMLElement[] | null,
+) {
+  const dataUrl = await captureExpandedToDataURL(root, { scrollContainers, pixelRatio: 2, backgroundColor: "#ffffff" });
+  const a = document.createElement("a");
+  a.href = dataUrl;
+  a.download = filename.endsWith(".png") ? filename : `${filename}.png`;
+  a.click();
+}
 
-    // html-to-image에서 캔버스 직접 생성
-    const canvas = await toCanvas(node, {
-      cacheBust: true,
-      backgroundColor: "#ffffff",
-      pixelRatio,
-      width,
-      height,
-      canvasWidth: width,
-      canvasHeight: height,
-    });
+/* =========================================================================
+ * 4) 전체 콘텐츠 PDF 저장 (멀티페이지 분할)
+ *    - 한 장의 긴 이미지를 A4 폭에 맞춰 여러 페이지로 잘라 넣습니다.
+ * ========================================================================= */
+export async function saveFullContentAsPDF(
+  root: HTMLElement,
+  filename: string,
+  scrollContainers?: HTMLElement[] | null,
+) {
+  const dataUrl = await captureExpandedToDataURL(root, { scrollContainers, pixelRatio: 2, backgroundColor: "#ffffff" });
 
-    const cw = canvas.width; // 원본 캔버스 가로(px)
-    const ch = canvas.height; // 원본 캔버스 세로(px)
+  // 원본 이미지 로드
+  const img = new Image();
+  img.src = dataUrl;
+  await img.decode();
 
-    // PDF 설정(A4 세로)
-    const pageW = 210; // mm
-    const pageH = 297; // mm
-    const margin = 10; // mm
-    const contentWmm = pageW - margin * 2;
-    const contentHmm = pageH - margin * 2;
+  // PDF 설정
+  const pageWmm = 210; // A4
+  const pageHmm = 297;
+  const margin = 10; // 상하좌우 10mm
+  const contentWmm = pageWmm - margin * 2;
+  const contentHmm = pageHmm - margin * 2;
 
-    // 한 페이지에 들어갈 "원본 캔버스 픽셀" 높이(가로를 PDF 폭에 맞춰 스케일한다고 가정)
-    // (segmentPx / cw) * contentWmm == contentHmm  =>  segmentPx = cw * contentHmm / contentWmm
-    const segmentPx = Math.max(1, Math.floor((cw * contentHmm) / contentWmm));
+  // 픽셀-밀리미터 환산(폭 기준 스케일)
+  const pxPerMm = img.width / contentWmm; // 이미지 폭(px) / PDF 내용 폭(mm)
+  const sliceHeightPx = Math.floor(pxPerMm * contentHmm); // 페이지 한 장당 담을 수 있는 이미지 높이(px)
 
-    const pdf = new jsPDF({ orientation: "p", unit: "mm", format: "a4" });
+  const pdf = new jsPDF({ orientation: "p", unit: "mm", format: "a4" });
 
-    // 슬라이스용 캔버스
-    const slice = document.createElement("canvas");
-    slice.width = cw;
-    const ctx = slice.getContext("2d")!;
+  // 슬라이스 반복
+  const totalHeight = img.height;
+  let yPx = 0;
+  let isFirstPage = true;
 
-    let y = 0;
-    let isFirstPage = true;
+  // 슬라이스용 캔버스
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d")!;
 
-    while (y < ch) {
-      const hPx = Math.min(segmentPx, ch - y);
-      slice.height = hPx;
+  while (yPx < totalHeight) {
+    const slicePx = Math.min(sliceHeightPx, totalHeight - yPx);
+    canvas.width = img.width;
+    canvas.height = slicePx;
 
-      // 원본에서 y~y+hPx 구간을 슬라이스에 그려 넣음
-      ctx.clearRect(0, 0, cw, hPx);
-      ctx.drawImage(canvas, 0, y, cw, hPx, 0, 0, cw, hPx);
+    // drawImage(source, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight)
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, yPx, img.width, slicePx, 0, 0, canvas.width, canvas.height);
 
-      const dataUrl = slice.toDataURL("image/png");
+    const sliceUrl = canvas.toDataURL("image/png");
+    const sliceHmm = slicePx / pxPerMm; // 해당 조각의 PDF 높이(mm)
 
-      // 현재 슬라이스의 렌더 높이(mm) = (hPx / cw) * contentWmm
-      const renderHmm = (hPx / cw) * contentWmm;
+    if (!isFirstPage) pdf.addPage();
+    pdf.addImage(sliceUrl, "PNG", margin, margin, contentWmm, sliceHmm);
 
-      if (!isFirstPage) pdf.addPage();
-      pdf.addImage(dataUrl, "PNG", margin, margin, contentWmm, renderHmm, undefined, "FAST");
-
-      isFirstPage = false;
-      y += hPx;
-    }
-
-    pdf.save(filename.endsWith(".pdf") ? filename : `${filename}.pdf`);
-  } finally {
-    restore();
+    yPx += slicePx;
+    isFirstPage = false;
   }
+
+  pdf.save(filename.endsWith(".pdf") ? filename : `${filename}.pdf`);
 }
