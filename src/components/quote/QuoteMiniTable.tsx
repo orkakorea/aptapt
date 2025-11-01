@@ -1,0 +1,1 @@
+// QuoteMiniTable component
