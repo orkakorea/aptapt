@@ -109,7 +109,10 @@ function NextSteps({ variant }: { variant: "SEAT" | "PACKAGE" }) {
       <div className="mb-2 text-sm font-semibold">다음 절차</div>
       <ol className="space-y-3">
         <li className="grid grid-cols-[28px_1fr] items-start gap-3">
-          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full" style={{ backgroundColor: BRAND_LIGHT }}>
+          <span
+            className="inline-flex h-7 w-7 items-center justify-center rounded-full"
+            style={{ backgroundColor: BRAND_LIGHT }}
+          >
             <ClipboardList size={16} color={BRAND} />
           </span>
           <div className="text-sm leading-6">
@@ -117,7 +120,10 @@ function NextSteps({ variant }: { variant: "SEAT" | "PACKAGE" }) {
           </div>
         </li>
         <li className="grid grid-cols-[28px_1fr] items-start gap-3">
-          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full" style={{ backgroundColor: BRAND_LIGHT }}>
+          <span
+            className="inline-flex h-7 w-7 items-center justify-center rounded-full"
+            style={{ backgroundColor: BRAND_LIGHT }}
+          >
             <Mail size={16} color={BRAND} />
           </span>
           <div className="text-sm leading-6">
@@ -125,7 +131,10 @@ function NextSteps({ variant }: { variant: "SEAT" | "PACKAGE" }) {
           </div>
         </li>
         <li className="grid grid-cols-[28px_1fr] items-start gap-3">
-          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full" style={{ backgroundColor: BRAND_LIGHT }}>
+          <span
+            className="inline-flex h-7 w-7 items-center justify-center rounded-full"
+            style={{ backgroundColor: BRAND_LIGHT }}
+          >
             <FileSignature size={16} color={BRAND} />
           </span>
           <div className="text-sm leading-6">
@@ -206,7 +215,13 @@ function CustomerInquirySection({
     (data as any)?.meta?.promo_code;
 
   const inquiryText: string =
-    form.request ?? form.message ?? form.memo ?? form.note ?? (data as any)?.meta?.note ?? (data as any)?.customer?.note ?? "";
+    form.request ??
+    form.message ??
+    form.memo ??
+    form.note ??
+    (data as any)?.meta?.note ??
+    (data as any)?.customer?.note ??
+    "";
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white">
@@ -258,76 +273,183 @@ function CustomerInquirySection({
 function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
   const items: any[] = (data?.details as any)?.items ?? [];
 
-  const getVal = (obj: any, keys: string[], fallback?: any) => {
+  // 안전 추출 유틸
+  const val = (obj: any, keys: string[], fb?: any) => {
     for (const k of keys) {
       const v = obj?.[k];
       if (v !== undefined && v !== null && v !== "") return v;
     }
-    return fallback;
+    return fb;
   };
+  const toNum = (x: any): number | undefined => {
+    const n = Number(x);
+    return Number.isFinite(n) ? n : undefined;
+  };
+  const clamp01 = (n: number) => (n < 0 ? 0 : n > 1 ? 1 : n);
 
-  const rows = (items ?? []).map((it: any) => {
-    const aptName = getVal(it, ["aptName", "apt_name", "name"], "-");
-    const months = getVal(it, ["months", "month"], undefined);
-    const periodLabel = typeof months === "number" ? `${months}개월` : months ?? "-";
-    const productName = getVal(it, ["productName", "product_name", "mediaName"], "-");
-    const monitors = getVal(it, ["monitors", "monitorCount", "screens", "monitor_count"], "-");
-    const lineTotalRaw = getVal(it, ["lineTotal", "item_total_won", "total_won", "line_total"], undefined);
+  // 행 구성
+  const rows = (items ?? []).map((it: any, idx: number) => {
+    const aptName = val(it, ["aptName", "apt_name", "name"], "-") as string;
+    const productName = val(it, ["productName", "product_name", "mediaName", "product_code"], "-") as string;
 
-    let lineTotal = lineTotalRaw;
-    if (lineTotal === undefined) {
-      const monthlyAfter = getVal(it, ["monthlyAfter", "monthly_after"], undefined);
-      const baseMonthly = getVal(it, ["baseMonthly", "base_monthly", "base"], 0);
-      const m = typeof months === "number" ? months : parseInt(months, 10) || 0;
-      lineTotal = Number.isFinite(monthlyAfter) ? monthlyAfter * m : baseMonthly * m;
+    const months = toNum(val(it, ["months", "month"], 0)) ?? 0;
+
+    const baseMonthly = toNum(val(it, ["baseMonthly", "base_monthly", "priceMonthly"], undefined));
+    const monthlyAfterRaw = toNum(val(it, ["monthlyAfter", "monthly_after", "priceMonthlyAfter"], undefined));
+
+    const lineTotalRaw = toNum(val(it, ["lineTotal", "item_total_won", "total_won", "line_total"], undefined));
+
+    // 월가/총액 보정
+    const monthlyAfter =
+      monthlyAfterRaw ??
+      (typeof lineTotalRaw === "number" && months > 0 ? Math.round(lineTotalRaw / months) : undefined) ??
+      baseMonthly;
+
+    const lineTotal =
+      lineTotalRaw ??
+      (typeof monthlyAfter === "number" && months > 0 ? Math.round(monthlyAfter * months) : undefined) ??
+      (typeof baseMonthly === "number" && months > 0 ? Math.round(baseMonthly * months) : 0);
+
+    const baseTotal = typeof baseMonthly === "number" && months > 0 ? Math.round(baseMonthly * months) : undefined;
+
+    let discountRate: number | undefined = undefined;
+    if (typeof baseMonthly === "number" && baseMonthly > 0 && typeof monthlyAfter === "number") {
+      const r = 1 - monthlyAfter / baseMonthly;
+      // 이상치 가드(-1% ~ 90%)
+      discountRate = r > -0.01 && r < 0.9 ? r : undefined;
     }
-    return { aptName, periodLabel, productName, monitors, lineTotal: Number(lineTotal) || 0 };
+
+    // 카운터용 값
+    const households = toNum(val(it, ["households"], undefined));
+    const residents = toNum(val(it, ["residents"], undefined));
+    const monthlyImpressions = toNum(val(it, ["monthlyImpressions"], undefined));
+    const monitors = toNum(val(it, ["monitors", "monitorCount", "screens", "monitor_count"], undefined));
+
+    return {
+      id: `${aptName}|${productName}|${months}|${idx}`,
+      aptName,
+      productName,
+      months,
+      monthlyAfter,
+      baseMonthly,
+      baseTotal,
+      discountRate,
+      lineTotal: lineTotal ?? 0,
+      households,
+      residents,
+      monthlyImpressions,
+      monitors,
+    };
   });
 
-  const periodTotal =
-    (data as any)?.details?.periodTotalKRW ??
-    rows.reduce((acc: number, r: any) => acc + (Number.isFinite(r.lineTotal) ? r.lineTotal : 0), 0);
+  // 카운터 합계
+  const counter = rows.reduce(
+    (acc, r) => {
+      acc.count += 1;
+      acc.households += r.households ?? 0;
+      acc.residents += r.residents ?? 0;
+      acc.monthlyImpressions += r.monthlyImpressions ?? 0;
+      acc.monitors += r.monitors ?? 0;
+      return acc;
+    },
+    { count: 0, households: 0, residents: 0, monthlyImpressions: 0, monitors: 0 },
+  );
+
+  // 전체 합계 & VAT
+  const total = rows.reduce((s, r) => s + (Number.isFinite(r.lineTotal) ? r.lineTotal : 0), 0);
+  const VAT_RATE = 0.1;
+  const vat = Math.round(total * VAT_RATE);
+  const grand = total + vat;
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white">
       <div className="px-4 py-3 text-sm font-semibold">문의 내역</div>
+
+      {/* 카운터 바 */}
+      <div className="px-4 pt-1 pb-2 text-xs text-gray-600 flex flex-wrap gap-x-3 gap-y-1">
+        <span className="font-medium">{`총 ${counter.count}개 단지`}</span>
+        {counter.households > 0 && (
+          <span>
+            · 세대수 <b>{counter.households.toLocaleString("ko-KR")}</b> 세대
+          </span>
+        )}
+        {counter.residents > 0 && (
+          <span>
+            · 거주인원 <b>{counter.residents.toLocaleString("ko-KR")}</b> 명
+          </span>
+        )}
+        {counter.monthlyImpressions > 0 && (
+          <span>
+            · 송출횟수 <b>{counter.monthlyImpressions.toLocaleString("ko-KR")}</b> 회
+          </span>
+        )}
+        {counter.monitors > 0 && (
+          <span>
+            · 모니터수량 <b>{counter.monitors.toLocaleString("ko-KR")}</b> 대
+          </span>
+        )}
+      </div>
+
       <div className="border-t border-gray-100 overflow-x-auto whitespace-nowrap">
-        <table className="text-[13px] min-w-[760px]">
+        <table className="text-[13px] min-w-[980px]">
           <thead className="bg-gray-50 text-gray-600">
             <tr className="[&>th]:px-3 [&>th]:py-2">
               <th className="text-left">단지명</th>
-              <th className="text-right">광고기간</th>
               <th className="text-left">상품명</th>
-              <th className="text-right">모니터수량</th>
-              <th className="text-right">총광고료</th>
+              <th className="text-right">월광고료</th>
+              <th className="text-right">광고기간</th>
+              <th className="text-right">기준금액</th>
+              <th className="text-right">할인율</th>
+              <th className="text-right">총 광고료</th>
             </tr>
           </thead>
+
           <tbody className="[&>tr>td]:px-3 [&>tr>td]:py-2">
             {rows.length ? (
-              rows.map((r: any, idx: number) => (
-                <tr key={idx} className="border-t border-gray-100">
+              rows.map((r) => (
+                <tr key={r.id} className="border-t border-gray-100">
                   <td className="font-medium">{r.aptName}</td>
-                  <td className="text-right">{r.periodLabel}</td>
                   <td className="truncate">{r.productName}</td>
-                  <td className="text-right">{r.monitors?.toString?.() ?? r.monitors}</td>
-                  <td className="text-right">{formatKRW(r.lineTotal)}</td>
+                  <td className="text-right">{typeof r.monthlyAfter === "number" ? formatKRW(r.monthlyAfter) : "-"}</td>
+                  <td className="text-right">{r.months > 0 ? `${r.months}개월` : "-"}</td>
+                  <td className="text-right">{typeof r.baseTotal === "number" ? formatKRW(r.baseTotal) : "-"}</td>
+                  <td className="text-right">
+                    {typeof r.discountRate === "number" ? `${Math.round(r.discountRate * 100)}%` : "-"}
+                  </td>
+                  <td className="text-right font-semibold" style={{ color: BRAND }}>
+                    {formatKRW(r.lineTotal)}
+                  </td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={5} className="py-6 text-center text-xs text-gray-500">
+                <td colSpan={7} className="py-6 text-center text-xs text-gray-500">
                   항목이 없습니다.
                 </td>
               </tr>
             )}
           </tbody>
+
+          {/* 합계 / VAT / VAT 포함 */}
           <tfoot className="bg-gray-50">
             <tr className="[&>td]:px-3 [&>td]:py-3">
-              <td colSpan={4} className="text-right text-gray-600">
-                총 광고료 합계
+              <td colSpan={6} className="text-right text-gray-600">
+                총 광고료 합계(TOTAL)
               </td>
-              <td className="text-right font-semibold" style={{ color: BRAND }}>
-                {formatKRW(periodTotal)}
+              <td className="text-right font-semibold">{formatKRW(total)}</td>
+            </tr>
+            <tr className="[&>td]:px-3 [&>td]:py-3">
+              <td colSpan={6} className="text-right text-gray-600">
+                부가세(VAT {Math.round(VAT_RATE * 100)}%)
+              </td>
+              <td className="text-right font-semibold">{formatKRW(vat)}</td>
+            </tr>
+            <tr className="[&>td]:px-3 [&>td]:py-3">
+              <td colSpan={6} className="text-right text-gray-700">
+                합계(VAT 포함)
+              </td>
+              <td className="text-right font-bold" style={{ color: BRAND }}>
+                {formatKRW(grand)}
               </td>
             </tr>
           </tfoot>
