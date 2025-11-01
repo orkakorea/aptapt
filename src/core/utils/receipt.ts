@@ -1,5 +1,17 @@
-// src/core/utils/receipt.ts
 import type { SeatItem, SeatSummary } from "@/components/complete-modal/types";
+
+/** 내부 유틸 */
+const num = (v: any): number | null => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+const firstOf = <T = any,>(obj: any, keys: string[], map?: (v: any) => T, fallback?: T): T | undefined => {
+  for (const k of keys) {
+    const v = obj?.[k];
+    if (v !== undefined && v !== null && v !== "") return map ? map(v) : (v as T);
+  }
+  return fallback;
+};
 
 /** 1탭 '총 비용'을 최대한 호환성 있게 추출 */
 export function pickCartTotal(snap: any): number | null {
@@ -21,7 +33,9 @@ export function pickCartTotal(snap: any): number | null {
   }
   if (Array.isArray(snap.items) && snap.items.length > 0) {
     const sum = snap.items.reduce((acc: number, it: any) => {
-      const n = Number(it?.itemTotalWon ?? it?.item_total_won ?? it?.totalWon ?? it?.total_won ?? 0);
+      const n = Number(
+        it?.lineTotal ?? it?.line_total ?? it?.itemTotalWon ?? it?.item_total_won ?? it?.totalWon ?? it?.total_won ?? 0,
+      );
       return acc + (isFinite(n) ? n : 0);
     }, 0);
     return sum > 0 ? sum : null;
@@ -53,7 +67,7 @@ function extractMonths(snap: any): { max: number | null; uniqueCount: number } {
   let max = 0;
   const items: any[] = Array.isArray(snap?.items) ? snap.items : [];
   items.forEach((i) => {
-    const n = Number(i?.months ?? 0);
+    const n = Number(i?.months ?? i?.month ?? 0);
     if (isFinite(n) && n > 0) {
       set.add(n);
       if (n > max) max = n;
@@ -85,16 +99,21 @@ export function buildSeatHeaderLabels(prefill?: {
   const items: any[] = Array.isArray(snap?.items) ? snap.items : [];
   const first = items[0] ?? null;
 
-  const topAptName = first?.apt_name ?? prefill?.apt_name ?? "-";
+  const topAptName = first?.apt_name ?? first?.aptName ?? prefill?.apt_name ?? "-";
   const aptCount = items.length > 0 ? items.length : prefill?.apt_name ? 1 : 0;
   const aptLabel = aptCount > 1 ? `${topAptName} 외 ${aptCount - 1}개 단지` : topAptName;
 
   const productFirst =
-    first?.product_name ?? first?.product_code ?? prefill?.product_name ?? prefill?.product_code ?? "-";
+    first?.product_name ??
+    first?.productName ??
+    first?.product_code ??
+    prefill?.product_name ??
+    prefill?.product_code ??
+    "-";
   const uniqProducts = new Set<string>();
   if (items.length > 0) {
     items.forEach((i) => {
-      const key = i?.product_name ?? i?.product_code ?? "";
+      const key = i?.product_name ?? i?.productName ?? i?.product_code ?? "";
       if (key) uniqProducts.add(String(key));
     });
   } else {
@@ -133,156 +152,77 @@ export function makeSeatSummary(prefill?: {
   };
 }
 
-/** SEAT 라인아이템 목록 생성 (접수증 자세히 테이블) */
+/**
+ * SEAT 라인아이템 목록 생성 (접수증 자세히 테이블)
+ * - 다양한 스냅샷 키(camelCase/snake_case)를 모두 허용
+ * - 누락된 총액은 (monthlyAfter || baseMonthly) * months 로 보강
+ * - 추가 필드(모니터수량/세대수/거주인원/월송출횟수)를 함께 전달
+ */
 export function buildSeatItemsFromSnapshot(snap: any): SeatItem[] {
   const items: any[] = Array.isArray(snap?.items) ? snap.items : [];
-  return items.map((it) => {
-    const baseMonthly = numOrNull(it?.baseMonthly ?? it?.base_monthly ?? it?.priceMonthly ?? null);
-    const monthlyAfter = numOrNull(it?.monthlyAfter ?? it?.monthly_after ?? it?.priceMonthlyAfter ?? null);
-    const months = numOrNull(it?.months ?? null);
-    const lineTotal =
-      months && (monthlyAfter ?? baseMonthly)
-        ? Math.round((monthlyAfter ?? baseMonthly!) * months)
-        : numOrNull(it?.lineTotal ?? it?.item_total_won ?? it?.total_won ?? null);
+  const fallbackMonths = num(snap?.months);
 
-    const discountNote: string | null = it?.discountNote ?? it?.discount_note ?? it?.applied_discounts_text ?? null;
+  return items.map((raw) => {
+    // 표시에 필요한 기본값들
+    const aptName = firstOf<string>(raw, ["aptName", "apt_name", "name"]) ?? "-";
 
-    return {
-      aptName: it?.apt_name ?? it?.aptName ?? "-",
-      productName: it?.product_name ?? it?.productName ?? it?.product_code ?? "-",
-      months,
-      baseMonthly,
-      discountNote,
-      monthlyAfter: monthlyAfter ?? baseMonthly ?? null,
-      lineTotal,
-      // 확장 필드가 들어와도 SeatItem에는 영향 없음(렌더시 합계/카운터용으로는 아래 어댑터 사용)
-    };
-  });
-}
+    const productName =
+      firstOf<string>(raw, ["productName", "product_name", "mediaName"]) ??
+      firstOf<string>(raw, ["product_code"]) ??
+      "-";
 
-function numOrNull(v: any): number | null {
-  const n = Number(v);
-  return isFinite(n) ? n : null;
-}
+    const months = num(firstOf(raw, ["months", "month"])) ?? fallbackMonths ?? null;
 
-/* ============================================================
- * (1) 완료모달 → 견적 테이블 호환 어댑터
- * ============================================================ */
-
-/** 견적 테이블 구조와 호환되는 최소 타입(의존성 순환 방지용) */
-export type QuoteLineItemCompat = {
-  id: string;
-  name: string; // 단지명
-  months: number; // 광고기간(개월)
-  startDate?: string;
-  endDate?: string;
-
-  mediaName?: string; // 상품명
-  households?: number;
-  residents?: number;
-  monthlyImpressions?: number;
-  monitors?: number;
-
-  baseMonthly?: number; // 기준 월가
-  monthlyAfter?: number; // 할인 후 월가
-  lineTotal?: number; // 총 광고료(라인 합계)
-
-  productKeyHint?: string;
-};
-
-/** 내부 숫자 파서(0/NaN 가드) */
-function toNum(v: any): number | undefined {
-  const n = Number(v);
-  return isFinite(n) ? n : undefined;
-}
-
-/** baseMonthly/ monthlyAfter / months로 lineTotal 계산 (가능할 때만) */
-function calcLineTotal(baseMonthly?: number, monthlyAfter?: number, months?: number): number | undefined {
-  if (!months || months <= 0) return undefined;
-  const m =
-    (typeof monthlyAfter === "number" ? monthlyAfter : undefined) ??
-    (typeof baseMonthly === "number" ? baseMonthly : undefined);
-  return typeof m === "number" ? Math.round(m * months) : undefined;
-}
-
-/**
- * 완료 모달의 details.items(Seat 기반) → 견적 라인아이템 구조로 변환.
- * - key 매핑은 우선순위 규칙으로 폭넓게 대응
- * - id는 안정성을 위해 apt|media|months 기반으로 생성(동명이인 대비 index suffix 포함)
- */
-export function adaptQuoteItemsFromReceipt(rawItems: any[] | null | undefined): QuoteLineItemCompat[] {
-  const arr: any[] = Array.isArray(rawItems) ? rawItems : [];
-  return arr.map((raw, idx): QuoteLineItemCompat => {
-    const name = (raw?.aptName ?? raw?.apt_name ?? raw?.name ?? "-") as string;
-    const mediaName = (raw?.productName ?? raw?.product_name ?? raw?.mediaName ?? raw?.product_code) as
-      | string
-      | undefined;
-
-    const months = toNum(raw?.months ?? raw?.month) ?? 0;
-
-    const baseMonthly = toNum(raw?.baseMonthly ?? raw?.base_monthly ?? raw?.priceMonthly);
+    const baseMonthly =
+      num(firstOf(raw, ["baseMonthly", "base_monthly", "priceMonthly", "monthlyBase", "monthly_base"])) ?? null;
 
     const monthlyAfter =
-      toNum(raw?.monthlyAfter ?? raw?.monthly_after ?? raw?.priceMonthlyAfter) ??
-      (toNum(raw?.lineTotal ?? raw?.item_total_won ?? raw?.total_won) && months > 0
-        ? Math.round(Number(raw?.lineTotal ?? raw?.item_total_won ?? raw?.total_won) / months)
-        : undefined);
+      num(
+        firstOf(raw, [
+          "monthlyAfter",
+          "monthly_after",
+          "priceMonthlyAfter",
+          "monthlyAfterDiscount",
+          "monthly_after_discount",
+        ]),
+      ) ?? baseMonthly;
 
-    const rawLineTotal = toNum(raw?.lineTotal ?? raw?.item_total_won ?? raw?.total_won);
+    // 총액(lineTotal) 우선순위
+    const lineTotalExplicit = num(
+      firstOf(raw, ["lineTotal", "line_total", "itemTotalWon", "item_total_won", "totalWon", "total_won"]),
+    );
+    const lineTotal = lineTotalExplicit ?? (months && monthlyAfter ? Math.round(monthlyAfter * months) : null);
 
-    const lineTotal = rawLineTotal ?? calcLineTotal(baseMonthly, monthlyAfter, months);
+    // 부가정보(표/카운터용) — 타입 충돌 방지 위해 아래서 any로 붙여줌
+    const monitors = num(firstOf(raw, ["monitors", "monitorCount", "monitor_count", "screens"])) ?? null;
+    const households = num(firstOf(raw, ["households"])) ?? null;
+    const residents = num(firstOf(raw, ["residents"])) ?? null;
+    const monthlyImpressions =
+      num(firstOf(raw, ["monthlyImpressions", "monthly_impressions", "impressions_per_month"])) ?? null;
 
-    const monitors = toNum(raw?.monitors ?? raw?.monitorCount ?? raw?.monitor_count ?? raw?.screens);
+    const discountNote: string | null =
+      firstOf<string>(raw, ["discountNote", "discount_note", "applied_discounts_text"]) ?? null;
 
-    const households = toNum(raw?.households);
-    const residents = toNum(raw?.residents);
-    const monthlyImpressions = toNum(raw?.monthlyImpressions);
+    // SeatItem(필수 스키마) 구성
+    const base: SeatItem = {
+      aptName,
+      productName,
+      months: months ?? null,
+      baseMonthly,
+      discountNote,
+      monthlyAfter: monthlyAfter ?? null,
+      lineTotal,
+    };
 
-    const productKeyHint = typeof raw?.product_code === "string" ? raw.product_code : undefined;
-
-    const idBase = `${String(name)}|${String(mediaName ?? "")}|${months}`;
-    const id = `${idBase}|${idx}`;
-
-    return {
-      id,
-      name,
-      months,
-      mediaName,
+    // 추가 필드를 얹어서 반환(호환성 위해 any로 확장)
+    const withExtras = {
+      ...base,
+      monitors,
       households,
       residents,
       monthlyImpressions,
-      monitors,
-      baseMonthly,
-      monthlyAfter,
-      lineTotal,
-      productKeyHint,
-    };
+    } as any;
+
+    return withExtras;
   });
-}
-
-/* ============================================================
- * (2) 카운터 합계 계산
- * ============================================================ */
-
-/** 카운터 바에 쓰는 합계치(세대/인원/송출/모니터/행수) */
-export function computeQuoteTotals(items: Array<Partial<QuoteLineItemCompat>>): {
-  count: number;
-  households: number;
-  residents: number;
-  monthlyImpressions: number;
-  monitors: number;
-} {
-  const sum = (key: keyof QuoteLineItemCompat): number =>
-    (items ?? []).reduce((acc, it) => {
-      const v = Number((it as any)?.[key]);
-      return acc + (isFinite(v) ? v : 0);
-    }, 0);
-
-  return {
-    count: items?.length ?? 0,
-    households: sum("households"),
-    residents: sum("residents"),
-    monthlyImpressions: sum("monthlyImpressions"),
-    monitors: sum("monitors"),
-  };
 }
