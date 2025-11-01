@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+// src/components/complete-modal/CompleteModal.desktop.tsx
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   CheckCircle2,
@@ -15,6 +16,9 @@ import {
 import type { CompleteModalProps, ReceiptData, ReceiptSeat, ReceiptPackage } from "./types";
 import { isSeatReceipt, isPackageReceipt } from "./types";
 import { createPortal } from "react-dom";
+
+// 문의 내역 카운터/행 계산을 위해 receipt 유틸 활용
+import { adaptQuoteItemsFromReceipt, computeQuoteTotals } from "@/core/utils/receipt";
 
 const BRAND = "#6F4BF2";
 const BRAND_LIGHT = "#EEE8FF";
@@ -77,6 +81,10 @@ function maskEmail(email?: string | null) {
   return `${shown}${masked}@${domain}`;
 }
 const safeNum = (v: any) => (typeof v === "number" && isFinite(v) ? v : 0);
+const fmtNum = (n?: number, unit = "") =>
+  typeof n === "number" && Number.isFinite(n) ? `${n.toLocaleString()}${unit}` : "—";
+const fmtWon = (n?: number) => (typeof n === "number" && Number.isFinite(n) ? `${n.toLocaleString()}원` : "—");
+const safe = (s?: string) => (s && s.trim().length > 0 ? s : "—");
 
 /* ================== Shared Sub Components ================== */
 function HeaderSuccess({ ticketCode, createdAtISO }: { ticketCode: string; createdAtISO: string }) {
@@ -182,7 +190,6 @@ function CustomerInquirySection({
     c.campaignType ??
     c.campaign_type;
 
-  // 광고 송출 예정(희망)일
   const preferredRaw =
     form.desiredDate ??
     form.hopeDate ??
@@ -200,7 +207,6 @@ function CustomerInquirySection({
     summary.period_label ??
     (typeof summary.months === "number" ? `${summary.months}개월` : undefined);
 
-  // 프로모션 코드
   const promoCode =
     form.promotionCode ??
     form.promoCode ??
@@ -252,7 +258,6 @@ function CustomerInquirySection({
               <Row label="캠페인 유형" value={campaignType} />
               <Row label="광고 송출 예정(희망)일" value={desiredValue} />
               <Row label="프로모션코드" value={promoCode} />
-              {/* 광고 범위 행 삭제됨 */}
             </div>
 
             {/* 문의내용 (스크롤 가능) */}
@@ -269,101 +274,58 @@ function CustomerInquirySection({
   );
 }
 
-/* ================== 좌측: SEAT 전용 “문의 내역” 테이블 ================== */
-/* ▼▼▼ 이 블록만 변경되었습니다 ▼▼▼ */
-function SeatInquiryTable({ data, vatRate = 0.1 }: { data: ReceiptSeat; vatRate?: number }) {
-  const [open, setOpen] = useState(true);
-
-  // 안전 키 조회
-  const pick = (obj: any, keys: (string | string[])[], fb?: any) => {
-    for (const k of keys) {
-      if (Array.isArray(k)) {
-        const v = k.reduce((acc, kk) => (acc && acc[kk] !== undefined ? acc[kk] : null), obj);
-        if (v !== null && v !== undefined && v !== "") return v;
-      } else {
-        const v = obj?.[k];
-        if (v !== undefined && v !== null && v !== "") return v;
-      }
+/* ================== 좌측: SEAT 전용 “문의 내역” (요청 사항 반영) ================== */
+/** 내부 계산: 월광고료(= monthlyAfter 우선, 없으면 lineTotal/months) */
+function inferMonthlyAfter(it: any): number | undefined {
+  if (typeof it.monthlyAfter === "number" && isFinite(it.monthlyAfter)) return it.monthlyAfter;
+  if (typeof it.lineTotal === "number" && isFinite(it.lineTotal) && it.months > 0) {
+    return Math.round(it.lineTotal / it.months);
+  }
+  return undefined;
+}
+/** 내부 계산: 기준금액(= baseMonthly * months) */
+function inferBaseTotal(it: any): number | undefined {
+  if (typeof it.baseMonthly === "number" && isFinite(it.baseMonthly) && it.months > 0) {
+    return Math.round(it.baseMonthly * it.months);
+  }
+  return undefined;
+}
+/** 내부 계산: 할인율(= 1 - monthlyAfter/baseMonthly) */
+function inferDiscountRate(it: any): number | undefined {
+  if (typeof it.baseMonthly === "number" && isFinite(it.baseMonthly) && it.baseMonthly > 0) {
+    const ma = inferMonthlyAfter(it);
+    if (typeof ma === "number" && isFinite(ma)) {
+      const rate = 1 - ma / it.baseMonthly;
+      if (rate > -0.01 && rate < 0.9) return rate; // 이상치 가드
     }
-    return fb;
-  };
-  const toNum = (v: any): number | undefined => {
-    const n = Number(v);
-    return isFinite(n) ? n : undefined;
-  };
-  const fmtNum = (n?: number, unit = "") =>
-    typeof n === "number" && isFinite(n) ? `${n.toLocaleString()}${unit}` : undefined;
+  }
+  return undefined;
+}
 
-  const rawItems: any[] = (data?.details as any)?.items ?? [];
+function SeatInquirySection({ data }: { data: ReceiptSeat }) {
+  // receipt.details.items → 견적 호환 포맷
+  const items = useMemo(() => {
+    const raw = (data as any)?.details?.items ?? [];
+    return adaptQuoteItemsFromReceipt(raw);
+  }, [data]);
 
-  // 행 만들기
-  const rows = (rawItems ?? []).map((it: any) => {
-    const monthsN = toNum(pick(it, ["months", "month"])) ?? 0;
+  // 카운터
+  const totals = useMemo(() => computeQuoteTotals(items), [items]);
 
-    const aptName =
-      pick(it, ["aptName", "apt_name", "aptTitle", "title", "name", ["apt", "name"], ["apt", "title"]], "-") ?? "-";
-
-    const productName = pick(it, ["productName", "product_name", "mediaName", "product_code"], "-") ?? "-";
-
-    const households = toNum(pick(it, ["households"])) ?? 0;
-    const residents = toNum(pick(it, ["residents"])) ?? 0;
-    const monthlyImpressions = toNum(pick(it, ["monthlyImpressions"])) ?? 0;
-    const monitors =
-      toNum(pick(it, ["monitors", "monitorCount", "monitor_count", "screens"])) ??
-      toNum(pick(it, ["screenCount"])) ??
-      0;
-
-    const baseMonthly = toNum(pick(it, ["baseMonthly", "base_monthly", "priceMonthly", "monthlyFee", "monthly_fee"]));
-    const monthlyAfter =
-      toNum(
-        pick(it, ["monthlyAfter", "monthly_after", "priceMonthlyAfter", "discountedMonthly", "discounted_monthly"]),
-      ) ??
-      (toNum(pick(it, ["lineTotal", "item_total_won", "total_won", "line_total"])) && monthsN > 0
-        ? Math.round(Number(pick(it, ["lineTotal", "item_total_won", "total_won", "line_total"])) / monthsN)
-        : baseMonthly);
-
-    const baseTotal = typeof baseMonthly === "number" && monthsN > 0 ? baseMonthly * monthsN : undefined;
-    const lineTotalRaw = toNum(pick(it, ["lineTotal", "item_total_won", "total_won", "line_total"]));
-    const lineTotal =
-      lineTotalRaw ??
-      (monthsN > 0 && typeof (monthlyAfter ?? baseMonthly) === "number" ? (monthlyAfter ?? baseMonthly!) * monthsN : 0);
-
-    const discountRate =
-      typeof baseMonthly === "number" && baseMonthly > 0 && typeof monthlyAfter === "number"
-        ? Math.max(0, Math.min(1, 1 - monthlyAfter / baseMonthly))
-        : undefined;
-
-    return {
-      aptName,
-      productName,
-      months: monthsN,
-      monthlyAfter,
-      baseTotal,
-      discountRate,
-      lineTotal,
-      households,
-      residents,
-      monthlyImpressions,
-      monitors,
-    };
-  });
-
-  // 합계/부가세/최종
-  const subtotal = rows.reduce((s, r) => s + (isFinite(r.lineTotal) ? r.lineTotal : 0), 0);
-  const vat = Math.round(subtotal * vatRate);
-  const grand = subtotal + vat;
-
-  // 카운터 합계
-  const totals = rows.reduce(
-    (acc, r) => {
-      acc.households += r.households || 0;
-      acc.residents += r.residents || 0;
-      acc.monthlyImpr += r.monthlyImpressions || 0;
-      acc.monitors += r.monitors || 0;
-      return acc;
-    },
-    { households: 0, residents: 0, monthlyImpr: 0, monitors: 0 },
+  // 소계/부가세/최종
+  const subtotal = useMemo(
+    () =>
+      (items ?? []).reduce((acc, it) => {
+        const v = typeof it.lineTotal === "number" && isFinite(it.lineTotal) ? it.lineTotal : 0;
+        return acc + v;
+      }, 0),
+    [items],
   );
+  const vat = Math.round(subtotal * 0.1);
+  const total = subtotal + vat;
+
+  // 접기/펼치기
+  const [open, setOpen] = useState(true);
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white">
@@ -387,100 +349,103 @@ function SeatInquiryTable({ data, vatRate = 0.1 }: { data: ReceiptSeat; vatRate?
             className="overflow-hidden"
           >
             {/* 카운터 바 */}
-            <div className="px-4 pt-1 pb-2 text-xs text-gray-600 flex flex-wrap gap-x-3 gap-y-1">
-              <span className="font-medium">{`총 ${rows.length}개 단지`}</span>
-              {fmtNum(totals.households) && (
+            <div className="px-4 pt-1 pb-2 text-xs text-[#4B5563] flex flex-wrap gap-x-3 gap-y-1">
+              <span className="font-semibold">{`총 ${totals.count}개 단지`}</span>
+              {totals.households ? (
                 <span>
                   · 세대수 <b>{fmtNum(totals.households)}</b> 세대
                 </span>
-              )}
-              {fmtNum(totals.residents) && (
+              ) : null}
+              {totals.residents ? (
                 <span>
                   · 거주인원 <b>{fmtNum(totals.residents)}</b> 명
                 </span>
-              )}
-              {fmtNum(totals.monthlyImpr) && (
+              ) : null}
+              {totals.monthlyImpressions ? (
                 <span>
-                  · 송출횟수 <b>{fmtNum(totals.monthlyImpr)}</b> 회
+                  · 송출횟수 <b>{fmtNum(totals.monthlyImpressions)}</b> 회
                 </span>
-              )}
-              {fmtNum(totals.monitors) && (
+              ) : null}
+              {totals.monitors ? (
                 <span>
                   · 모니터수량 <b>{fmtNum(totals.monitors)}</b> 대
                 </span>
-              )}
+              ) : null}
+              <span className="ml-auto text-[11px] text-[#9CA3AF]">(단위 · 원 / VAT별도)</span>
             </div>
 
-            {/* 표 */}
+            {/* 테이블: 단지명/상품명/월광고료/광고기간/기준금액/할인율/총광고료 */}
             <div className="px-4 pb-3">
-              <div className="rounded-xl border border-gray-100 overflow-hidden">
-                <div className="max-h-[48vh] overflow-y-auto">
-                  <table className="w-full table-fixed text-xs">
-                    <thead className="bg-gray-50 text-gray-600">
+              <div className="rounded-lg border border-[#E5E7EB] overflow-x-auto">
+                <table className="w-full text-[12.5px]">
+                  <thead>
+                    <tr className="bg-[#F9FAFB] text-[#111827] [&>th]:px-3 [&>th]:py-2 text-center">
+                      <th className="text-left">단지명</th>
+                      <th>상품명</th>
+                      <th>월광고료</th>
+                      <th>광고기간</th>
+                      <th>기준금액</th>
+                      <th>할인율</th>
+                      <th className="!text-[#111827]">총광고료</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(!items || items.length === 0) && (
                       <tr>
-                        <th className="px-2 py-2 text-left font-bold">단지명</th>
-                        <th className="px-2 py-2 text-left font-bold">상품명</th>
-                        <th className="px-2 py-2 text-right font-bold">월광고료</th>
-                        <th className="px-2 py-2 text-right font-bold">광고기간</th>
-                        <th className="px-2 py-2 text-right font-bold">기준금액</th>
-                        <th className="px-2 py-2 text-right font-bold">할인율</th>
-                        <th className="px-2 py-2 text-right font-bold">총 광고료</th>
+                        <td colSpan={7} className="px-6 py-8 text-center text-[#6B7280]">
+                          항목이 없습니다.
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody>
-                      {rows.length ? (
-                        rows.map((r, idx) => (
-                          <tr key={idx} className="border-t border-gray-100">
-                            <td className="px-2 py-2 text-left font-medium truncate">{r.aptName ?? "-"}</td>
-                            <td className="px-2 py-2 text-left truncate">{r.productName ?? "-"}</td>
-                            <td className="px-2 py-2 text-right whitespace-nowrap">{formatKRW(r.monthlyAfter)}</td>
-                            <td className="px-2 py-2 text-right whitespace-nowrap">
-                              {r.months ? `${r.months}개월` : "-"}
-                            </td>
-                            <td className="px-2 py-2 text-right whitespace-nowrap">{formatKRW(r.baseTotal)}</td>
-                            <td className="px-2 py-2 text-right whitespace-nowrap">
-                              {typeof r.discountRate === "number" ? `${Math.round(r.discountRate * 100)}%` : "-"}
-                            </td>
-                            <td className="px-2 py-2 text-right whitespace-nowrap font-semibold text-black">
-                              {formatKRW(r.lineTotal)}
-                            </td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                            항목이 없습니다.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
+                    )}
 
-                    {/* 합계/부가세/최종 */}
-                    <tfoot className="bg-gray-50">
-                      <tr className="border-t border-gray-100">
-                        <td colSpan={6} className="px-3 py-3 text-right text-gray-600">
-                          총 광고료 합계(TOTAL)
-                        </td>
-                        <td className="px-3 py-3 text-right font-bold" style={{ color: BRAND }}>
-                          {formatKRW(subtotal)}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td colSpan={6} className="px-3 py-3 text-right text-gray-600">
-                          부가세(VAT {Math.round(vatRate * 100)}%)
-                        </td>
-                        <td className="px-3 py-3 text-right font-bold text-red-600">{formatKRW(vat)}</td>
-                      </tr>
-                      <tr>
-                        <td colSpan={6} className="px-3 py-3 text-right font-semibold" style={{ color: BRAND }}>
-                          최종 광고료 (VAT 포함)
-                        </td>
-                        <td className="px-3 py-3 text-right font-bold" style={{ color: BRAND }}>
-                          {formatKRW(grand)}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
+                    {items?.map((it) => {
+                      const monthlyAfter = inferMonthlyAfter(it);
+                      const baseTotal = inferBaseTotal(it);
+                      const discountRate = inferDiscountRate(it);
+
+                      return (
+                        <tr key={it.id} className="border-t border-[#F3F4F6] [&>td]:px-3 [&>td]:py-2 text-center">
+                          <td className="text-left font-medium text-black">{safe(it.name)}</td>
+                          <td className="truncate">{safe(it.mediaName)}</td>
+                          <td>{fmtWon(monthlyAfter)}</td>
+                          <td>{it.months ? `${it.months}개월` : "—"}</td>
+                          <td>{fmtWon(baseTotal)}</td>
+                          <td>{typeof discountRate === "number" ? `${Math.round(discountRate * 100)}%` : "—"}</td>
+                          {/* 행별 총광고료 = 검은색 */}
+                          <td className="font-semibold text-black">{fmtWon(it.lineTotal)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  {/* 소계(보라) */}
+                  <tfoot>
+                    <tr className="border-t border-[#E5E7EB]">
+                      <td colSpan={6} className="text-right px-3 py-3 bg-[#F7F5FF] text-[#6B7280] font-medium">
+                        TOTAL
+                      </td>
+                      <td className="px-3 py-3 bg-[#F7F5FF] text-right font-bold" style={{ color: BRAND }}>
+                        {formatKRW(subtotal)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            {/* 부가세/최종(부가세=빨강+볼드, 최종=보라+볼드 문구 변경) */}
+            <div className="px-4 pb-4">
+              <div className="rounded-lg border border-[#E5E7EB] bg-[#F8F7FF] p-3">
+                <div className="flex items-center justify-between text-[13px]">
+                  <span className="text-[#6B7280]">부가세</span>
+                  <span className="font-bold text-red-600">{formatKRW(vat)}</span>
+                </div>
+                <div className="mt-2 flex items-center justify-between">
+                  <span className="text-[15px] font-semibold" style={{ color: BRAND }}>
+                    최종 광고료 (VAT포함)
+                  </span>
+                  <span className="text-[18px] font-bold" style={{ color: BRAND }}>
+                    {formatKRW(total)}
+                  </span>
                 </div>
               </div>
             </div>
@@ -490,7 +455,6 @@ function SeatInquiryTable({ data, vatRate = 0.1 }: { data: ReceiptSeat; vatRate?
     </div>
   );
 }
-/* ▲▲▲ 변경 블록 끝 ▲▲▲ */
 
 /* ================== Main ================== */
 export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확인" }: CompleteModalProps) {
@@ -516,22 +480,6 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
   const LINK_GUIDE = "https://orka.co.kr/ELAVATOR_CONTENTS";
   const LINK_TEAM = "https://orka.co.kr/orka_members";
 
-  // PNG/PDF 공통 저장 래퍼: 고객문의 섹션 강제 펼치기 후 캡처
-  const saveWithExpand = (fn?: () => void) => {
-    setForceOpen(true);
-    // 레이아웃 반영을 위해 다음 프레임/약간의 지연 후 실행
-    requestAnimationFrame(() => {
-      setTimeout(() => {
-        try {
-          fn?.();
-        } finally {
-          // 필요 시 닫기 복귀를 원하면 아래 주석 해제
-          // setTimeout(() => setForceOpen(false), 400);
-        }
-      }, 60);
-    });
-  };
-
   return createPortal(
     <AnimatePresence>
       <>
@@ -549,7 +497,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
           <motion.div
             id="receipt-capture"
             key="panel"
-            className="w-[900px] max-w-[94vw] rounded-2xl bg-white shadow-2xl"
+            className="w-[900px] max-w-[94vw] rounded-2xl bg-white shadow-2xl max-h-[85vh] flex flex-col"
             role="dialog"
             aria-modal="true"
             initial={{ scale: 0.96, opacity: 0 }}
@@ -558,57 +506,59 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
             transition={{ type: "spring", stiffness: 260, damping: 22 }}
           >
             {/* Header */}
-            <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-6 py-5">
+            <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-6 py-5 sticky top-0 bg-white z-10">
               <HeaderSuccess ticketCode={data.ticketCode} createdAtISO={data.createdAtISO} />
               <button aria-label="close" className="rounded-full p-2 hover:bg-gray-50" onClick={onClose}>
                 <X size={18} />
               </button>
             </div>
 
-            {/* Body */}
-            <div className="grid grid-cols-12 gap-6 px-6 py-6">
-              {/* 좌측 */}
-              <div className="col-span-8 space-y-4">
-                <CustomerInquirySection data={data as any} forceOpen={forceOpen} />
-                {isSeat && <SeatInquiryTable data={data as ReceiptSeat} />}
-              </div>
+            {/* Body: 모달 하한선 이후 내부 스크롤 */}
+            <div className="flex-1 overflow-y-auto">
+              <div className="grid grid-cols-12 gap-6 px-6 py-6">
+                {/* 좌측 */}
+                <div className="col-span-8 space-y-4">
+                  <CustomerInquirySection data={data as any} forceOpen={forceOpen} />
+                  {isSeat && <SeatInquirySection data={data as ReceiptSeat} />}
+                </div>
 
-              {/* 우측: 두 모드 동일 */}
-              <div className="col-span-4 space-y-4">
-                <NextSteps variant={isSeat ? "SEAT" : "PACKAGE"} />
+                {/* 우측: 두 모드 동일 (기존 유지) */}
+                <div className="col-span-4 space-y-4">
+                  <NextSteps variant={isSeat ? "SEAT" : "PACKAGE"} />
 
-                <button
-                  onClick={() => setPickerOpen(true)}
-                  className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white"
-                  style={{ backgroundColor: BRAND }}
-                >
-                  {saveButtonLabel}
-                </button>
+                  <button
+                    onClick={() => setPickerOpen(true)}
+                    className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white"
+                    style={{ backgroundColor: BRAND }}
+                  >
+                    {saveButtonLabel}
+                  </button>
 
-                <div className="rounded-xl border border-gray-100 p-4">
-                  <div className="text-sm font-semibold">더 많은 정보</div>
-                  <div className="mt-3 grid grid-cols-1 gap-2">
-                    <button
-                      onClick={() => openExternal(LINK_YT)}
-                      className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
-                    >
-                      <ExternalLink size={16} />
-                      광고 소재 채널 바로가기
-                    </button>
-                    <button
-                      onClick={() => openExternal(LINK_GUIDE)}
-                      className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
-                    >
-                      <ExternalLink size={16} />
-                      제작 가이드 바로가기
-                    </button>
-                    <button
-                      onClick={() => openExternal(LINK_TEAM)}
-                      className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
-                    >
-                      <ExternalLink size={16} />
-                      오르카 구성원 확인하기
-                    </button>
+                  <div className="rounded-xl border border-gray-100 p-4">
+                    <div className="text-sm font-semibold">더 많은 정보</div>
+                    <div className="mt-3 grid grid-cols-1 gap-2">
+                      <button
+                        onClick={() => openExternal(LINK_YT)}
+                        className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
+                      >
+                        <ExternalLink size={16} />
+                        광고 소재 채널 바로가기
+                      </button>
+                      <button
+                        onClick={() => openExternal(LINK_GUIDE)}
+                        className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
+                      >
+                        <ExternalLink size={16} />
+                        제작 가이드 바로가기
+                      </button>
+                      <button
+                        onClick={() => openExternal(LINK_TEAM)}
+                        className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
+                      >
+                        <ExternalLink size={16} />
+                        오르카 구성원 확인하기
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -623,7 +573,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
           </motion.div>
         </div>
 
-        {/* 저장 액션 시트 (PNG/PDF만) */}
+        {/* 저장 액션 시트 (PNG/PDF만) — 기존 동작 유지 */}
         <AnimatePresence>
           {pickerOpen && (
             <>
@@ -644,7 +594,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
                 transition={{ type: "spring", stiffness: 260, damping: 22 }}
               >
                 <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
-                  <div className="text-sm font-semibold">{sheetTitle}</div>
+                  <div className="text-sm font-semibold">문의 내용 저장</div>
                   <button
                     aria-label="close-picker"
                     className="rounded-full p-2 hover:bg-gray-50"
@@ -657,7 +607,8 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       onClick={() => {
-                        saveWithExpand(data?.actions?.onSaveImage);
+                        // 상위에서 전달하는 저장 콜백 그대로 사용 (capture.ts가 전체 캡처를 처리)
+                        (data as any)?.actions?.onSaveImage?.();
                         setPickerOpen(false);
                       }}
                       className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
@@ -666,7 +617,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
                     </button>
                     <button
                       onClick={() => {
-                        saveWithExpand(data?.actions?.onSavePDF);
+                        (data as any)?.actions?.onSavePDF?.();
                         setPickerOpen(false);
                       }}
                       className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
