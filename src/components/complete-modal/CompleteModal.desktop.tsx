@@ -51,8 +51,7 @@ function useBodyScrollLock(locked: boolean) {
     if (!locked) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
+    return () => (document.body.style.overflow = prev);
   }, [locked]);
 }
 function maskEmail(email?: string | null) {
