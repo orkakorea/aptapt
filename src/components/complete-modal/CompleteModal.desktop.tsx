@@ -3,19 +3,24 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { ClipboardList, ExternalLink, FileSignature, Mail, X, CheckCircle2 } from "lucide-react";
 
-import type { CompleteModalProps, ReceiptData, ReceiptSeat, ReceiptPackage } from "./types";
-import { isSeatReceipt, isPackageReceipt } from "./types";
+import type { CompleteModalProps, ReceiptData, ReceiptSeat } from "./types";
+import { isSeatReceipt } from "./types";
 
-// 전체 저장(잘림 방지) 유틸은 그대로 사용
+// 저장(전체 캡처) 유틸
 import { saveFullContentAsPNG, saveFullContentAsPDF } from "@/core/utils/capture";
 
+/* =========================================================================
+ * 공통 상수/유틸
+ * ========================================================================= */
 const BRAND = "#6F4BF2";
 const BRAND_LIGHT = "#EEE8FF";
 
-/* ================== 공통 유틸 ================== */
 const safeNum = (v: any) => (typeof v === "number" && isFinite(v) ? v : 0);
-const fmtKRW = (n?: number | null) =>
-  n == null || !isFinite(Number(n)) ? "₩0" : "₩" + Number(n).toLocaleString("ko-KR");
+
+function formatKRW(n?: number | null) {
+  if (n == null || !isFinite(Number(n))) return "₩0";
+  return "₩" + Number(n).toLocaleString("ko-KR");
+}
 
 function formatKST(iso: string) {
   try {
@@ -34,6 +39,7 @@ function formatKST(iso: string) {
     return "";
   }
 }
+
 function toYMD(input?: any): string | undefined {
   if (input == null || input === "") return undefined;
   const v = typeof input === "string" ? input.trim() : input;
@@ -46,16 +52,9 @@ function toYMD(input?: any): string | undefined {
   }
   return typeof v === "string" ? v : undefined;
 }
-function useBodyScrollLock(locked: boolean) {
-  useEffect(() => {
-    if (!locked) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => (document.body.style.overflow = prev);
-  }, [locked]);
-}
+
 function maskEmail(email?: string | null) {
-  if (!email) return "";
+  if (!email) return "-";
   const str = String(email);
   const at = str.indexOf("@");
   if (at <= 0) return str.slice(0, 2) + "…";
@@ -66,90 +65,20 @@ function maskEmail(email?: string | null) {
   return `${shown}${masked}@${domain}`;
 }
 
-/* ================== (1)(2) 매핑 로직 보강에 필요한 보조 ================== */
-type RangeRule = { min: number; max: number; rate: number };
-type ProductRules = { precomp?: RangeRule[]; period: RangeRule[] };
-type DiscountPolicy = Record<string, ProductRules>;
-
-const POLICY: DiscountPolicy = {
-  "ELEVATOR TV": {
-    precomp: [
-      { min: 1, max: 2, rate: 0.03 },
-      { min: 3, max: 12, rate: 0.05 },
-    ],
-    period: [
-      { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.15 },
-      { min: 12, max: 12, rate: 0.2 },
-    ],
-  },
-  TOWNBORD_S: {
-    period: [
-      { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.15 },
-      { min: 12, max: 12, rate: 0.2 },
-    ],
-  },
-  TOWNBORD_L: {
-    period: [
-      { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.2 },
-      { min: 12, max: 12, rate: 0.3 },
-    ],
-  },
-  "MEDIA MEET": {
-    period: [
-      { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.2 },
-      { min: 12, max: 12, rate: 0.3 },
-    ],
-  },
-  "SPACE LIVING": {
-    period: [
-      { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.2 },
-      { min: 12, max: 12, rate: 0.3 },
-    ],
-  },
-  "HI-POST": {
-    period: [
-      { min: 1, max: 5, rate: 0 },
-      { min: 6, max: 11, rate: 0.05 },
-      { min: 12, max: 12, rate: 0.1 },
-    ],
-  },
-};
-
-const norm = (s?: string) => (s ? s.replace(/\s+/g, "").toLowerCase() : "");
-const findRate = (rules: RangeRule[] | undefined, months: number) =>
-  !rules || !Number.isFinite(months) ? 0 : (rules.find((r) => months >= r.min && months <= r.max)?.rate ?? 0);
-
-function classifyForPolicy(productName?: string): keyof DiscountPolicy | undefined {
-  const pn = norm(productName);
-  if (!pn) return undefined;
-  if (/\btownbord[-_\s]?l\b/.test(pn) || pn.includes("townboard_l")) return "TOWNBORD_L";
-  if (/\btownbord[-_\s]?s\b/.test(pn) || pn.includes("townboard_s") || pn.includes("townbord")) return "TOWNBORD_S";
-  if (pn.includes("elevatortv") || pn.includes("엘리베이터tv") || pn.includes("elevator")) return "ELEVATOR TV";
-  if (pn.includes("mediameet") || pn.includes("media-meet")) return "MEDIA MEET";
-  if (pn.includes("spaceliving") || pn.includes("space") || pn.includes("living")) return "SPACE LIVING";
-  if (pn.includes("hipost") || pn.includes("hi-post")) return "HI-POST";
-  return undefined;
+function useBodyScrollLock(locked: boolean) {
+  useEffect(() => {
+    if (!locked) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [locked]);
 }
 
-const pick = (obj: any, keys: string[], fallback?: any) => {
-  for (const k of keys) {
-    const v = obj?.[k];
-    if (v !== undefined && v !== null && v !== "") return v;
-  }
-  return fallback;
-};
-
-/* ================== 상단 헤더 ================== */
+/* =========================================================================
+ * 헤더(성공)
+ * ========================================================================= */
 function HeaderSuccess({ ticketCode, createdAtISO }: { ticketCode: string; createdAtISO: string }) {
   const kst = useMemo(() => formatKST(createdAtISO), [createdAtISO]);
   return (
@@ -173,8 +102,10 @@ function HeaderSuccess({ ticketCode, createdAtISO }: { ticketCode: string; creat
   );
 }
 
-/* ================== 오른쪽: 다음 절차 ================== */
-function NextSteps({ variant }: { variant: "SEAT" | "PACKAGE" }) {
+/* =========================================================================
+ * 오른쪽: 다음 절차 카드
+ * ========================================================================= */
+function NextSteps() {
   return (
     <div className="rounded-xl border border-gray-100 p-4">
       <div className="mb-2 text-sm font-semibold">다음 절차</div>
@@ -187,7 +118,7 @@ function NextSteps({ variant }: { variant: "SEAT" | "PACKAGE" }) {
             <ClipboardList size={16} color={BRAND} />
           </span>
           <div className="text-sm leading-6">
-            <b>{variant === "SEAT" ? "구좌(T.O) 확인 (1~2일 소요)" : "문의 내용 확인 (1~2일)"}</b>
+            <b>구좌(T.O) 확인 (1~2일 소요)</b>
           </div>
         </li>
         <li className="grid grid-cols-[28px_1fr] items-start gap-3">
@@ -217,36 +148,36 @@ function NextSteps({ variant }: { variant: "SEAT" | "PACKAGE" }) {
   );
 }
 
-/* ================== 좌: 고객 문의(항상 펼침) ================== */
+/* =========================================================================
+ * 좌: 고객 문의(항상 펼침)
+ * ========================================================================= */
 function RowLine({ label, value }: { label: string; value?: string }) {
   return (
     <div className="grid grid-cols-3 items-start gap-3 py-2">
       <div className="col-span-1 text-xs text-gray-500">{label}</div>
-      <div className="col-span-2 text-sm text-gray-800 break-words">{value || "-"}</div>
+      <div className="col-span-2 break-words text-sm text-gray-800">{value || "-"}</div>
     </div>
   );
 }
-function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptSeat | ReceiptData }) {
+
+function CustomerInquirySection({ data }: { data: ReceiptData }) {
   const c: any = (data as any).customer || {};
   const form: any = (data as any).form || {};
   const summary: any = (data as any).summary || {};
+
   const emailMasked = maskEmail(c.email ?? form.email ?? null) || (c.emailDomain ? `**${String(c.emailDomain)}` : "-");
 
-  const campaignType =
-    form.campaignType ??
-    form.campaign_type ??
-    summary.campaignType ??
-    summary.campaign_type ??
-    c.campaignType ??
-    c.campaign_type;
+  const campaignType = form.campaignType ?? form.campaign_type ?? summary.campaignType ?? summary.campaign_type ?? "-";
 
+  // 광고 송출 예정(희망)일
   const preferredRaw =
     form.desiredDate ??
     form.hopeDate ??
     summary.desiredDate ??
     summary.hopeDate ??
     (data as any)?.meta?.desiredDate ??
-    (data as any)?.meta?.startDate;
+    (data as any)?.meta?.startDate ??
+    (data as any)?.meta?.start_date;
   const desiredValue =
     toYMD(preferredRaw) ??
     form.periodLabel ??
@@ -254,7 +185,8 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptSeat |
     (typeof form.months === "number" ? `${form.months}개월` : undefined) ??
     summary.periodLabel ??
     summary.period_label ??
-    (typeof summary.months === "number" ? `${summary.months}개월` : undefined);
+    (typeof summary.months === "number" ? `${summary.months}개월` : undefined) ??
+    "-";
 
   const promoCode =
     form.promotionCode ??
@@ -263,24 +195,22 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptSeat |
     form.promo_code ??
     summary.promotionCode ??
     summary.promoCode ??
+    summary.promotion_code ??
     summary.promo_code ??
     (data as any)?.meta?.promotionCode ??
-    (data as any)?.meta?.promoCode;
+    (data as any)?.meta?.promoCode ??
+    (data as any)?.meta?.promo_code ??
+    "-";
 
   const inquiryText: string =
-    form.request ??
-    form.message ??
-    form.memo ??
-    form.note ??
-    (data as any)?.meta?.note ??
-    (data as any)?.customer?.note ??
-    "";
+    form.request ?? form.message ?? form.memo ?? form.note ?? (data as any)?.meta?.note ?? "-";
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white">
       <div className="flex w-full items-center justify-between px-4 py-3 text-left">
         <span className="text-sm font-semibold">고객 문의</span>
       </div>
+
       <div className="px-4">
         <RowLine label="상호명" value={c.company ?? form.company} />
         <RowLine label="담당자" value={c.name ?? form.manager ?? form.contactName} />
@@ -297,155 +227,170 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptSeat |
           className="max-h-[40vh] overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-gray-50 px-3 py-3 text-sm"
           data-capture-scroll
         >
-          {inquiryText ? inquiryText : "-"}
+          {inquiryText}
         </div>
       </div>
     </div>
   );
 }
 
-/* ================== 좌: SEAT 전용 문의 내역 ================== */
-/** ① 카운터 정상화 / ② 단지명·총광고료 매핑 보강 / ③ 하단 합계 박스 추가 */
+/* =========================================================================
+ * 좌: SEAT 문의 내역(카운터/단지명 폴백 포함)
+ * ========================================================================= */
 function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
-  const vatRate = Number(pick((data as any)?.details, ["vatRate", "vat_rate"], 0.1)) || 0.1;
+  const detailsItems: any[] = (data as any)?.details?.items ?? [];
+  const snapshotItems: any[] = (data as any)?.form?.cart_snapshot?.items ?? (data as any)?.cart_snapshot?.items ?? [];
 
-  const rawItems: any[] = (data as any)?.details?.items ?? (data as any)?.cart_snapshot?.items ?? [];
+  const length = Math.max(detailsItems.length, snapshotItems.length);
 
-  const rows = (rawItems ?? []).map((it: any) => {
-    // 2) 단지명 보강
+  const getVal = (obj: any, keys: string[], fallback?: any) => {
+    for (const k of keys) {
+      const v = obj?.[k];
+      if (v !== undefined && v !== null && v !== "") return v;
+    }
+    return fallback;
+  };
+
+  const topFallback =
+    typeof (data as any)?.summary?.topAptLabel === "string"
+      ? String((data as any).summary.topAptLabel).replace(/\s*외.*$/, "")
+      : "-";
+
+  const rows = Array.from({ length }).map((_, i) => {
+    const primary = detailsItems[i] ?? {};
+    const shadow = snapshotItems[i] ?? {};
+
     const aptName =
-      pick(it, ["apt_name", "aptName", "name", "apt", "aptTitle", "complex_name", "complex", "title"], "-") || "-";
-    const productName = pick(it, ["product_name", "productName", "mediaName"], "-");
+      getVal(primary, ["apt_name", "aptName", "name", "apt", "title"]) ??
+      getVal(shadow, ["apt_name", "aptName", "name", "apt", "title"]) ??
+      topFallback ??
+      "-";
 
-    // 기간/월
-    const monthsRaw = pick(it, ["months", "month", "period_months", "periodMonths"], undefined);
-    const months = typeof monthsRaw === "number" ? monthsRaw : parseInt(monthsRaw, 10) || 0;
-    const periodLabel = months ? `${months}개월` : "-";
+    const months = Number(getVal(primary, ["months", "month"], getVal(shadow, ["months", "month"], 0)));
+    const periodLabel = months ? `${months}개월` : getVal(primary, ["period", "periodLabel"], "-");
 
-    // 월 기준가/월 최종가
+    const productName =
+      getVal(primary, ["productName", "product_name", "mediaName"]) ??
+      getVal(shadow, ["productName", "product_name", "mediaName"]) ??
+      "-";
+
     const baseMonthly = Number(
-      pick(it, ["baseMonthly", "base_monthly", "priceMonthly", "monthly", "monthly_price"], NaN),
+      getVal(primary, ["baseMonthly", "priceMonthly"], getVal(shadow, ["baseMonthly", "priceMonthly"], 0)),
     );
-    const policyKey = classifyForPolicy(productName);
-    const rule = policyKey ? POLICY[policyKey] : undefined;
-    const periodRate = findRate(rule?.period, months);
-    const precompRate = policyKey === "ELEVATOR TV" ? findRate(rule?.precomp, months) : 0;
-    const monthlyAfter =
-      Number(pick(it, ["monthlyAfter", "monthly_after", "priceMonthlyAfter"], NaN)) ||
-      (Number.isFinite(baseMonthly) ? Math.round(baseMonthly * (1 - precompRate) * (1 - periodRate)) : NaN);
 
-    // 기준금액(총)
-    const baseTotal =
-      Number(pick(it, ["baseTotal", "base_total", "total_base_won"], NaN)) ||
-      (Number.isFinite(baseMonthly) && months ? baseMonthly * months : NaN);
+    // 기준금액 = baseMonthly * months
+    const baseTotal = baseMonthly && months ? baseMonthly * months : Number(getVal(primary, ["baseTotal"], 0));
 
-    // 총 광고료(우선 스냅샷 값, 없으면 계산)
-    const lineTotalRaw = pick(it, ["lineTotal", "item_total_won", "total_won", "line_total"], undefined);
-    const lineTotal = Number(lineTotalRaw) || (Number.isFinite(monthlyAfter) && months ? monthlyAfter * months : 0);
-
-    // 할인율(표기용)
-    const discountRate =
-      Number.isFinite(baseTotal) && baseTotal > 0
-        ? Math.round((1 - lineTotal / baseTotal) * 100)
-        : Number.isFinite(baseMonthly) && baseMonthly > 0 && Number.isFinite(monthlyAfter)
-          ? Math.round((1 - monthlyAfter / baseMonthly) * 100)
-          : undefined;
-
-    // 카운터용(있으면 집계)
-    const households = Number(pick(it, ["households", "household", "hh"], NaN));
-    const residents = Number(pick(it, ["residents", "population"], NaN));
-    const monthlyImpressions = Number(
-      pick(it, ["monthlyImpressions", "monthly_impressions", "impressions", "plays"], NaN),
+    // 총광고료
+    let lineTotal = Number(
+      getVal(
+        primary,
+        ["lineTotal", "item_total_won", "total_won"],
+        getVal(shadow, ["lineTotal", "item_total_won", "total_won"], NaN),
+      ),
     );
-    const monitors = Number(pick(it, ["monitors", "monitorCount", "monitor_count", "screens"], NaN));
+    if (!isFinite(lineTotal)) {
+      const monthlyAfter = Number(
+        getVal(primary, ["monthlyAfter", "monthly_after"], getVal(shadow, ["monthlyAfter", "monthly_after"], NaN)),
+      );
+      if (isFinite(monthlyAfter) && months) lineTotal = monthlyAfter * months;
+      else if (isFinite(baseMonthly) && months) lineTotal = baseMonthly * months;
+      else lineTotal = 0;
+    }
+
+    // 할인율 = 1 - (lineTotal / baseTotal)
+    let discountPct = "-";
+    if (isFinite(baseTotal) && baseTotal > 0 && isFinite(lineTotal)) {
+      const rate = Math.max(0, Math.min(1, 1 - lineTotal / baseTotal));
+      discountPct = `${Math.round(rate * 100)}%`;
+    }
 
     return {
       aptName,
       productName,
-      months,
+      monthlyFee: baseMonthly, // 월광고료(기준)
       periodLabel,
-      baseMonthly: Number.isFinite(baseMonthly) ? baseMonthly : undefined,
-      baseTotal: Number.isFinite(baseTotal) ? baseTotal : undefined,
-      monthlyAfter: Number.isFinite(monthlyAfter) ? monthlyAfter : undefined,
-      discountRate,
+      baseTotal,
+      discountPct,
       lineTotal,
-      households: Number.isFinite(households) ? households : 0,
-      residents: Number.isFinite(residents) ? residents : 0,
-      monthlyImpressions: Number.isFinite(monthlyImpressions) ? monthlyImpressions : 0,
-      monitors: Number.isFinite(monitors) ? monitors : 0,
     };
   });
 
-  // 1) 카운터
-  const counters = rows.reduce(
-    (acc, r) => {
-      acc.count += 1;
-      acc.households += r.households;
-      acc.residents += r.residents;
-      acc.monthlyImpressions += r.monthlyImpressions;
-      acc.monitors += r.monitors;
+  // 카운터 합계(스냅샷 값도 합산 시도)
+  const totals = rows.reduce(
+    (acc, _r, idx) => {
+      const p = detailsItems[idx] ?? {};
+      const s = snapshotItems[idx] ?? {};
+      const n = (keys: string[]) => {
+        const v = Number(getVal(p, keys, getVal(s, keys, 0)));
+        return isFinite(v) ? v : 0;
+      };
+      acc.households += n(["households", "household", "hh"]);
+      acc.residents += n(["residents", "population"]);
+      acc.monthlyImpressions += n(["monthlyImpressions", "monthly_impressions", "impressions", "plays"]);
+      acc.monitors += n(["monitors", "monitor_count", "monitorCount", "screens"]);
       return acc;
     },
-    { count: 0, households: 0, residents: 0, monthlyImpressions: 0, monitors: 0 },
+    { households: 0, residents: 0, monthlyImpressions: 0, monitors: 0 },
   );
 
-  // 금액 합계
-  const subtotal = rows.reduce((s, r) => s + (Number.isFinite(r.lineTotal) ? r.lineTotal : 0), 0);
-  const vat = Math.round(subtotal * vatRate);
-  const total = subtotal + vat;
+  const periodTotal =
+    (data as any)?.details?.periodTotalKRW ??
+    rows.reduce((sum, r) => sum + (isFinite(r.lineTotal) ? r.lineTotal : 0), 0);
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white">
-      {/* 제목 + 카운터 */}
-      <div className="px-4 pt-3">
-        <div className="text-sm font-semibold">문의 내역</div>
-        <div className="mt-1 pb-2 text-sm text-[#4B5563] flex flex-wrap gap-x-4 gap-y-1">
-          <span className="font-medium">{`총 ${counters.count}개 단지`}</span>
-          <span>
-            · 세대수 <b>{counters.households.toLocaleString()}</b> 세대
-          </span>
-          <span>
-            · 거주인원 <b>{counters.residents.toLocaleString()}</b> 명
-          </span>
-          <span>
-            · 송출횟수 <b>{counters.monthlyImpressions.toLocaleString()}</b> 회
-          </span>
-          <span>
-            · 모니터수량 <b>{counters.monitors.toLocaleString()}</b> 대
-          </span>
-        </div>
+      {/* 제목 */}
+      <div className="px-4 pt-3 text-sm font-semibold">문의 내역</div>
+
+      {/* 카운터 바 */}
+      <div className="px-4 pb-2 text-sm text-[#4B5563] flex flex-wrap gap-x-4 gap-y-1">
+        <span className="font-semibold">{`총 ${rows.length}개 단지`}</span>
+        <span>
+          · 세대수 <b>{totals.households.toLocaleString()}</b> 세대
+        </span>
+        <span>
+          · 거주인원 <b>{totals.residents.toLocaleString()}</b> 명
+        </span>
+        <span>
+          · 송출횟수 <b>{totals.monthlyImpressions.toLocaleString()}</b> 회
+        </span>
+        <span>
+          · 모니터수량 <b>{totals.monitors.toLocaleString()}</b> 대
+        </span>
       </div>
 
-      {/* 표: (2) 컬럼 재배치 — 단지명/상품명/월광고료/광고기간/기준금액/할인율/총광고료 */}
-      <div className="border-t border-gray-100 overflow-x-auto whitespace-nowrap" data-capture-scroll>
-        <table className="min-w-[860px] w-full text-[13px]">
+      {/* 테이블 (가로 스크롤 허용) */}
+      <div className="border-t border-gray-100 overflow-x-auto" data-capture-scroll>
+        {/* 열 순서: 단지명/상품명/월광고료/광고기간/기준금액/할인율/총광고료 */}
+        <table className="min-w-[920px] text-[13px]">
           <thead className="bg-gray-50 text-gray-600">
-            <tr className="[&>th]:px-3 [&>th]:py-2">
+            <tr className="[&>th]:px-4 [&>th]:py-2">
               <th className="text-left">단지명</th>
               <th className="text-left">상품명</th>
               <th className="text-right">월광고료</th>
               <th className="text-right">광고기간</th>
               <th className="text-right">기준금액</th>
               <th className="text-right">할인율</th>
-              <th className="text-right">총광고료</th>
+              <th className="text-right text-[#6C2DFF]">총광고료</th>
             </tr>
           </thead>
-          <tbody className="[&>tr>td]:px-3 [&>tr>td]:py-2">
+          <tbody className="[&>tr>td]:px-4 [&>tr>td]:py-2">
             {rows.length ? (
-              rows.map((r, idx) => (
-                <tr key={idx} className="border-t border-gray-100">
-                  <td className="text-left font-medium">{r.aptName}</td>
-                  <td className="text-left">{r.productName}</td>
-                  <td className="text-right">{r.monthlyAfter ? fmtKRW(r.monthlyAfter) : "—"}</td>
+              rows.map((r, i) => (
+                <tr key={i} className="border-t border-gray-100">
+                  <td className="font-medium text-gray-900">{r.aptName}</td>
+                  <td className="truncate">{r.productName}</td>
+                  <td className="text-right">{formatKRW(r.monthlyFee)}</td>
                   <td className="text-right">{r.periodLabel}</td>
-                  <td className="text-right">{r.baseTotal ? fmtKRW(r.baseTotal) : "—"}</td>
-                  <td className="text-right">{typeof r.discountRate === "number" ? `${r.discountRate}%` : "—"}</td>
-                  <td className="text-right font-semibold text-[#6C2DFF]">{fmtKRW(r.lineTotal)}</td>
+                  <td className="text-right">{formatKRW(r.baseTotal)}</td>
+                  <td className="text-right">{r.discountPct}</td>
+                  <td className="text-right font-semibold text-[#6C2DFF]">{formatKRW(r.lineTotal)}</td>
                 </tr>
               ))
             ) : (
               <tr>
-                <td colSpan={7} className="py-6 text-center text-xs text-gray-500">
+                <td colSpan={7} className="py-8 text-center text-xs text-gray-500">
                   항목이 없습니다.
                 </td>
               </tr>
@@ -454,20 +399,22 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
         </table>
       </div>
 
-      {/* 3) 하단 합계 박스 (TOTAL/부가세/최종) */}
+      {/* 합계 카드 (보라/빨강/보라 굵게) */}
       <div className="px-4 py-4">
-        <div className="rounded-xl border border-[#E5E7EB] bg-[#F5F1FF]">
-          <div className="flex items-center justify-between px-4 py-3 text-sm text-gray-700">
-            <span className="font-medium">총 광고료 합계(TOTAL)</span>
-            <span className="font-semibold text-[#6C2DFF]">{fmtKRW(subtotal)}</span>
-          </div>
-          <div className="flex items-center justify-between border-t border-[#E5E7EB] px-4 py-3 text-sm">
-            <span className="text-gray-600">부가세(VAT {(vatRate * 100).toFixed(0)}%)</span>
-            <span className="font-bold text-red-500">{fmtKRW(vat)}</span>
+        <div className="rounded-xl border border-[#E5E7EB] bg-[#F7F5FF]">
+          <div className="flex items-center justify-between px-4 py-3">
+            <span className="text-sm text-gray-600">총 광고료 합계(TOTAL)</span>
+            <span className="text-sm font-bold text-[#6C2DFF]">{formatKRW(periodTotal)}</span>
           </div>
           <div className="flex items-center justify-between border-t border-[#E5E7EB] px-4 py-3">
+            <span className="text-sm text-gray-600">부가세(VAT 10%)</span>
+            <span className="text-sm font-bold text-red-500">{formatKRW(Math.round(periodTotal * 0.1))}</span>
+          </div>
+          <div className="flex items-center justify-between border-t border-[#E5E7EB] px-4 py-4">
             <span className="text-[15px] font-semibold text-[#6C2DFF]">최종 광고료 (VAT 포함)</span>
-            <span className="text-[18px] font-bold text-[#6C2DFF]">{fmtKRW(total)}</span>
+            <span className="text-[20px] font-extrabold text-[#6C2DFF]">
+              {formatKRW(Math.round(periodTotal * 1.1))}
+            </span>
           </div>
         </div>
       </div>
@@ -475,21 +422,36 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
   );
 }
 
-/* ================== Main ================== */
-export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확인" }: CompleteModalProps) {
+/* =========================================================================
+ * 메인 모달
+ * ========================================================================= */
+function useIsDesktop() {
+  const get = () =>
+    typeof window === "undefined" || !window.matchMedia ? true : window.matchMedia("(min-width: 1024px)").matches;
+  const [val, setVal] = useState(get);
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const mql = window.matchMedia("(min-width: 1024px)");
+    const handler = (e: MediaQueryListEvent) => setVal(e.matches);
+    mql.addEventListener?.("change", handler);
+    return () => mql.removeEventListener?.("change", handler);
+  }, []);
+  return val;
+}
+
+export default function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확인" }: CompleteModalProps) {
   useBodyScrollLock(open);
+  const isDesktop = useIsDesktop();
 
   const [pickerOpen, setPickerOpen] = useState(false);
-  const isPkg = isPackageReceipt(data);
-  const isSeat = isSeatReceipt(data);
 
-  const openExternal = (url?: string) => url && window.open(url, "_blank", "noopener,noreferrer");
+  const openExternal = (url?: string) => {
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+  };
+
   if (!open) return null;
 
-  const LINK_YT = "https://www.youtube.com/@ORKA_KOREA";
-  const LINK_GUIDE = "https://orka.co.kr/ELAVATOR_CONTENTS";
-  const LINK_TEAM = "https://orka.co.kr/orka_members";
-
+  // 저장(전체) - 루트와 스크롤 컨테이너 선택
   const handleSave = async (kind: "png" | "pdf") => {
     const root = document.getElementById("receipt-capture");
     if (!root) return;
@@ -498,9 +460,17 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
     else await saveFullContentAsPDF(root, `${data.ticketCode}_receipt`, scrollContainers);
   };
 
+  // 링크(우측 카드)
+  const LINK_YT = "https://www.youtube.com/@ORKA_KOREA";
+  const LINK_GUIDE = "https://orka.co.kr/ELAVATOR_CONTENTS";
+  const LINK_TEAM = "https://orka.co.kr/orka_members";
+
+  const isSeat = isSeatReceipt(data);
+
   return createPortal(
     <AnimatePresence>
       <>
+        {/* DIM */}
         <motion.div
           key="dim"
           className="fixed inset-0 z-[1200] bg-black/40"
@@ -510,20 +480,21 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
           onClick={onClose}
         />
 
-        {/* 4) 모달 하한선 + 최대 높이 + 내부 스크롤 */}
+        {/* 패널: column 레이아웃 + 본문만 스크롤(닫기 버튼 항상 보이도록) */}
         <div className="fixed inset-0 z-[1201] flex items-center justify-center">
           <motion.div
             id="receipt-capture"
             key="panel"
-            className="w-[960px] max-w-[94vw] min-h-[560px] max-h-[calc(100vh-80px)] overflow-hidden rounded-2xl bg-white shadow-2xl"
+            className="flex w-[1000px] max-w-[96vw] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
             role="dialog"
             aria-modal="true"
+            style={{ maxHeight: isDesktop ? "90vh" : "92vh" }}
             initial={{ scale: 0.96, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.96, opacity: 0 }}
             transition={{ type: "spring", stiffness: 260, damping: 22 }}
           >
-            {/* Header */}
+            {/* 헤더 */}
             <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-6 py-5">
               <HeaderSuccess ticketCode={data.ticketCode} createdAtISO={data.createdAtISO} />
               <button aria-label="close" className="rounded-full p-2 hover:bg-gray-50" onClick={onClose}>
@@ -531,18 +502,19 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
               </button>
             </div>
 
-            {/* Body: 내부 스크롤 영역 */}
-            <div className="px-6 py-6 overflow-y-auto max-h-[calc(100vh-80px-64px-64px)]">
+            {/* 본문 (세로 스크롤) */}
+            <div className="flex-1 overflow-y-auto px-6 py-6" data-capture-scroll>
               <div className="grid grid-cols-12 gap-6">
                 {/* 좌측 */}
-                <div className="col-span-8 space-y-4">
-                  <CustomerInquirySection data={data as any} />
+                <div className="col-span-12 lg:col-span-8 space-y-4">
+                  <CustomerInquirySection data={data as ReceiptData} />
                   {isSeat && <SeatInquiryTable data={data as ReceiptSeat} />}
                 </div>
 
                 {/* 우측 */}
-                <div className="col-span-4 space-y-4">
-                  <NextSteps variant={isSeat ? "SEAT" : "PACKAGE"} />
+                <div className="col-span-12 lg:col-span-4 space-y-4">
+                  <NextSteps />
+
                   <button
                     onClick={() => setPickerOpen(true)}
                     className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white"
@@ -581,7 +553,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
               </div>
             </div>
 
-            {/* Footer */}
+            {/* 푸터(항상 보임) */}
             <div className="flex items-center justify-end border-t border-gray-100 px-6 py-4">
               <button onClick={onClose} className="rounded-xl bg-black px-5 py-3 text-sm font-semibold text-white">
                 {confirmLabel}
@@ -590,7 +562,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
           </motion.div>
         </div>
 
-        {/* 저장 액션 시트 (PNG/PDF) */}
+        {/* 저장 액션 시트: PNG + PDF */}
         <AnimatePresence>
           {pickerOpen && (
             <>
@@ -631,6 +603,15 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
                     >
                       이미지(PNG)
                     </button>
+                    <button
+                      onClick={async () => {
+                        await handleSave("pdf");
+                        setPickerOpen(false);
+                      }}
+                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
+                    >
+                      PDF(A4)
+                    </button>
                   </div>
                   <button
                     onClick={() => setPickerOpen(false)}
@@ -648,5 +629,3 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
     document.body,
   );
 }
-
-export default CompleteModalDesktop;
