@@ -1,21 +1,13 @@
+// src/components/complete-modal/CompleteModal.desktop.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import {
-  ClipboardList,
-  ExternalLink,
-  FileSignature,
-  Mail,
-  X,
-  ChevronUp,
-  ChevronDown,
-  CheckCircle2,
-} from "lucide-react";
+import { ClipboardList, ExternalLink, FileSignature, Mail, X, CheckCircle2 } from "lucide-react";
 
 import type { CompleteModalProps, ReceiptData, ReceiptSeat, ReceiptPackage } from "./types";
 import { isSeatReceipt, isPackageReceipt } from "./types";
 
-// 저장 유틸 (전체 내용 캡처용; 4번 요구사항)
+// 전체 내용 캡처(스크롤 해제 포함)
 import { saveFullContentAsPNG, saveFullContentAsPDF } from "@/core/utils/capture";
 
 const BRAND = "#6F4BF2";
@@ -148,7 +140,7 @@ function NextSteps({ variant }: { variant: "SEAT" | "PACKAGE" }) {
   );
 }
 
-/* ================== 좌측: 고객 문의 (항상 펼침 – 토글 제거, 3번) ================== */
+/* ================== 좌측: 고객 문의 (항상 펼침) ================== */
 function RowLine({ label, value }: { label: string; value?: string }) {
   return (
     <div className="grid grid-cols-3 items-start gap-3 py-2">
@@ -215,7 +207,6 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptSeat |
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white">
-      {/* 항상 펼침: 헤더 텍스트만 유지 (토글 버튼/애니메이션 제거) */}
       <div className="flex w-full items-center justify-between px-4 py-3 text-left">
         <span className="text-sm font-semibold">고객 문의</span>
       </div>
@@ -231,7 +222,7 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptSeat |
         <RowLine label="프로모션코드" value={promoCode} />
       </div>
 
-      {/* 문의내용: 스크롤 가능 영역에 data-capture-scroll 표시(4번, 전체 저장 시 임시 해제) */}
+      {/* 문의내용: 스크롤 영역 → 전체 저장 시 임시 해제용 data-capture-scroll */}
       <div className="mt-2 border-t border-gray-100 px-4 py-3">
         <div className="mb-2 text-xs text-gray-500">문의내용</div>
         <div
@@ -245,7 +236,7 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptSeat |
   );
 }
 
-/* ============ 좌측: SEAT 전용 “문의 내역” (카운터 + 이름 매핑 보강, 1번/2번) ============ */
+/* ============ 좌측: SEAT 전용 “문의 내역” (카운터 + 이름 매핑 보강) ============ */
 function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
   const items: any[] = (data?.details as any)?.items ?? [];
 
@@ -257,12 +248,11 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
     return fallback;
   };
 
-  // 2) 단지명 매핑 보강: 다양한 키 + summary 폴백
+  // 이름 매핑 폴백
   const summary = (data as any)?.summary || {};
   const summaryTop = typeof summary?.topAptLabel === "string" ? String(summary.topAptLabel) : "";
   const topFallback = summaryTop ? summaryTop.replace(/\s*외.*$/, "") : "-";
 
-  // 1) 카운터 및 행 빌드
   const rows = (items ?? []).map((it: any) => {
     const aptName =
       getVal(it, ["apt_name", "aptName", "name", "apt", "aptTitle", "complex_name", "complex", "title"], null) ??
@@ -280,7 +270,7 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
     );
     const monitors = Number(getVal(it, ["monitors", "monitorCount", "monitor_count", "screens"], 0));
 
-    // 총광고료 역산(현재 로직 유지 – 5~8 항목은 건드리지 않음)
+    // 총광고료 역산
     const lineTotalRaw = getVal(it, ["lineTotal", "item_total_won", "total_won", "line_total"], undefined);
     let lineTotal = Number(lineTotalRaw);
     if (!Number.isFinite(lineTotal)) {
@@ -322,10 +312,9 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white">
-      {/* 항상 펼침: 헤더 텍스트만 유지 (토글 제거) */}
       <div className="px-4 py-3 text-sm font-semibold">문의 내역</div>
 
-      {/* 1) 카운터 바 (제목 아래) */}
+      {/* 카운터 바 */}
       <div className="px-4 pb-2 text-sm text-[#4B5563] flex flex-wrap gap-x-4 gap-y-1">
         <span className="font-semibold">{`총 ${count}개 단지`}</span>
         <span>
@@ -342,8 +331,8 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
         </span>
       </div>
 
+      {/* 테이블: 가로 스크롤 허용 */}
       <div className="border-t border-gray-100 overflow-x-auto whitespace-nowrap" data-capture-scroll>
-        {/* 5~8 항목(헤더 안내/할인율/부가세 영역/가로 스크롤 정책)은 기존 그대로 유지 */}
         <table className="text-[13px] min-w-[760px]">
           <thead className="bg-gray-50 text-gray-600">
             <tr className="[&>th]:px-3 [&>th]:py-2">
@@ -399,11 +388,16 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
   const isPkg = isPackageReceipt(data);
   const isSeat = isSeatReceipt(data);
 
+  // ★ SSR 가드: 마운트 이후에만 포털/DOM 접근
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   const openExternal = (url?: string) => {
     if (url) window.open(url, "_blank", "noopener,noreferrer");
   };
 
-  if (!open) return null;
+  // SSR/프리렌더 환경 보호
+  if (!open || !mounted || typeof document === "undefined") return null;
 
   const saveButtonLabel = "문의 내용 저장";
   const sheetTitle = saveButtonLabel;
@@ -413,7 +407,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
   const LINK_GUIDE = "https://orka.co.kr/ELAVATOR_CONTENTS";
   const LINK_TEAM = "https://orka.co.kr/orka_members";
 
-  // 4) 저장 시 잘림 없이: 루트/스크롤 컨테이너 선택 → 전체 저장
+  // 저장(잘림 없이): 루트/스크롤 컨테이너 찾아 전체 캡처
   const handleSave = async (kind: "png" | "pdf") => {
     const root = document.getElementById("receipt-capture");
     if (!root) return;
@@ -459,13 +453,11 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
             <div className="grid grid-cols-12 gap-6 px-6 py-6">
               {/* 좌측 */}
               <div className="col-span-8 space-y-4">
-                {/* 3) 접기 제거된 고객 문의 */}
                 <CustomerInquirySection data={data as any} />
-                {/* SEAT 전용 문의 내역(1/2 항목 반영) */}
                 {isSeat && <SeatInquiryTable data={data as ReceiptSeat} />}
               </div>
 
-              {/* 우측: 두 모드 동일 (5~8 항목 영역은 유지) */}
+              {/* 우측 */}
               <div className="col-span-4 space-y-4">
                 <NextSteps variant={isSeat ? "SEAT" : "PACKAGE"} />
 
@@ -506,7 +498,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
               </div>
             </div>
 
-            {/* Footer (5~8 관련 레이아웃은 변경 없음) */}
+            {/* Footer */}
             <div className="flex items-center justify-end border-t border-gray-100 px-6 py-4">
               <button onClick={onClose} className="rounded-xl bg-black px-5 py-3 text-sm font-semibold text-white">
                 {confirmLabel}
@@ -515,7 +507,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
           </motion.div>
         </div>
 
-        {/* 저장 액션 시트 (PNG/PDF만) */}
+        {/* 저장 액션 시트 */}
         <AnimatePresence>
           {pickerOpen && (
             <>
