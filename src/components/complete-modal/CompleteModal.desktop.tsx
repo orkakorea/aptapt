@@ -1,4 +1,3 @@
-// src/components/complete-modal/CompleteModal.desktop.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
@@ -7,17 +6,17 @@ import { ClipboardList, ExternalLink, FileSignature, Mail, X, CheckCircle2 } fro
 import type { CompleteModalProps, ReceiptData, ReceiptSeat, ReceiptPackage } from "./types";
 import { isSeatReceipt, isPackageReceipt } from "./types";
 
-// 저장 유틸 (전체 내용 캡처용)
+// 전체 저장(잘림 방지) 유틸은 그대로 사용
 import { saveFullContentAsPNG, saveFullContentAsPDF } from "@/core/utils/capture";
 
 const BRAND = "#6F4BF2";
 const BRAND_LIGHT = "#EEE8FF";
 
-/* ================== 포맷터/공통 유틸 ================== */
-function formatKRW(n?: number | null) {
-  if (n == null || !isFinite(Number(n))) return "-";
-  return "₩" + Number(n).toLocaleString("ko-KR");
-}
+/* ================== 공통 유틸 ================== */
+const safeNum = (v: any) => (typeof v === "number" && isFinite(v) ? v : 0);
+const fmtKRW = (n?: number | null) =>
+  n == null || !isFinite(Number(n)) ? "₩0" : "₩" + Number(n).toLocaleString("ko-KR");
+
 function formatKST(iso: string) {
   try {
     const d = new Date(iso);
@@ -52,51 +51,27 @@ function useBodyScrollLock(locked: boolean) {
     if (!locked) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
+    return () => (document.body.style.overflow = prev);
   }, [locked]);
 }
 function maskEmail(email?: string | null) {
   if (!email) return "";
   const str = String(email);
   const at = str.indexOf("@");
-  if (at <= 0) {
-    return str.startsWith("@") ? `**${str}` : str.slice(0, 2) + "…";
-  }
+  if (at <= 0) return str.slice(0, 2) + "…";
   const local = str.slice(0, at);
   const domain = str.slice(at + 1);
   const shown = local.slice(0, 2);
   const masked = local.length > 2 ? "*".repeat(local.length - 2) : "";
   return `${shown}${masked}@${domain}`;
 }
-const safeNum = (v: any) => (typeof v === "number" && isFinite(v) ? v : 0);
 
-/** 깊은 경로도 지원하는 안전 조회 (예: "apt.name" / "complex.title") */
-function getDeep(obj: any, path: string) {
-  if (!obj || !path) return undefined;
-  const parts = path.split(".");
-  let cur = obj;
-  for (const p of parts) {
-    if (cur == null) return undefined;
-    cur = cur[p];
-  }
-  return cur;
-}
-function pickFirst(obj: any, keys: string[], fallback?: any) {
-  for (const k of keys) {
-    const v = k.includes(".") ? getDeep(obj, k) : obj?.[k];
-    if (v !== undefined && v !== null && v !== "") return v;
-  }
-  return fallback;
-}
-
-/* ================== 할인 정책 (QuoteModal과 동일) ================== */
+/* ================== (1)(2) 매핑 로직 보강에 필요한 보조 ================== */
 type RangeRule = { min: number; max: number; rate: number };
 type ProductRules = { precomp?: RangeRule[]; period: RangeRule[] };
 type DiscountPolicy = Record<string, ProductRules>;
 
-const DEFAULT_POLICY: DiscountPolicy = {
+const POLICY: DiscountPolicy = {
   "ELEVATOR TV": {
     precomp: [
       { min: 1, max: 2, rate: 0.03 },
@@ -151,39 +126,30 @@ const DEFAULT_POLICY: DiscountPolicy = {
 };
 
 const norm = (s?: string) => (s ? s.replace(/\s+/g, "").toLowerCase() : "");
-function findRate(rules: RangeRule[] | undefined, months: number): number {
-  if (!rules || !Number.isFinite(months)) return 0;
-  return rules.find((r) => months >= r.min && months <= r.max)?.rate ?? 0;
-}
-function classifyProductForPolicy(productName?: string): keyof DiscountPolicy | undefined {
+const findRate = (rules: RangeRule[] | undefined, months: number) =>
+  !rules || !Number.isFinite(months) ? 0 : (rules.find((r) => months >= r.min && months <= r.max)?.rate ?? 0);
+
+function classifyForPolicy(productName?: string): keyof DiscountPolicy | undefined {
   const pn = norm(productName);
   if (!pn) return undefined;
-
-  if (
-    pn.includes("townbord_l") ||
-    pn.includes("townboard_l") ||
-    /\btownbord[-_\s]?l\b/.test(pn) ||
-    /\btownboard[-_\s]?l\b/.test(pn)
-  )
-    return "TOWNBORD_L";
-  if (
-    pn.includes("townbord_s") ||
-    pn.includes("townboard_s") ||
-    /\btownbord[-_\s]?s\b/.test(pn) ||
-    /\btownboard[-_\s]?s\b/.test(pn)
-  )
-    return "TOWNBORD_S";
-
+  if (/\btownbord[-_\s]?l\b/.test(pn) || pn.includes("townboard_l")) return "TOWNBORD_L";
+  if (/\btownbord[-_\s]?s\b/.test(pn) || pn.includes("townboard_s") || pn.includes("townbord")) return "TOWNBORD_S";
   if (pn.includes("elevatortv") || pn.includes("엘리베이터tv") || pn.includes("elevator")) return "ELEVATOR TV";
-  if (pn.includes("mediameet") || pn.includes("media-meet") || pn.includes("미디어")) return "MEDIA MEET";
-  if (pn.includes("spaceliving") || pn.includes("스페이스") || pn.includes("living")) return "SPACE LIVING";
-  if (pn.includes("hipost") || pn.includes("hi-post") || pn.includes("하이포스트")) return "HI-POST";
-
-  if (pn.includes("townbord") || pn.includes("townboard") || pn.includes("타운보드")) return "TOWNBORD_S";
+  if (pn.includes("mediameet") || pn.includes("media-meet")) return "MEDIA MEET";
+  if (pn.includes("spaceliving") || pn.includes("space") || pn.includes("living")) return "SPACE LIVING";
+  if (pn.includes("hipost") || pn.includes("hi-post")) return "HI-POST";
   return undefined;
 }
 
-/* ================== 헤더 ================== */
+const pick = (obj: any, keys: string[], fallback?: any) => {
+  for (const k of keys) {
+    const v = obj?.[k];
+    if (v !== undefined && v !== null && v !== "") return v;
+  }
+  return fallback;
+};
+
+/* ================== 상단 헤더 ================== */
 function HeaderSuccess({ ticketCode, createdAtISO }: { ticketCode: string; createdAtISO: string }) {
   const kst = useMemo(() => formatKST(createdAtISO), [createdAtISO]);
   return (
@@ -251,7 +217,7 @@ function NextSteps({ variant }: { variant: "SEAT" | "PACKAGE" }) {
   );
 }
 
-/* ================== 좌측: 고객 문의(항상 펼침) ================== */
+/* ================== 좌: 고객 문의(항상 펼침) ================== */
 function RowLine({ label, value }: { label: string; value?: string }) {
   return (
     <div className="grid grid-cols-3 items-start gap-3 py-2">
@@ -264,7 +230,6 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptSeat |
   const c: any = (data as any).customer || {};
   const form: any = (data as any).form || {};
   const summary: any = (data as any).summary || {};
-
   const emailMasked = maskEmail(c.email ?? form.email ?? null) || (c.emailDomain ? `**${String(c.emailDomain)}` : "-");
 
   const campaignType =
@@ -281,9 +246,7 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptSeat |
     summary.desiredDate ??
     summary.hopeDate ??
     (data as any)?.meta?.desiredDate ??
-    (data as any)?.meta?.startDate ??
-    (data as any)?.meta?.start_date;
-
+    (data as any)?.meta?.startDate;
   const desiredValue =
     toYMD(preferredRaw) ??
     form.periodLabel ??
@@ -300,11 +263,9 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptSeat |
     form.promo_code ??
     summary.promotionCode ??
     summary.promoCode ??
-    summary.promotion_code ??
     summary.promo_code ??
     (data as any)?.meta?.promotionCode ??
-    (data as any)?.meta?.promoCode ??
-    (data as any)?.meta?.promo_code;
+    (data as any)?.meta?.promoCode;
 
   const inquiryText: string =
     form.request ??
@@ -320,7 +281,6 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptSeat |
       <div className="flex w-full items-center justify-between px-4 py-3 text-left">
         <span className="text-sm font-semibold">고객 문의</span>
       </div>
-
       <div className="px-4">
         <RowLine label="상호명" value={c.company ?? form.company} />
         <RowLine label="담당자" value={c.name ?? form.manager ?? form.contactName} />
@@ -344,144 +304,121 @@ function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptSeat |
   );
 }
 
-/* ================== 좌측: SEAT 전용 “문의 내역” ==================
-   - 매칭 로직: QuoteModal 과 동일한 규칙 사용
-   - 칼럼 순서: 단지명 / 상품명 / 월광고료 / 광고기간 / 기준금액 / 할인율 / 총광고료
-=============================================================== */
+/* ================== 좌: SEAT 전용 문의 내역 ================== */
+/** ① 카운터 정상화 / ② 단지명·총광고료 매핑 보강 / ③ 하단 합계 박스 추가 */
 function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
-  const items: any[] = (data?.details as any)?.items ?? [];
-  const summary = (data as any)?.summary || {};
-  const summaryTop = typeof summary?.topAptLabel === "string" ? String(summary.topAptLabel) : "";
-  const topFallback = summaryTop ? summaryTop.replace(/\s*외.*$/, "") : "-";
+  const vatRate = Number(pick((data as any)?.details, ["vatRate", "vat_rate"], 0.1)) || 0.1;
 
-  const rows = (items ?? []).map((it: any) => {
-    // 단지명: 평면키 + 중첩키 모두 시도
+  const rawItems: any[] = (data as any)?.details?.items ?? (data as any)?.cart_snapshot?.items ?? [];
+
+  const rows = (rawItems ?? []).map((it: any) => {
+    // 2) 단지명 보강
     const aptName =
-      pickFirst(
-        it,
-        [
-          "apt_name",
-          "aptName",
-          "name",
-          "apt",
-          "aptTitle",
-          "complex_name",
-          "complex",
-          "title",
-          "apt.label",
-          "apt.name",
-          "place.name",
-          "place_title",
-          "apartment.name",
-          "complex.title",
-          "complex.title_ko",
-        ],
-        null,
-      ) ??
-      topFallback ??
-      "-";
+      pick(it, ["apt_name", "aptName", "name", "apt", "aptTitle", "complex_name", "complex", "title"], "-") || "-";
+    const productName = pick(it, ["product_name", "productName", "mediaName"], "-");
 
-    // 상품명
-    const productName = pickFirst(it, ["productName", "product_name", "mediaName", "product", "media"], "-");
-
-    // 기간/개월
-    const monthsRaw = pickFirst(it, ["months", "month"], undefined);
+    // 기간/월
+    const monthsRaw = pick(it, ["months", "month", "period_months", "periodMonths"], undefined);
     const months = typeof monthsRaw === "number" ? monthsRaw : parseInt(monthsRaw, 10) || 0;
     const periodLabel = months ? `${months}개월` : "-";
 
-    // 가격: 월 기준가(baseMonthly)
-    let baseMonthly = Number(
-      pickFirst(it, ["baseMonthly", "priceMonthly", "monthlyPrice", "monthly_base", "price_monthly"], NaN),
+    // 월 기준가/월 최종가
+    const baseMonthly = Number(
+      pick(it, ["baseMonthly", "base_monthly", "priceMonthly", "monthly", "monthly_price"], NaN),
     );
-    // 없으면 역산(월after/lineTotal 기반)
-    let monthlyAfter = Number(pickFirst(it, ["monthlyAfter", "monthly_after", "priceMonthlyAfter"], NaN));
-    let lineTotal = Number(pickFirst(it, ["lineTotal", "item_total_won", "total_won", "line_total"], NaN));
-
-    // 정책으로 보정(QuoteModal 로직)
-    const productKey = classifyProductForPolicy(String(productName));
-    const rule = productKey ? DEFAULT_POLICY[productKey] : undefined;
+    const policyKey = classifyForPolicy(productName);
+    const rule = policyKey ? POLICY[policyKey] : undefined;
     const periodRate = findRate(rule?.period, months);
-    const precompRate = productKey === "ELEVATOR TV" ? findRate(rule?.precomp, months) : 0;
+    const precompRate = policyKey === "ELEVATOR TV" ? findRate(rule?.precomp, months) : 0;
+    const monthlyAfter =
+      Number(pick(it, ["monthlyAfter", "monthly_after", "priceMonthlyAfter"], NaN)) ||
+      (Number.isFinite(baseMonthly) ? Math.round(baseMonthly * (1 - precompRate) * (1 - periodRate)) : NaN);
 
-    // 필요한 값 보정
-    if (!isFinite(baseMonthly)) {
-      if (isFinite(monthlyAfter)) baseMonthly = Math.round(monthlyAfter / ((1 - precompRate) * (1 - periodRate)));
-      else if (isFinite(lineTotal) && months > 0)
-        baseMonthly = Math.round(lineTotal / months / ((1 - precompRate) * (1 - periodRate)));
-      else baseMonthly = 0;
-    }
-    if (!isFinite(monthlyAfter)) {
-      monthlyAfter = Math.round(baseMonthly * (1 - precompRate) * (1 - periodRate));
-    }
-    if (!isFinite(lineTotal)) {
-      lineTotal = Math.round(monthlyAfter * months);
-    }
-    const baseTotal = Math.round(baseMonthly * months);
+    // 기준금액(총)
+    const baseTotal =
+      Number(pick(it, ["baseTotal", "base_total", "total_base_won"], NaN)) ||
+      (Number.isFinite(baseMonthly) && months ? baseMonthly * months : NaN);
 
-    // 단일 "할인율": 월 기준가 대비 월 실제가의 종합 할인율
-    const discountRate = baseMonthly > 0 ? 1 - monthlyAfter / baseMonthly : 0; // (0~1)
+    // 총 광고료(우선 스냅샷 값, 없으면 계산)
+    const lineTotalRaw = pick(it, ["lineTotal", "item_total_won", "total_won", "line_total"], undefined);
+    const lineTotal = Number(lineTotalRaw) || (Number.isFinite(monthlyAfter) && months ? monthlyAfter * months : 0);
+
+    // 할인율(표기용)
+    const discountRate =
+      Number.isFinite(baseTotal) && baseTotal > 0
+        ? Math.round((1 - lineTotal / baseTotal) * 100)
+        : Number.isFinite(baseMonthly) && baseMonthly > 0 && Number.isFinite(monthlyAfter)
+          ? Math.round((1 - monthlyAfter / baseMonthly) * 100)
+          : undefined;
+
+    // 카운터용(있으면 집계)
+    const households = Number(pick(it, ["households", "household", "hh"], NaN));
+    const residents = Number(pick(it, ["residents", "population"], NaN));
+    const monthlyImpressions = Number(
+      pick(it, ["monthlyImpressions", "monthly_impressions", "impressions", "plays"], NaN),
+    );
+    const monitors = Number(pick(it, ["monitors", "monitorCount", "monitor_count", "screens"], NaN));
 
     return {
       aptName,
       productName,
-      baseMonthly,
+      months,
       periodLabel,
-      baseTotal,
+      baseMonthly: Number.isFinite(baseMonthly) ? baseMonthly : undefined,
+      baseTotal: Number.isFinite(baseTotal) ? baseTotal : undefined,
+      monthlyAfter: Number.isFinite(monthlyAfter) ? monthlyAfter : undefined,
       discountRate,
       lineTotal,
+      households: Number.isFinite(households) ? households : 0,
+      residents: Number.isFinite(residents) ? residents : 0,
+      monthlyImpressions: Number.isFinite(monthlyImpressions) ? monthlyImpressions : 0,
+      monitors: Number.isFinite(monitors) ? monitors : 0,
     };
   });
 
-  // 합계(총광고료)
-  const periodTotal = rows.reduce((acc, r) => acc + (Number.isFinite(r.lineTotal) ? r.lineTotal : 0), 0);
-
-  // 상단 카운터(이전 요구 유지) — 값이 없으면 0으로
-  const totalsSeed = items.map((it) => ({
-    households: Number(pickFirst(it, ["households", "household", "hh", "apt.households", "stats.households"], 0)),
-    residents: Number(pickFirst(it, ["residents", "population", "stats.residents"], 0)),
-    monthlyImpressions: Number(
-      pickFirst(
-        it,
-        ["monthlyImpressions", "monthly_impressions", "impressions", "plays", "stats.monthlyImpressions"],
-        0,
-      ),
-    ),
-    monitors: Number(pickFirst(it, ["monitors", "monitorCount", "monitor_count", "screens", "stats.monitors"], 0)),
-  }));
-  const counters = totalsSeed.reduce(
-    (a, b) => ({
-      households: a.households + (isFinite(b.households) ? b.households : 0),
-      residents: a.residents + (isFinite(b.residents) ? b.residents : 0),
-      monthlyImpressions: a.monthlyImpressions + (isFinite(b.monthlyImpressions) ? b.monthlyImpressions : 0),
-      monitors: a.monitors + (isFinite(b.monitors) ? b.monitors : 0),
-    }),
-    { households: 0, residents: 0, monthlyImpressions: 0, monitors: 0 },
+  // 1) 카운터
+  const counters = rows.reduce(
+    (acc, r) => {
+      acc.count += 1;
+      acc.households += r.households;
+      acc.residents += r.residents;
+      acc.monthlyImpressions += r.monthlyImpressions;
+      acc.monitors += r.monitors;
+      return acc;
+    },
+    { count: 0, households: 0, residents: 0, monthlyImpressions: 0, monitors: 0 },
   );
+
+  // 금액 합계
+  const subtotal = rows.reduce((s, r) => s + (Number.isFinite(r.lineTotal) ? r.lineTotal : 0), 0);
+  const vat = Math.round(subtotal * vatRate);
+  const total = subtotal + vat;
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white">
-      <div className="px-4 py-3 text-sm font-semibold">문의 내역</div>
-
-      {/* 카운터 바 (스크롤 래퍼 위에 위치) */}
-      <div className="px-4 pb-2 text-sm text-[#4B5563] flex flex-wrap gap-x-4 gap-y-1">
-        <span className="font-semibold">{`총 ${rows.length}개 단지`}</span>
-        <span>
-          · 세대수 <b>{counters.households.toLocaleString()}</b> 세대
-        </span>
-        <span>
-          · 거주인원 <b>{counters.residents.toLocaleString()}</b> 명
-        </span>
-        <span>
-          · 송출횟수 <b>{counters.monthlyImpressions.toLocaleString()}</b> 회
-        </span>
-        <span>
-          · 모니터수량 <b>{counters.monitors.toLocaleString()}</b> 대
-        </span>
+      {/* 제목 + 카운터 */}
+      <div className="px-4 pt-3">
+        <div className="text-sm font-semibold">문의 내역</div>
+        <div className="mt-1 pb-2 text-sm text-[#4B5563] flex flex-wrap gap-x-4 gap-y-1">
+          <span className="font-medium">{`총 ${counters.count}개 단지`}</span>
+          <span>
+            · 세대수 <b>{counters.households.toLocaleString()}</b> 세대
+          </span>
+          <span>
+            · 거주인원 <b>{counters.residents.toLocaleString()}</b> 명
+          </span>
+          <span>
+            · 송출횟수 <b>{counters.monthlyImpressions.toLocaleString()}</b> 회
+          </span>
+          <span>
+            · 모니터수량 <b>{counters.monitors.toLocaleString()}</b> 대
+          </span>
+        </div>
       </div>
 
-      {/* 표: 요청한 칼럼 순서로 재배치 */}
+      {/* 표: (2) 컬럼 재배치 — 단지명/상품명/월광고료/광고기간/기준금액/할인율/총광고료 */}
       <div className="border-t border-gray-100 overflow-x-auto whitespace-nowrap" data-capture-scroll>
-        <table className="text-[13px] min-w-[820px]">
+        <table className="min-w-[860px] w-full text-[13px]">
           <thead className="bg-gray-50 text-gray-600">
             <tr className="[&>th]:px-3 [&>th]:py-2">
               <th className="text-left">단지명</th>
@@ -497,15 +434,13 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
             {rows.length ? (
               rows.map((r, idx) => (
                 <tr key={idx} className="border-t border-gray-100">
-                  <td className="font-medium">{r.aptName}</td>
-                  <td className="truncate">{r.productName}</td>
-                  <td className="text-right">{formatKRW(r.baseMonthly)}</td>
+                  <td className="text-left font-medium">{r.aptName}</td>
+                  <td className="text-left">{r.productName}</td>
+                  <td className="text-right">{r.monthlyAfter ? fmtKRW(r.monthlyAfter) : "—"}</td>
                   <td className="text-right">{r.periodLabel}</td>
-                  <td className="text-right">{formatKRW(r.baseTotal)}</td>
-                  <td className="text-right">{Math.round((r.discountRate || 0) * 100)}%</td>
-                  <td className="text-right font-semibold" style={{ color: BRAND }}>
-                    {formatKRW(r.lineTotal)}
-                  </td>
+                  <td className="text-right">{r.baseTotal ? fmtKRW(r.baseTotal) : "—"}</td>
+                  <td className="text-right">{typeof r.discountRate === "number" ? `${r.discountRate}%` : "—"}</td>
+                  <td className="text-right font-semibold text-[#6C2DFF]">{fmtKRW(r.lineTotal)}</td>
                 </tr>
               ))
             ) : (
@@ -516,23 +451,31 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
               </tr>
             )}
           </tbody>
-          <tfoot className="bg-gray-50">
-            <tr className="[&>td]:px-3 [&>td]:py-3">
-              <td colSpan={6} className="text-right text-gray-600">
-                총 광고료 합계
-              </td>
-              <td className="text-right font-semibold" style={{ color: BRAND }}>
-                {formatKRW(periodTotal)}
-              </td>
-            </tr>
-          </tfoot>
         </table>
+      </div>
+
+      {/* 3) 하단 합계 박스 (TOTAL/부가세/최종) */}
+      <div className="px-4 py-4">
+        <div className="rounded-xl border border-[#E5E7EB] bg-[#F5F1FF]">
+          <div className="flex items-center justify-between px-4 py-3 text-sm text-gray-700">
+            <span className="font-medium">총 광고료 합계(TOTAL)</span>
+            <span className="font-semibold text-[#6C2DFF]">{fmtKRW(subtotal)}</span>
+          </div>
+          <div className="flex items-center justify-between border-t border-[#E5E7EB] px-4 py-3 text-sm">
+            <span className="text-gray-600">부가세(VAT {(vatRate * 100).toFixed(0)}%)</span>
+            <span className="font-bold text-red-500">{fmtKRW(vat)}</span>
+          </div>
+          <div className="flex items-center justify-between border-t border-[#E5E7EB] px-4 py-3">
+            <span className="text-[15px] font-semibold text-[#6C2DFF]">최종 광고료 (VAT 포함)</span>
+            <span className="text-[18px] font-bold text-[#6C2DFF]">{fmtKRW(total)}</span>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-/* ================== 메인 ================== */
+/* ================== Main ================== */
 export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확인" }: CompleteModalProps) {
   useBodyScrollLock(open);
 
@@ -540,21 +483,13 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
   const isPkg = isPackageReceipt(data);
   const isSeat = isSeatReceipt(data);
 
-  const openExternal = (url?: string) => {
-    if (url) window.open(url, "_blank", "noopener,noreferrer");
-  };
-
+  const openExternal = (url?: string) => url && window.open(url, "_blank", "noopener,noreferrer");
   if (!open) return null;
 
-  const saveButtonLabel = "문의 내용 저장";
-  const sheetTitle = saveButtonLabel;
-
-  // PC 고정 링크
   const LINK_YT = "https://www.youtube.com/@ORKA_KOREA";
   const LINK_GUIDE = "https://orka.co.kr/ELAVATOR_CONTENTS";
   const LINK_TEAM = "https://orka.co.kr/orka_members";
 
-  // 저장(잘림 방지): 루트 + 스크롤 컨테이너 선택
   const handleSave = async (kind: "png" | "pdf") => {
     const root = document.getElementById("receipt-capture");
     if (!root) return;
@@ -575,11 +510,12 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
           onClick={onClose}
         />
 
+        {/* 4) 모달 하한선 + 최대 높이 + 내부 스크롤 */}
         <div className="fixed inset-0 z-[1201] flex items-center justify-center">
           <motion.div
             id="receipt-capture"
             key="panel"
-            className="w-[900px] max-w-[94vw] rounded-2xl bg-white shadow-2xl"
+            className="w-[960px] max-w-[94vw] min-h-[560px] max-h-[calc(100vh-80px)] overflow-hidden rounded-2xl bg-white shadow-2xl"
             role="dialog"
             aria-modal="true"
             initial={{ scale: 0.96, opacity: 0 }}
@@ -595,50 +531,51 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
               </button>
             </div>
 
-            {/* Body */}
-            <div className="grid grid-cols-12 gap-6 px-6 py-6">
-              {/* 좌측 */}
-              <div className="col-span-8 space-y-4">
-                <CustomerInquirySection data={data as any} />
-                {isSeat && <SeatInquiryTable data={data as ReceiptSeat} />}
-              </div>
+            {/* Body: 내부 스크롤 영역 */}
+            <div className="px-6 py-6 overflow-y-auto max-h-[calc(100vh-80px-64px-64px)]">
+              <div className="grid grid-cols-12 gap-6">
+                {/* 좌측 */}
+                <div className="col-span-8 space-y-4">
+                  <CustomerInquirySection data={data as any} />
+                  {isSeat && <SeatInquiryTable data={data as ReceiptSeat} />}
+                </div>
 
-              {/* 우측 */}
-              <div className="col-span-4 space-y-4">
-                <NextSteps variant={isSeat ? "SEAT" : "PACKAGE"} />
+                {/* 우측 */}
+                <div className="col-span-4 space-y-4">
+                  <NextSteps variant={isSeat ? "SEAT" : "PACKAGE"} />
+                  <button
+                    onClick={() => setPickerOpen(true)}
+                    className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white"
+                    style={{ backgroundColor: BRAND }}
+                  >
+                    문의 내용 저장
+                  </button>
 
-                <button
-                  onClick={() => setPickerOpen(true)}
-                  className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white"
-                  style={{ backgroundColor: BRAND }}
-                >
-                  {saveButtonLabel}
-                </button>
-
-                <div className="rounded-xl border border-gray-100 p-4">
-                  <div className="text-sm font-semibold">더 많은 정보</div>
-                  <div className="mt-3 grid grid-cols-1 gap-2">
-                    <button
-                      onClick={() => openExternal(LINK_YT)}
-                      className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
-                    >
-                      <ExternalLink size={16} />
-                      광고 소재 채널 바로가기
-                    </button>
-                    <button
-                      onClick={() => openExternal(LINK_GUIDE)}
-                      className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
-                    >
-                      <ExternalLink size={16} />
-                      제작 가이드 바로가기
-                    </button>
-                    <button
-                      onClick={() => openExternal(LINK_TEAM)}
-                      className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
-                    >
-                      <ExternalLink size={16} />
-                      오르카 구성원 확인하기
-                    </button>
+                  <div className="rounded-xl border border-gray-100 p-4">
+                    <div className="text-sm font-semibold">더 많은 정보</div>
+                    <div className="mt-3 grid grid-cols-1 gap-2">
+                      <button
+                        onClick={() => openExternal(LINK_YT)}
+                        className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
+                      >
+                        <ExternalLink size={16} />
+                        광고 소재 채널 바로가기
+                      </button>
+                      <button
+                        onClick={() => openExternal(LINK_GUIDE)}
+                        className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
+                      >
+                        <ExternalLink size={16} />
+                        제작 가이드 바로가기
+                      </button>
+                      <button
+                        onClick={() => openExternal(LINK_TEAM)}
+                        className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
+                      >
+                        <ExternalLink size={16} />
+                        오르카 구성원 확인하기
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -653,7 +590,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
           </motion.div>
         </div>
 
-        {/* 저장 액션 시트 */}
+        {/* 저장 액션 시트 (PNG/PDF) */}
         <AnimatePresence>
           {pickerOpen && (
             <>
@@ -693,15 +630,6 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
                       className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
                     >
                       이미지(PNG)
-                    </button>
-                    <button
-                      onClick={async () => {
-                        await handleSave("pdf");
-                        setPickerOpen(false);
-                      }}
-                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
-                    >
-                      PDF(A4)
                     </button>
                   </div>
                   <button
