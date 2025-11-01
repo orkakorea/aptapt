@@ -1,6 +1,7 @@
+// src/components/complete-modal/index.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { CompleteModalMobile } from "./CompleteModal.mobile";
-import { CompleteModalDesktop } from "./CompleteModal.desktop";
+import CompleteModalMobile from "./CompleteModal.mobile";
+import CompleteModalDesktop from "./CompleteModal.desktop";
 import type { CompleteModalProps } from "./types";
 
 /** 데스크톱 브레이크포인트 */
@@ -59,5 +60,8 @@ export type {
   ReceiptData,
   CompleteModalProps as CompleteModalPropsType,
 } from "./types";
-
 export { isSeatReceipt, isPackageReceipt } from "./types";
+
+/** 호환용: 데스크톱/모바일 컴포넌트도 named로 재노출 */
+export { default as CompleteModalDesktop } from "./CompleteModal.desktop";
+export { default as CompleteModalMobile } from "./CompleteModal.mobile";
