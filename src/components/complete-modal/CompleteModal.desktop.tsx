@@ -1,277 +1,463 @@
-import React, { useMemo } from "react";
-import type { CompleteModalProps, ReceiptData } from "./types";
+// src/components/complete-modal/CompleteModal.desktop.tsx
+import * as React from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 
-/** ====== 유틸 ====== */
-const fmtKST = (iso?: string) => {
-  try {
-    if (!iso) return "-";
-    const d = new Date(iso);
-    // KST(+9) 기준 표시
-    const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
-    const yyyy = kst.getUTCFullYear();
-    const mm = String(kst.getUTCMonth() + 1).padStart(2, "0");
-    const dd = String(kst.getUTCDate()).padStart(2, "0");
-    const hh = String(kst.getUTCHours()).padStart(2, "0");
-    const mi = String(kst.getUTCMinutes()).padStart(2, "0");
-    return `${yyyy}. ${mm}. ${dd}. 오후 ${hh}:${mi} KST`;
-  } catch {
-    return iso || "-";
+import type { ReceiptData } from "./types"; // types는 complete-modal 폴더 내 types.ts 기준
+import { saveNodeAsPNG, saveNodeAsPDF } from "@/core/utils/capture";
+
+// 공통 UI 유틸
+const Box = ({ children, className = "" }: React.PropsWithChildren<{ className?: string }>) => (
+  <div className={`rounded-2xl border border-[#E5E7EB] bg-white ${className}`}>{children}</div>
+);
+const SectionTitleBtn = ({
+  open,
+  onToggle,
+  children,
+}: React.PropsWithChildren<{ open: boolean; onToggle: () => void }>) => (
+  <button type="button" onClick={onToggle} className="w-full px-5 py-4 flex items-center justify-between">
+    <span className="text-[15px] md:text-base font-semibold">{children}</span>
+    <svg width="18" height="18" viewBox="0 0 24 24" className={`transition-transform ${open ? "rotate-180" : ""}`}>
+      <path d="M6 9l6 6 6-6" stroke="#111827" strokeWidth="2" fill="none" strokeLinecap="round" />
+    </svg>
+  </button>
+);
+
+const Row = ({ label, value }: { label: string; value?: React.ReactNode }) => (
+  <div className="grid grid-cols-[120px_1fr] gap-3 px-5 py-3 border-t border-[#F3F4F6] text-sm">
+    <div className="text-[#6B7280]">{label}</div>
+    <div className="text-[#111827] break-words">{value ?? "—"}</div>
+  </div>
+);
+
+// 숫자 포맷
+const fmtWon = (n?: number | null) => (typeof n === "number" && isFinite(n) ? `${n.toLocaleString()}원` : "—");
+const fmtNum = (n?: number | null, unit = "") =>
+  typeof n === "number" && isFinite(n) ? `${n.toLocaleString()}${unit}` : undefined;
+const safeTxt = (s?: string | null) => (s && s.trim().length ? s : "—");
+
+// ======= 아이템 보정(스냅샷 키 불일치 대비) =======
+type SeatItemLike = {
+  aptName?: string;
+  productName?: string;
+  months?: number | null;
+  monitors?: number | null;
+  households?: number | null;
+  residents?: number | null;
+  monthlyImpressions?: number | null;
+  monthlyAfter?: number | null;
+  baseMonthly?: number | null;
+  lineTotal?: number | null;
+  // fallbacks
+  [k: string]: any;
+};
+function normalizeItem(raw: any): Required<SeatItemLike> {
+  const aptName = raw?.aptName ?? raw?.apt_name ?? raw?.name ?? "-";
+  const productName = raw?.productName ?? raw?.product_name ?? raw?.mediaName ?? raw?.product_code ?? "-";
+  const months = Number(raw?.months ?? raw?.month) || null;
+
+  const monitors = Number(raw?.monitors ?? raw?.monitorCount ?? raw?.monitor_count ?? raw?.screens) || null;
+  const households = Number(raw?.households) || null;
+  const residents = Number(raw?.residents) || null;
+  const monthlyImpressions = Number(raw?.monthlyImpressions) || null;
+
+  const baseMonthly = Number(raw?.baseMonthly ?? raw?.base_monthly ?? raw?.priceMonthly) || null;
+  const monthlyAfter =
+    Number(raw?.monthlyAfter ?? raw?.monthly_after ?? raw?.priceMonthlyAfter) ||
+    (baseMonthly && months ? Math.round(baseMonthly) : null);
+
+  let lineTotal = Number(raw?.lineTotal ?? raw?.item_total_won ?? raw?.total_won) || null;
+  if ((lineTotal == null || !isFinite(lineTotal)) && months && (monthlyAfter || baseMonthly)) {
+    lineTotal = Math.round((monthlyAfter ?? baseMonthly!) * months);
   }
+
+  return {
+    aptName,
+    productName,
+    months,
+    monitors,
+    households,
+    residents,
+    monthlyImpressions,
+    monthlyAfter,
+    baseMonthly,
+    lineTotal,
+  };
+}
+
+function sumNum(items: SeatItemLike[], key: keyof SeatItemLike): number {
+  return items.reduce((acc, it) => {
+    const v = Number((it as any)[key]);
+    return acc + (isFinite(v) ? v : 0);
+  }, 0);
+}
+
+// ======= 본 컴포넌트 =======
+type Props = {
+  open: boolean;
+  onClose: () => void;
+  data: ReceiptData;
+  confirmLabel?: string;
 };
 
-const fmtWon = (n?: number | null) => (typeof n === "number" && isFinite(n) ? `${n.toLocaleString()}원` : "-");
+export default function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확인" }: Props) {
+  const panelRef = useRef<HTMLDivElement | null>(null);
 
-/** PACKAGE 완료 모달 전용 이메일 마스킹(국문 요구사항)
- *  - 로컬파트 전체를 '**'로 대체 → '**@domain'
- */
-function maskEmailForPackage(email?: string | null) {
-  if (!email) return "-";
-  const at = email.indexOf("@");
-  if (at < 0) return "**";
-  return `**${email.slice(at)}`;
-}
+  // 두 섹션 토글 상태
+  const [customerOpen, setCustomerOpen] = useState(true);
+  const [seatOpen, setSeatOpen] = useState(true);
 
-/** 오른쪽 패널 – 라운드 버튼 */
-function PillButton(props: React.ButtonHTMLAttributes<HTMLButtonElement>) {
-  const { className = "", ...rest } = props;
-  return <button {...rest} className={`w-full h-12 rounded-xl font-semibold ${className}`} />;
-}
+  // 저장용 강제 펼침 플래그
+  const [forceCustomerOpen, setForceCustomerOpen] = useState(false);
+  const [forceSeatOpen, setForceSeatOpen] = useState(false);
 
-/** 오른쪽 패널 – 링크형 버튼 */
-function LinkPill({ children, href }: { children: React.ReactNode; href: string }) {
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      className="flex items-center justify-between w-full rounded-xl border border-gray-200 px-4 py-3 hover:bg-gray-50"
-    >
-      <div className="flex items-center gap-2 text-sm">
-        {/* link icon */}
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-          <path
-            d="M10 13a5 5 0 0 0 7.07 0l1.41-1.41a5 5 0 0 0-7.07-7.07L10 5"
-            stroke="#6B7280"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M14 11a5 5 0 0 0-7.07 0L5.5 12.43a5 5 0 0 0 7.07 7.07L14 19"
-            stroke="#6B7280"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-        <span className="text-gray-800">{children}</span>
-      </div>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-        <path d="M9 18l6-6-6-6" stroke="#9CA3AF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </a>
-  );
-}
+  // 캡처 타겟 id
+  const captureId = "receipt-capture";
 
-/** 왼쪽 – 라벨/값 행 */
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="grid grid-cols-[96px_1fr] gap-4 py-2">
-      <div className="text-xs text-gray-500">{label}</div>
-      <div className="text-sm text-gray-900">{children}</div>
-    </div>
-  );
-}
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open, onClose]);
 
-/** 좌측 ‘고객 문의’ 카드 */
-function CustomerCard({ data }: { data: ReceiptData }) {
-  const isPackage = data.mode === "PACKAGE";
-  const scopeLabel = isPackage ? (data.summary?.scopeLabel ?? "-") : "-";
-
-  const desiredDate = data.form?.desiredDate || "-";
-  const promotionCode = data.form?.promotionCode || "-";
-
-  const emailForView = isPackage
-    ? maskEmailForPackage((data as any)?.customer?.email) // 혹시 raw email이 있을 수도 있으니 우선 시도
-    : ((data.customer as any)?.emailDomain ?? "-");
-
-  return (
-    <div className="rounded-2xl border border-gray-100 bg-white">
-      <div className="px-5 py-4 border-b border-gray-100 text-sm font-semibold text-gray-800">고객 문의</div>
-      <div className="px-5 py-2">
-        <Row label="상호명">{data.customer?.company || "-"}</Row>
-        <Row label="담당자">{data.customer?.name || "-"}</Row>
-        <Row label="연락처">{data.customer?.phoneMasked || "-"}</Row>
-        <Row label="이메일">{emailForView}</Row>
-        <Row label="캠페인 유형">{data.customer?.campaignType || "-"}</Row>
-        <Row label="광고 송출 예정(희망)일">{desiredDate}</Row>
-        <Row label="프로모션코드">{promotionCode}</Row>
-        <Row label="광고 범위">{scopeLabel}</Row>
-      </div>
-
-      {/* 문의내용 */}
-      <div className="px-5 pt-2 pb-5">
-        <div className="text-xs text-gray-500 mb-1">문의내용</div>
-        <div className="rounded-xl border border-gray-200 bg-gray-50 text-sm text-gray-800 px-4 py-3 min-h-[44px]">
-          {data.customer?.note ? data.customer.note : ""}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/** 오른쪽 – 다음 절차 카드 */
-function NextStepsCard({ onSave }: { onSave?: () => void }) {
-  return (
-    <div className="rounded-2xl border border-gray-100 bg-white">
-      <div className="px-5 py-4 border-b border-gray-100 text-sm font-semibold text-gray-800">다음 절차</div>
-      <div className="px-5 py-3 space-y-4">
-        {/* step 1 */}
-        <div className="flex items-start gap-3">
-          <div className="h-6 w-6 rounded-full bg-violet-50 text-violet-600 flex items-center justify-center text-xs font-bold">
-            1
-          </div>
-          <div className="text-sm text-gray-800">
-            <div className="font-semibold">문의 내용 확인 (1~2일)</div>
-            <div className="text-gray-500 text-[13px]">담당자가 운영사와 구좌 현황(수량/일정)을 빠르게 확인합니다.</div>
-          </div>
-        </div>
-        {/* step 2 */}
-        <div className="flex items-start gap-3">
-          <div className="h-6 w-6 rounded-full bg-violet-50 text-violet-600 flex items-center justify-center text-xs font-bold">
-            2
-          </div>
-          <div className="text-sm text-gray-800">
-            <div className="font-semibold">맞춤 견적 전달 (이메일,전화)</div>
-            <div className="text-gray-500 text-[13px]">진행 가능 조건과 견적을 이메일/전화로 안내드립니다.</div>
-          </div>
-        </div>
-        {/* step 3 */}
-        <div className="flex items-start gap-3">
-          <div className="h-6 w-6 rounded-full bg-violet-50 text-violet-600 flex items-center justify-center text-xs font-bold">
-            3
-          </div>
-          <div className="text-sm text-gray-800">
-            <div className="font-semibold">상담/계약 (전자 계약)</div>
-            <div className="text-gray-500 text-[13px]">일정 확정 후 소재 접수 → 송출 테스트 → 집행 시작.</div>
-          </div>
-        </div>
-      </div>
-
-      {/* 저장 버튼 (PNG 저장 우선) */}
-      <div className="px-5 pb-5">
-        <PillButton type="button" onClick={onSave} className="bg-violet-600 hover:bg-violet-700 text-white">
-          문의 내용 저장
-        </PillButton>
-      </div>
-    </div>
-  );
-}
-
-/** 오른쪽 – 더 많은 정보 카드 */
-function MoreInfoCard() {
-  return (
-    <div className="rounded-2xl border border-gray-100 bg-white">
-      <div className="px-5 py-4 border-b border-gray-100 text-sm font-semibold text-gray-800">더 많은 정보</div>
-      <div className="px-5 py-4 space-y-3">
-        <LinkPill href="https://www.youtube.com/@ORKA_KOREA">광고 소재 채널 바로가기</LinkPill>
-        <LinkPill href="https://orka.co.kr/ELAVATOR_CONTENTS">제작 가이드 바로가기</LinkPill>
-        <LinkPill href="https://orka.co.kr/orka_members">오르카 구성원 확인하기</LinkPill>
-      </div>
-    </div>
-  );
-}
-
-/** ====== 메인 컴포넌트 ====== */
-export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확인" }: CompleteModalProps) {
   if (!open) return null;
 
-  const title = "문의가 접수됐어요!";
-  const subtitle = useMemo(() => {
-    const ticket = data?.ticketCode ? `접수번호 ${data.ticketCode}` : "";
-    const when = data?.createdAtISO ? ` · ${fmtKST(data.createdAtISO)}` : "";
-    return `${ticket}${when}`;
+  const isSeat = data.mode === "SEAT";
+  const items: SeatItemLike[] = useMemo(() => {
+    if (data.mode !== "SEAT") return [];
+    const raw = (data.details as any)?.items ?? [];
+    return (Array.isArray(raw) ? raw : []).map(normalizeItem);
   }, [data]);
 
-  // 캡처 버튼: 외부에서 주입된 actions 사용 (PNG 우선)
-  const handleSave = () => {
-    // PNG → 없으면 PDF로 폴백
-    if (data?.actions?.onSaveImage) return data.actions.onSaveImage();
-    if (data?.actions?.onSavePDF) return data.actions.onSavePDF();
+  const counters = useMemo(() => {
+    const count = items.length;
+    const households = sumNum(items, "households");
+    const residents = sumNum(items, "residents");
+    const monthlyImpressions = sumNum(items, "monthlyImpressions");
+    const monitors = sumNum(items, "monitors");
+    return { count, households, residents, monthlyImpressions, monitors };
+  }, [items]);
+
+  const seatTotal = useMemo(() => sumNum(items, "lineTotal"), [items]);
+
+  // 저장 버튼 → 두 섹션 강제 펼침 후 캡처
+  const runWithForcedOpen = async (fn: () => void) => {
+    setForceCustomerOpen(true);
+    setForceSeatOpen(true);
+    setCustomerOpen(true);
+    setSeatOpen(true);
+    await new Promise((r) => setTimeout(r, 80)); // 레이아웃 안정화 대기
+    fn();
+    // 펼친 상태 유지(요구사항: 저장 시 항상 펼친 상태로 찍힘) — 저장 후 접고 싶으면 아래 2줄 주석 해제
+    // setForceCustomerOpen(false);
+    // setForceSeatOpen(false);
   };
 
   return (
     <div className="fixed inset-0 z-[9999]">
-      {/* DIM */}
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      {/* 백드롭 */}
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
 
-      {/* Panel */}
-      <div className="absolute inset-0 overflow-y-auto">
+      {/* 패널 */}
+      <div className="absolute inset-0 overflow-auto">
         <div
-          id="receipt-capture"
-          className="relative w-[980px] max-w-[92vw] mx-auto my-10 rounded-2xl bg-white shadow-2xl border border-gray-100"
+          ref={panelRef}
+          className="relative max-w-[1200px] mx-auto my-8 bg-white rounded-2xl shadow-xl border border-[#E5E7EB] overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
-          {/* 헤더 */}
-          <div className="px-6 py-5 border-b border-gray-100 flex items-start justify-between">
-            <div>
-              <div className="flex items-center gap-2">
-                {/* check icon */}
-                <div className="h-7 w-7 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                    <path
-                      d="M20 6L9 17l-5-5"
-                      stroke="#059669"
-                      strokeWidth="2.2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
+          {/* 캡처 영역 래퍼 */}
+          <div id={captureId} className="relative">
+            {/* 헤더 */}
+            <div className="px-6 py-5 border-b border-[#E5E7EB] flex items-start justify-between sticky top-0 bg-white/95 backdrop-blur rounded-t-2xl">
+              <div>
+                <div className="text-lg font-bold text-black">응답하라 입주민이여</div>
+                <div className="text-sm text-[#6B7280] mt-1">
+                  {data.mode === "SEAT" ? "구좌(T.O) 문의 접수증" : "시·군·구/동 단위 패키지 문의 접수증"}
                 </div>
-                <div className="text-lg font-bold text-gray-900">{title}</div>
               </div>
-              <div className="text-xs text-gray-500 mt-1">{subtitle}</div>
+              <button
+                onClick={onClose}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB]"
+                aria-label="닫기"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" fill="none">
+                  <path d="M6 6L18 18M6 18L18 6" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </button>
             </div>
 
-            <button
-              type="button"
-              onClick={onClose}
-              className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-gray-50"
-              aria-label="close"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M6 6l12 12M18 6L6 18" stroke="#111827" strokeWidth="2" strokeLinecap="round" />
-              </svg>
-            </button>
-          </div>
+            {/* 컨텐츠 2열 */}
+            <div className="grid grid-cols-12 gap-6 p-6">
+              {/* 좌측 메인 (컬럼 span 8) */}
+              <div className="col-span-12 lg:col-span-8 space-y-6">
+                {/* 고객 문의 (토글 카드) */}
+                <Box>
+                  <SectionTitleBtn open={forceCustomerOpen || customerOpen} onToggle={() => setCustomerOpen((v) => !v)}>
+                    고객 문의
+                  </SectionTitleBtn>
 
-          {/* 본문 */}
-          <div className="grid grid-cols-[1fr_320px] gap-6 px-6 py-6">
-            {/* 좌측 */}
-            <div className="space-y-6">{data && <CustomerCard data={data as ReceiptData} />}</div>
+                  <AnimatePresence initial={false}>
+                    {(forceCustomerOpen || customerOpen) && (
+                      <motion.div
+                        key="customer-body"
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.18 }}
+                      >
+                        <div className="pb-2">
+                          <Row label="브랜드명" value={safeTxt(data.customer?.company)} />
+                          <Row label="캠페인유형" value={safeTxt((data.customer as any)?.campaignType)} />
+                          <Row label="담당자명" value={safeTxt(data.customer?.name)} />
+                          <Row label="연락처" value={safeTxt((data.customer as any)?.phoneMasked)} />
+                          {/* 이메일은 도메인만 보관되어 있다면 그대로, 아니면 마스킹 */}
+                          <Row label="이메일" value={safeTxt((data.customer as any)?.emailDomain) ?? "—"} />
+                          <Row label="광고 송출 예정(희망)일" value={safeTxt((data as any)?.form?.desiredDate)} />
+                          <Row label="프로모션 코드" value={safeTxt((data as any)?.form?.promotionCode)} />
+                          <Row label="요청사항" value={safeTxt(data.customer?.note)} />
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </Box>
 
-            {/* 우측 */}
-            <div className="space-y-6">
-              <NextStepsCard onSave={handleSave} />
-              <MoreInfoCard />
+                {/* 문의 내역 (토글 카드) — SEAT 전용 */}
+                {isSeat && (
+                  <Box>
+                    <SectionTitleBtn open={forceSeatOpen || seatOpen} onToggle={() => setSeatOpen((v) => !v)}>
+                      문의 내역
+                    </SectionTitleBtn>
+
+                    <AnimatePresence initial={false}>
+                      {(forceSeatOpen || seatOpen) && (
+                        <motion.div
+                          key="seat-body"
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.18 }}
+                        >
+                          {/* 카운터 바 */}
+                          <div className="px-5 pt-1 pb-2 text-sm text-[#4B5563] flex flex-wrap gap-x-4 gap-y-1">
+                            <span className="font-medium">{`총 ${counters.count}개 단지`}</span>
+                            {fmtNum(counters.households, " 세대") && (
+                              <span>
+                                · 세대수 <b>{fmtNum(counters.households, "")}</b> 세대
+                              </span>
+                            )}
+                            {fmtNum(counters.residents, " 명") && (
+                              <span>
+                                · 거주인원 <b>{fmtNum(counters.residents, "")}</b> 명
+                              </span>
+                            )}
+                            {fmtNum(counters.monthlyImpressions, " 회") && (
+                              <span>
+                                · 송출횟수 <b>{fmtNum(counters.monthlyImpressions, "")}</b> 회
+                              </span>
+                            )}
+                            {fmtNum(counters.monitors, " 대") && (
+                              <span>
+                                · 모니터수량 <b>{fmtNum(counters.monitors, "")}</b> 대
+                              </span>
+                            )}
+                          </div>
+
+                          {/* 테이블 (가로 스크롤) */}
+                          <div className="px-5 pb-4">
+                            <div className="rounded-xl border border-[#E5E7EB] overflow-x-auto">
+                              <table className="w-full min-w-[720px] text-sm whitespace-nowrap">
+                                <thead>
+                                  <tr className="bg-[#F9FAFB] text-[#111827]">
+                                    <Th className="text-left">단지명</Th>
+                                    <Th>광고기간</Th>
+                                    <Th>상품명</Th>
+                                    <Th>모니터수량</Th>
+                                    <Th className="!text-[#6C2DFF]">총광고료</Th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {items.length === 0 ? (
+                                    <tr>
+                                      <td colSpan={5} className="px-6 py-10 text-center text-[#6B7280]">
+                                        문의 내역이 없습니다.
+                                      </td>
+                                    </tr>
+                                  ) : (
+                                    items.map((it, idx) => (
+                                      <tr key={idx} className="border-t border-[#F3F4F6]">
+                                        <Td className="text-left font-medium text-black">{safeTxt(it.aptName)}</Td>
+                                        <Td center>{it.months ? `${it.months}개월` : "—"}</Td>
+                                        <Td center>{safeTxt(it.productName)}</Td>
+                                        <Td center>{fmtNum(it.monitors, "대") ?? "—"}</Td>
+                                        <Td center className="font-bold text-[#6C2DFF]">
+                                          {fmtWon(it.lineTotal)}
+                                        </Td>
+                                      </tr>
+                                    ))
+                                  )}
+                                </tbody>
+                                <tfoot>
+                                  <tr className="border-t border-[#E5E7EB]">
+                                    <td
+                                      colSpan={4}
+                                      className="text-right px-4 py-4 bg-[#F7F5FF] text-[#6B7280] font-medium"
+                                    >
+                                      TOTAL
+                                    </td>
+                                    <td className="px-4 py-4 bg-[#F7F5FF] text-right font-bold text-[#6C2DFF]">
+                                      {fmtWon(seatTotal)}
+                                    </td>
+                                  </tr>
+                                </tfoot>
+                              </table>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </Box>
+                )}
+              </div>
+
+              {/* 우측 사이드 (컬럼 span 4) */}
+              <div className="col-span-12 lg:col-span-4 space-y-6">
+                {/* 다음 절차 */}
+                <Box>
+                  <div className="px-5 py-4 border-b border-[#F3F4F6]">
+                    <div className="text-[15px] md:text-base font-semibold">다음 절차</div>
+                  </div>
+                  <div className="px-5 py-4 space-y-3 text-sm">
+                    <Step icon="1" title={isSeat ? "구좌(T.O) 확인 (1~2일 소요)" : "문의 접수 확인"}>
+                      {isSeat
+                        ? "담당자가 운영사와 구좌 현황(수량/일정)을 빠르게 확인합니다."
+                        : "담당자가 문의 내용을 확인하고 범위를 정리합니다."}
+                    </Step>
+                    <Step icon="2" title="제안/견적 발송">
+                      집행 가능 조건과 견적을 이메일/전화로 안내드립니다.
+                    </Step>
+                    <Step icon="3" title="집행 확정 및 진행">
+                      일정 확정 후 소재 접수 → 송출 테스트 → 집행 시작.
+                    </Step>
+                  </div>
+                </Box>
+
+                {/* 문의 내용 저장 (다음 절차와 더 많은 정보 사이) */}
+                <Box>
+                  <div className="px-5 py-4 border-b border-[#F3F4F6]">
+                    <div className="text-[15px] md:text-base font-semibold">문의 내용 저장</div>
+                  </div>
+                  <div className="px-5 py-4 space-y-3">
+                    <button
+                      type="button"
+                      className="w-full h-10 rounded-xl border border-[#E5E7EB] hover:bg-[#F9FAFB] text-sm"
+                      onClick={() =>
+                        runWithForcedOpen(() => {
+                          // 캡처 타겟을 직접 저장 (두 섹션 강제 펼침 후)
+                          const node = document.getElementById(captureId);
+                          if (node) saveNodeAsPNG(node as HTMLElement, `${data.ticketCode}_receipt`);
+                          // data.actions?.onSaveImage?.() 를 병행하려면 위/아래 선택
+                        })
+                      }
+                    >
+                      이미지로 저장하기 (PNG)
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full h-10 rounded-xl border border-[#E5E7EB] hover:bg[#F9FAFB] text-sm"
+                      onClick={() =>
+                        runWithForcedOpen(() => {
+                          const node = document.getElementById(captureId);
+                          if (node) saveNodeAsPDF(node as HTMLElement, `${data.ticketCode}_receipt`);
+                        })
+                      }
+                    >
+                      PDF로 저장하기
+                    </button>
+                  </div>
+                </Box>
+
+                {/* 더 많은 정보 (링크는 좌측 정렬) */}
+                <Box>
+                  <div className="px-5 py-4 border-b border-[#F3F4F6]">
+                    <div className="text-[15px] md:text-base font-semibold">더 많은 정보</div>
+                  </div>
+                  <div className="px-5 py-4 space-y-2 text-sm">
+                    <a
+                      href="https://www.youtube.com/@ORKA_KOREA"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block underline text-[#111827]"
+                    >
+                      광고 소재 채널 바로가기
+                    </a>
+                    <a
+                      href="https://orka.co.kr/ELAVATOR_CONTENTS"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block underline text-[#111827]"
+                    >
+                      제작 가이드 바로가기
+                    </a>
+                    <a
+                      href="https://orka.co.kr/orka_members"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block underline text-[#111827]"
+                    >
+                      오르카 구성원 확인하기
+                    </a>
+                  </div>
+                </Box>
+
+                {/* 확인 버튼 */}
+                <div className="pt-2">
+                  <button
+                    onClick={onClose}
+                    className="w-full h-12 rounded-xl bg-[#6C2DFF] text-white font-semibold hover:opacity-95"
+                  >
+                    {confirmLabel}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
-
-          {/* 하단 확인 */}
-          <div className="px-6 py-5 border-t border-gray-100 flex justify-end">
-            <button
-              type="button"
-              onClick={onClose}
-              className="h-11 px-6 rounded-xl bg-black text-white font-semibold hover:opacity-95"
-            >
-              {confirmLabel}
-            </button>
-          </div>
+          {/* 캡처 영역 끝 */}
         </div>
       </div>
     </div>
   );
 }
 
-/** named + default 모두 제공 (index.tsx에서 어떤 방식이든 사용 가능) */
-export default CompleteModalDesktop;
+/* ========== 보조 컴포넌트 ========== */
+function Step({ icon, title, children }: React.PropsWithChildren<{ icon: string; title: string }>) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className="h-6 w-6 rounded-full border border-[#E5E7EB] flex items-center justify-center text-xs text-[#6B7280]">
+        {icon}
+      </div>
+      <div className="flex-1">
+        <div className="font-medium text-[#111827]">{title}</div>
+        <div className="text-[#6B7280]">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function Th({ children, className = "" }: React.PropsWithChildren<{ className?: string }>) {
+  return (
+    <th className={`px-6 py-3 text-center text-sm font-bold border-b border-[#E5E7EB] ${className}`}>{children}</th>
+  );
+}
+function Td({ children, className = "", center }: React.PropsWithChildren<{ className?: string; center?: boolean }>) {
+  return (
+    <td className={`px-6 py-3 align-middle text-[#111827] ${center ? "text-center" : ""} ${className}`}>{children}</td>
+  );
+}
