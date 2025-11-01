@@ -1,7 +1,25 @@
 // src/components/quote/QuoteMiniTable.tsx
 import * as React from "react";
 import { useMemo } from "react";
-import { computeQuoteTotals, type QuoteLineItemCompat } from "@/core/utils/receipt";
+
+/** 이 컴포넌트가 요구하는 최소 아이템 형태(호환 타입).
+ *  기존 QuoteLineItemCompat과 구조적 타이핑으로 호환되도록 필수 필드만 정의했습니다. */
+type MiniItem = {
+  id: string;
+  name: string; // 단지명
+  months?: number; // 광고기간(개월)
+  mediaName?: string; // 상품명
+
+  baseMonthly?: number; // 기준 월가
+  monthlyAfter?: number; // 할인 후 월가
+  lineTotal?: number; // 총 광고료(라인 합계)
+
+  // 카운터용(있으면 합산)
+  households?: number;
+  residents?: number;
+  monthlyImpressions?: number;
+  monitors?: number;
+};
 
 /** 숫자 포맷 유틸 */
 const fmtWon = (n?: number) => (typeof n === "number" && isFinite(n) ? `${n.toLocaleString()}원` : "—");
@@ -10,24 +28,24 @@ const fmtNum = (n?: number, unit = "") =>
 const safe = (s?: string) => (s && s.trim().length ? s : "—");
 
 /** 내부 계산: 월광고료(= monthlyAfter 우선, 없으면 lineTotal/months) */
-function inferMonthlyAfter(it: QuoteLineItemCompat): number | undefined {
+function inferMonthlyAfter(it: MiniItem): number | undefined {
   if (typeof it.monthlyAfter === "number" && isFinite(it.monthlyAfter)) return it.monthlyAfter;
-  if (typeof it.lineTotal === "number" && isFinite(it.lineTotal) && it.months > 0) {
-    return Math.round(it.lineTotal / it.months);
+  if (typeof it.lineTotal === "number" && isFinite(it.lineTotal) && (it.months ?? 0) > 0) {
+    return Math.round(it.lineTotal / (it.months as number));
   }
   return undefined;
 }
 
 /** 내부 계산: 기준금액(= baseMonthly * months) */
-function inferBaseTotal(it: QuoteLineItemCompat): number | undefined {
-  if (typeof it.baseMonthly === "number" && isFinite(it.baseMonthly) && it.months > 0) {
-    return Math.round(it.baseMonthly * it.months);
+function inferBaseTotal(it: MiniItem): number | undefined {
+  if (typeof it.baseMonthly === "number" && isFinite(it.baseMonthly) && (it.months ?? 0) > 0) {
+    return Math.round(it.baseMonthly * (it.months as number));
   }
   return undefined;
 }
 
 /** 내부 계산: 할인율(= 1 - monthlyAfter/baseMonthly) */
-function inferDiscountRate(it: QuoteLineItemCompat): number | undefined {
+function inferDiscountRate(it: MiniItem): number | undefined {
   if (typeof it.baseMonthly === "number" && isFinite(it.baseMonthly) && it.baseMonthly > 0) {
     const ma = inferMonthlyAfter(it);
     if (typeof ma === "number" && isFinite(ma)) {
@@ -37,6 +55,23 @@ function inferDiscountRate(it: QuoteLineItemCompat): number | undefined {
     }
   }
   return undefined;
+}
+
+/** 카운터 합계 계산(세대/인원/송출/모니터/행수) */
+function computeMiniTotals(items: Array<Partial<MiniItem>>) {
+  const sum = (key: keyof MiniItem): number =>
+    (items ?? []).reduce((acc, it) => {
+      const v = Number((it as any)?.[key]);
+      return acc + (isFinite(v) ? v : 0);
+    }, 0);
+
+  return {
+    count: items?.length ?? 0,
+    households: sum("households"),
+    residents: sum("residents"),
+    monthlyImpressions: sum("monthlyImpressions"),
+    monitors: sum("monitors"),
+  };
 }
 
 /** 헤더 셀 / 데이터 셀 */
@@ -63,8 +98,8 @@ function Td({
 }
 
 /** 카운터 바: “총 N개 단지 · 세대수 … · 모니터수량 …” */
-export function QuoteMiniCounters({ items }: { items: QuoteLineItemCompat[] }) {
-  const totals = useMemo(() => computeQuoteTotals(items), [items]);
+export function QuoteMiniCounters({ items }: { items: MiniItem[] }) {
+  const totals = useMemo(() => computeMiniTotals(items), [items]);
   return (
     <div className="px-5 pt-1 pb-2 text-sm text-[#4B5563] flex flex-wrap gap-x-4 gap-y-1">
       <span className="font-medium">{`총 ${totals.count}개 단지`}</span>
@@ -103,7 +138,7 @@ export default function QuoteMiniTable({
   showVatBreakdown = false,
   vatRate = 0.1,
 }: {
-  items: QuoteLineItemCompat[];
+  items: MiniItem[]; // 구조적 호환: 기존 QuoteLineItemCompat[]도 그대로 전달 가능
   className?: string;
   showFooterTotal?: boolean;
   /** VAT/최종금액 표시 (TOTAL 아래에 '부가세', '최종광고료(VAT 포함)' 추가) */
