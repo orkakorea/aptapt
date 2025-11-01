@@ -1,6 +1,7 @@
+// src/components/complete-modal/index.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { CompleteModalMobile } from "./CompleteModal.mobile";
-import { CompleteModalDesktop } from "./CompleteModal.desktop";
+import CompleteModalMobile from "./CompleteModal.mobile";
+import CompleteModalDesktop from "./CompleteModal.desktop";
 import type { CompleteModalProps } from "./types";
 
 /** 데스크톱 브레이크포인트 */
@@ -37,8 +38,12 @@ export function CompleteModal(props: CompleteModalProps) {
   return <View {...props} />;
 }
 
-/** 기본 export도 함께 제공 */
+/** 기본 export */
 export default CompleteModal;
+
+/** Desktop/Mobile 컴포넌트도 named export로 함께 제공(호환용) */
+export { default as CompleteModalDesktop } from "./CompleteModal.desktop";
+export { default as CompleteModalMobile } from "./CompleteModal.mobile";
 
 /** 타입/가드 전부 재노출 (named only) */
 export type {
