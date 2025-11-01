@@ -235,6 +235,7 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
       };
 
       // ❗❗ 프런트에서 직접 INSERT 금지 → 서버 RPC로 위임
+      //    (다음 턴에서 Postgres 함수(inquiries_submit) SQL을 줄게)
       const { error: rpcError } = await (supabase as any).rpc("inquiries_submit", { payload });
       if (rpcError) throw rpcError;
 
@@ -278,7 +279,6 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
             monthlyTotalKRW: summary.monthlyTotalKRW ?? null,
             periodTotalKRW: summary.periodTotalKRW ?? null,
           },
-          // ✅ 완료모달에 전달될 신규 폼 데이터
           form: { desiredDate: hopeDate || undefined, promotionCode: promoCode || undefined },
           links: { receiptUrl },
           actions: {
@@ -309,7 +309,6 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
             budgetRangeText: undefined,
           },
           details: { areas: [] },
-          // ✅ 완료모달에 전달될 신규 폼 데이터
           form: { desiredDate: hopeDate || undefined, promotionCode: promoCode || undefined },
           links: { receiptUrl },
           actions: {

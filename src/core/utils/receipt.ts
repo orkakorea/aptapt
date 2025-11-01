@@ -141,21 +141,18 @@ export function buildSeatItemsFromSnapshot(snap: any): SeatItem[] {
     const monthlyAfter = numOrNull(it?.monthlyAfter ?? it?.monthly_after ?? it?.priceMonthlyAfter ?? null);
     const months = numOrNull(it?.months ?? null);
     const lineTotal =
-      months && (monthlyAfter ?? baseMonthly)
-        ? Math.round((monthlyAfter ?? baseMonthly!) * months)
-        : numOrNull(it?.lineTotal ?? it?.item_total_won ?? it?.total_won ?? null);
+      months && (monthlyAfter ?? baseMonthly) ? Math.round((monthlyAfter ?? baseMonthly!) * months) : null;
 
     const discountNote: string | null = it?.discountNote ?? it?.discount_note ?? it?.applied_discounts_text ?? null;
 
     return {
-      aptName: it?.apt_name ?? it?.aptName ?? "-",
-      productName: it?.product_name ?? it?.productName ?? it?.product_code ?? "-",
+      aptName: it?.apt_name ?? "-",
+      productName: it?.product_name ?? it?.product_code ?? "-",
       months,
       baseMonthly,
       discountNote,
       monthlyAfter: monthlyAfter ?? baseMonthly ?? null,
       lineTotal,
-      // 확장 필드가 들어와도 SeatItem에는 영향 없음(렌더시 합계/카운터용으로는 아래 어댑터 사용)
     };
   });
 }
@@ -163,126 +160,4 @@ export function buildSeatItemsFromSnapshot(snap: any): SeatItem[] {
 function numOrNull(v: any): number | null {
   const n = Number(v);
   return isFinite(n) ? n : null;
-}
-
-/* ============================================================
- * (1) 완료모달 → 견적 테이블 호환 어댑터
- * ============================================================ */
-
-/** 견적 테이블 구조와 호환되는 최소 타입(의존성 순환 방지용) */
-export type QuoteLineItemCompat = {
-  id: string;
-  name: string; // 단지명
-  months: number; // 광고기간(개월)
-  startDate?: string;
-  endDate?: string;
-
-  mediaName?: string; // 상품명
-  households?: number;
-  residents?: number;
-  monthlyImpressions?: number;
-  monitors?: number;
-
-  baseMonthly?: number; // 기준 월가
-  monthlyAfter?: number; // 할인 후 월가
-  lineTotal?: number; // 총 광고료(라인 합계)
-
-  productKeyHint?: string;
-};
-
-/** 내부 숫자 파서(0/NaN 가드) */
-function toNum(v: any): number | undefined {
-  const n = Number(v);
-  return isFinite(n) ? n : undefined;
-}
-
-/** baseMonthly/ monthlyAfter / months로 lineTotal 계산 (가능할 때만) */
-function calcLineTotal(baseMonthly?: number, monthlyAfter?: number, months?: number): number | undefined {
-  if (!months || months <= 0) return undefined;
-  const m =
-    (typeof monthlyAfter === "number" ? monthlyAfter : undefined) ??
-    (typeof baseMonthly === "number" ? baseMonthly : undefined);
-  return typeof m === "number" ? Math.round(m * months) : undefined;
-}
-
-/**
- * 완료 모달의 details.items(Seat 기반) → 견적 라인아이템 구조로 변환.
- * - key 매핑은 우선순위 규칙으로 폭넓게 대응
- * - id는 안정성을 위해 apt|media|months 기반으로 생성(동명이인 대비 index suffix 포함)
- */
-export function adaptQuoteItemsFromReceipt(rawItems: any[] | null | undefined): QuoteLineItemCompat[] {
-  const arr: any[] = Array.isArray(rawItems) ? rawItems : [];
-  return arr.map((raw, idx): QuoteLineItemCompat => {
-    const name = (raw?.aptName ?? raw?.apt_name ?? raw?.name ?? "-") as string;
-    const mediaName = (raw?.productName ?? raw?.product_name ?? raw?.mediaName ?? raw?.product_code) as
-      | string
-      | undefined;
-
-    const months = toNum(raw?.months ?? raw?.month) ?? 0;
-
-    const baseMonthly = toNum(raw?.baseMonthly ?? raw?.base_monthly ?? raw?.priceMonthly);
-
-    const monthlyAfter =
-      toNum(raw?.monthlyAfter ?? raw?.monthly_after ?? raw?.priceMonthlyAfter) ??
-      (toNum(raw?.lineTotal ?? raw?.item_total_won ?? raw?.total_won) && months > 0
-        ? Math.round(Number(raw?.lineTotal ?? raw?.item_total_won ?? raw?.total_won) / months)
-        : undefined);
-
-    const rawLineTotal = toNum(raw?.lineTotal ?? raw?.item_total_won ?? raw?.total_won);
-
-    const lineTotal = rawLineTotal ?? calcLineTotal(baseMonthly, monthlyAfter, months);
-
-    const monitors = toNum(raw?.monitors ?? raw?.monitorCount ?? raw?.monitor_count ?? raw?.screens);
-
-    const households = toNum(raw?.households);
-    const residents = toNum(raw?.residents);
-    const monthlyImpressions = toNum(raw?.monthlyImpressions);
-
-    const productKeyHint = typeof raw?.product_code === "string" ? raw.product_code : undefined;
-
-    const idBase = `${String(name)}|${String(mediaName ?? "")}|${months}`;
-    const id = `${idBase}|${idx}`;
-
-    return {
-      id,
-      name,
-      months,
-      mediaName,
-      households,
-      residents,
-      monthlyImpressions,
-      monitors,
-      baseMonthly,
-      monthlyAfter,
-      lineTotal,
-      productKeyHint,
-    };
-  });
-}
-
-/* ============================================================
- * (2) 카운터 합계 계산
- * ============================================================ */
-
-/** 카운터 바에 쓰는 합계치(세대/인원/송출/모니터/행수) */
-export function computeQuoteTotals(items: Array<Partial<QuoteLineItemCompat>>): {
-  count: number;
-  households: number;
-  residents: number;
-  monthlyImpressions: number;
-  monitors: number;
-} {
-  const sum = (key: keyof QuoteLineItemCompat): number =>
-    (items ?? []).reduce((acc, it) => {
-      const v = Number((it as any)?.[key]);
-      return acc + (isFinite(v) ? v : 0);
-    }, 0);
-
-  return {
-    count: items?.length ?? 0,
-    households: sum("households"),
-    residents: sum("residents"),
-    monthlyImpressions: sum("monthlyImpressions"),
-    monitors: sum("monitors"),
-  };
 }
