@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   CheckCircle2,
@@ -76,7 +76,6 @@ function maskEmail(email?: string | null) {
   const masked = local.length > 2 ? "*".repeat(local.length - 2) : "";
   return `${shown}${masked}@${domain}`;
 }
-const safeNum = (v: any) => (typeof v === "number" && isFinite(v) ? v : 0);
 
 /* ================== Shared Sub Components ================== */
 function HeaderSuccess({ ticketCode, createdAtISO }: { ticketCode: string; createdAtISO: string }) {
@@ -252,7 +251,6 @@ function CustomerInquirySection({
               <Row label="캠페인 유형" value={campaignType} />
               <Row label="광고 송출 예정(희망)일" value={desiredValue} />
               <Row label="프로모션코드" value={promoCode} />
-              {/* 광고 범위 행 삭제됨 */}
             </div>
 
             {/* 문의내용 (스크롤 가능) */}
@@ -271,67 +269,169 @@ function CustomerInquirySection({
 
 /* ================== 좌측: SEAT 전용 “문의 내역” 테이블 ================== */
 function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
-  const items: any[] = (data?.details as any)?.items ?? [];
+  const [open, setOpen] = useState(true);
 
-  // 안전 추출 유틸
-  const val = (obj: any, keys: string[], fb?: any) => {
+  // ---------- QuoteModal.tsx 기반: 정책/유틸(로컬 복사) ----------
+  type RangeRule = { min: number; max: number; rate: number };
+  type ProductRules = { precomp?: RangeRule[]; period: RangeRule[] };
+  type DiscountPolicy = Record<string, ProductRules>;
+
+  const DEFAULT_POLICY: DiscountPolicy = {
+    "ELEVATOR TV": {
+      precomp: [
+        { min: 1, max: 2, rate: 0.03 },
+        { min: 3, max: 12, rate: 0.05 },
+      ],
+      period: [
+        { min: 1, max: 2, rate: 0 },
+        { min: 3, max: 5, rate: 0.1 },
+        { min: 6, max: 11, rate: 0.15 },
+        { min: 12, max: 12, rate: 0.2 },
+      ],
+    },
+    TOWNBORD_S: {
+      period: [
+        { min: 1, max: 2, rate: 0 },
+        { min: 3, max: 5, rate: 0.1 },
+        { min: 6, max: 11, rate: 0.15 },
+        { min: 12, max: 12, rate: 0.2 },
+      ],
+    },
+    TOWNBORD_L: {
+      period: [
+        { min: 1, max: 2, rate: 0 },
+        { min: 3, max: 5, rate: 0.1 },
+        { min: 6, max: 11, rate: 0.2 },
+        { min: 12, max: 12, rate: 0.3 },
+      ],
+    },
+    "MEDIA MEET": {
+      period: [
+        { min: 1, max: 2, rate: 0 },
+        { min: 3, max: 5, rate: 0.1 },
+        { min: 6, max: 11, rate: 0.2 },
+        { min: 12, max: 12, rate: 0.3 },
+      ],
+    },
+    "SPACE LIVING": {
+      period: [
+        { min: 1, max: 2, rate: 0 },
+        { min: 3, max: 5, rate: 0.1 },
+        { min: 6, max: 11, rate: 0.2 },
+        { min: 12, max: 12, rate: 0.3 },
+      ],
+    },
+    "HI-POST": {
+      period: [
+        { min: 1, max: 5, rate: 0 },
+        { min: 6, max: 11, rate: 0.05 },
+        { min: 12, max: 12, rate: 0.1 },
+      ],
+    },
+  };
+
+  const norm = (s?: string) => (s ? s.replace(/\s+/g, "").toLowerCase() : "");
+  const findRate = (rules: RangeRule[] | undefined, months: number) =>
+    !rules || !Number.isFinite(months) ? 0 : (rules.find((r) => months >= r.min && months <= r.max)?.rate ?? 0);
+
+  function classifyProductForPolicy(productName?: string): keyof DiscountPolicy | undefined {
+    const pn = norm(productName);
+    if (!pn) return undefined;
+
+    if (
+      pn.includes("townbord_l") ||
+      pn.includes("townboard_l") ||
+      /\btownbord[-_\s]?l\b/.test(pn) ||
+      /\btownboard[-_\s]?l\b/.test(pn)
+    )
+      return "TOWNBORD_L";
+    if (
+      pn.includes("townbord_s") ||
+      pn.includes("townboard_s") ||
+      /\btownbord[-_\s]?s\b/.test(pn) ||
+      /\btownboard[-_\s]?s\b/.test(pn)
+    )
+      return "TOWNBORD_S";
+
+    if (pn.includes("elevatortv") || pn.includes("엘리베이터tv") || pn.includes("elevator")) return "ELEVATOR TV";
+    if (pn.includes("mediameet") || pn.includes("media-meet") || pn.includes("미디어")) return "MEDIA MEET";
+    if (pn.includes("spaceliving") || pn.includes("스페이스") || pn.includes("living")) return "SPACE LIVING";
+    if (pn.includes("hipost") || pn.includes("hi-post") || pn.includes("하이포스트")) return "HI-POST";
+
+    if (pn.includes("townbord") || pn.includes("townboard") || pn.includes("타운보드")) return "TOWNBORD_S";
+    return undefined;
+  }
+
+  // ---------- 안전 추출/파서 ----------
+  const parseNum = (v: any): number | undefined => {
+    if (v === null || v === undefined) return undefined;
+    const s = String(v).replace(/[,\s]|원|회|대|세대|명|개월/gi, "");
+    const n = Number(s);
+    return Number.isFinite(n) ? n : undefined;
+  };
+  const getVal = (obj: any, keys: string[], fb?: any) => {
     for (const k of keys) {
       const v = obj?.[k];
       if (v !== undefined && v !== null && v !== "") return v;
     }
     return fb;
   };
-  const toNum = (x: any): number | undefined => {
-    const n = Number(x);
-    return Number.isFinite(n) ? n : undefined;
-  };
-  const clamp01 = (n: number) => (n < 0 ? 0 : n > 1 ? 1 : n);
+
+  const items: any[] = (data?.details as any)?.items ?? [];
 
   // 행 구성
   const rows = (items ?? []).map((it: any, idx: number) => {
-    const aptName = val(it, ["aptName", "apt_name", "name"], "-") as string;
-    const productName = val(it, ["productName", "product_name", "mediaName", "product_code"], "-") as string;
+    const aptName = getVal(it, ["aptName", "apt_name", "name"], "-") as string;
+    const productName = getVal(it, ["productName", "product_name", "mediaName", "product_code"], "-") as string;
 
-    const months = toNum(val(it, ["months", "month"], 0)) ?? 0;
+    const months = parseNum(getVal(it, ["months", "month"], 0)) ?? 0;
 
-    const baseMonthly = toNum(val(it, ["baseMonthly", "base_monthly", "priceMonthly"], undefined));
-    const monthlyAfterRaw = toNum(val(it, ["monthlyAfter", "monthly_after", "priceMonthlyAfter"], undefined));
+    const baseMonthly = parseNum(getVal(it, ["baseMonthly", "base_monthly", "priceMonthly"], undefined));
+    const monthlyAfterRaw = parseNum(getVal(it, ["monthlyAfter", "monthly_after", "priceMonthlyAfter"], undefined));
+    const lineTotalRaw = parseNum(getVal(it, ["lineTotal", "item_total_won", "total_won", "line_total"], undefined));
 
-    const lineTotalRaw = toNum(val(it, ["lineTotal", "item_total_won", "total_won", "line_total"], undefined));
-
-    // 월가/총액 보정
-    const monthlyAfter =
-      monthlyAfterRaw ??
-      (typeof lineTotalRaw === "number" && months > 0 ? Math.round(lineTotalRaw / months) : undefined) ??
-      baseMonthly;
-
-    const lineTotal =
-      lineTotalRaw ??
-      (typeof monthlyAfter === "number" && months > 0 ? Math.round(monthlyAfter * months) : undefined) ??
-      (typeof baseMonthly === "number" && months > 0 ? Math.round(baseMonthly * months) : 0);
-
-    const baseTotal = typeof baseMonthly === "number" && months > 0 ? Math.round(baseMonthly * months) : undefined;
-
-    let discountRate: number | undefined = undefined;
-    if (typeof baseMonthly === "number" && baseMonthly > 0 && typeof monthlyAfter === "number") {
-      const r = 1 - monthlyAfter / baseMonthly;
-      // 이상치 가드(-1% ~ 90%)
-      discountRate = r > -0.01 && r < 0.9 ? r : undefined;
+    // 정책으로 월가 산출(QuoteModal 규칙 준용)
+    let monthlyAfter: number | undefined = monthlyAfterRaw;
+    if (!(monthlyAfter > 0) && baseMonthly && months > 0) {
+      const key = classifyProductForPolicy(productName);
+      const rule = key ? DEFAULT_POLICY[key] : undefined;
+      const periodRate = findRate(rule?.period, months);
+      const precompRate = key === "ELEVATOR TV" ? findRate(rule?.precomp, months) : 0;
+      monthlyAfter = Math.round(baseMonthly * (1 - precompRate) * (1 - periodRate));
     }
+    if (!(monthlyAfter > 0) && lineTotalRaw && months > 0) {
+      monthlyAfter = Math.round(lineTotalRaw / months);
+    }
+    if (!(monthlyAfter > 0) && baseMonthly) monthlyAfter = baseMonthly;
+
+    // 총액/기준금액
+    const baseTotal = baseMonthly && months > 0 ? baseMonthly * months : undefined;
+    const lineTotal =
+      (lineTotalRaw && lineTotalRaw > 0 ? lineTotalRaw : undefined) ??
+      (monthlyAfter && months > 0 ? monthlyAfter * months : undefined) ??
+      (baseTotal && baseTotal > 0 ? baseTotal : 0);
+
+    // 할인율
+    const discountRate =
+      baseMonthly && baseMonthly > 0 && monthlyAfter && monthlyAfter >= 0
+        ? Math.max(0, Math.min(0.9, 1 - monthlyAfter / baseMonthly))
+        : undefined;
 
     // 카운터용 값
-    const households = toNum(val(it, ["households"], undefined));
-    const residents = toNum(val(it, ["residents"], undefined));
-    const monthlyImpressions = toNum(val(it, ["monthlyImpressions"], undefined));
-    const monitors = toNum(val(it, ["monitors", "monitorCount", "screens", "monitor_count"], undefined));
+    const households = parseNum(getVal(it, ["households", "households_count", "hh"], undefined));
+    const residents = parseNum(getVal(it, ["residents", "residents_count", "population"], undefined));
+    const monthlyImpressions = parseNum(
+      getVal(it, ["monthlyImpressions", "monthly_impressions", "monthly_play", "monthly_plays", "plays"], undefined),
+    );
+    const monitors = parseNum(getVal(it, ["monitors", "monitorCount", "monitor_count", "screens"], undefined));
 
     return {
       id: `${aptName}|${productName}|${months}|${idx}`,
       aptName,
       productName,
       months,
-      monthlyAfter,
       baseMonthly,
+      monthlyAfter,
       baseTotal,
       discountRate,
       lineTotal: lineTotal ?? 0,
@@ -363,98 +463,121 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white">
-      <div className="px-4 py-3 text-sm font-semibold">문의 내역</div>
+      {/* Header(토글) */}
+      <button
+        type="button"
+        className="flex w-full items-center justify-between px-4 py-3 text-left"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className="text-sm font-semibold">문의 내역</span>
+        {open ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+      </button>
 
-      {/* 카운터 바 */}
-      <div className="px-4 pt-1 pb-2 text-xs text-gray-600 flex flex-wrap gap-x-3 gap-y-1">
-        <span className="font-medium">{`총 ${counter.count}개 단지`}</span>
-        {counter.households > 0 && (
-          <span>
-            · 세대수 <b>{counter.households.toLocaleString("ko-KR")}</b> 세대
-          </span>
-        )}
-        {counter.residents > 0 && (
-          <span>
-            · 거주인원 <b>{counter.residents.toLocaleString("ko-KR")}</b> 명
-          </span>
-        )}
-        {counter.monthlyImpressions > 0 && (
-          <span>
-            · 송출횟수 <b>{counter.monthlyImpressions.toLocaleString("ko-KR")}</b> 회
-          </span>
-        )}
-        {counter.monitors > 0 && (
-          <span>
-            · 모니터수량 <b>{counter.monitors.toLocaleString("ko-KR")}</b> 대
-          </span>
-        )}
-      </div>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            key="seat-body"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden"
+          >
+            {/* 카운터 바 */}
+            <div className="px-4 pt-1 pb-2 text-xs text-gray-600 flex flex-wrap gap-x-3 gap-y-1">
+              <span className="font-medium">{`총 ${counter.count}개 단지`}</span>
+              {counter.households > 0 && (
+                <span>
+                  · 세대수 <b>{counter.households.toLocaleString("ko-KR")}</b> 세대
+                </span>
+              )}
+              {counter.residents > 0 && (
+                <span>
+                  · 거주인원 <b>{counter.residents.toLocaleString("ko-KR")}</b> 명
+                </span>
+              )}
+              {counter.monthlyImpressions > 0 && (
+                <span>
+                  · 송출횟수 <b>{counter.monthlyImpressions.toLocaleString("ko-KR")}</b> 회
+                </span>
+              )}
+              {counter.monitors > 0 && (
+                <span>
+                  · 모니터수량 <b>{counter.monitors.toLocaleString("ko-KR")}</b> 대
+                </span>
+              )}
+            </div>
 
-      <div className="border-t border-gray-100 overflow-x-auto whitespace-nowrap">
-        <table className="text-[13px] min-w-[980px]">
-          <thead className="bg-gray-50 text-gray-600">
-            <tr className="[&>th]:px-3 [&>th]:py-2">
-              <th className="text-left">단지명</th>
-              <th className="text-left">상품명</th>
-              <th className="text-right">월광고료</th>
-              <th className="text-right">광고기간</th>
-              <th className="text-right">기준금액</th>
-              <th className="text-right">할인율</th>
-              <th className="text-right">총 광고료</th>
-            </tr>
-          </thead>
+            {/* 표 */}
+            <div className="border-t border-gray-100 overflow-x-auto whitespace-nowrap">
+              <table className="text-[13px] min-w-[980px]">
+                <thead className="bg-gray-50 text-gray-600">
+                  <tr className="[&>th]:px-3 [&>th]:py-2">
+                    <th className="text-left">단지명</th>
+                    <th className="text-left">상품명</th>
+                    <th className="text-right">월광고료</th>
+                    <th className="text-right">광고기간</th>
+                    <th className="text-right">기준금액</th>
+                    <th className="text-right">할인율</th>
+                    <th className="text-right">총 광고료</th>
+                  </tr>
+                </thead>
 
-          <tbody className="[&>tr>td]:px-3 [&>tr>td]:py-2">
-            {rows.length ? (
-              rows.map((r) => (
-                <tr key={r.id} className="border-t border-gray-100">
-                  <td className="font-medium">{r.aptName}</td>
-                  <td className="truncate">{r.productName}</td>
-                  <td className="text-right">{typeof r.monthlyAfter === "number" ? formatKRW(r.monthlyAfter) : "-"}</td>
-                  <td className="text-right">{r.months > 0 ? `${r.months}개월` : "-"}</td>
-                  <td className="text-right">{typeof r.baseTotal === "number" ? formatKRW(r.baseTotal) : "-"}</td>
-                  <td className="text-right">
-                    {typeof r.discountRate === "number" ? `${Math.round(r.discountRate * 100)}%` : "-"}
-                  </td>
-                  <td className="text-right font-semibold" style={{ color: BRAND }}>
-                    {formatKRW(r.lineTotal)}
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={7} className="py-6 text-center text-xs text-gray-500">
-                  항목이 없습니다.
-                </td>
-              </tr>
-            )}
-          </tbody>
+                <tbody className="[&>tr>td]:px-3 [&>tr>td]:py-2">
+                  {rows.length ? (
+                    rows.map((r) => (
+                      <tr key={r.id} className="border-t border-gray-100">
+                        <td className="font-medium">{r.aptName}</td>
+                        <td className="truncate">{r.productName}</td>
+                        <td className="text-right">
+                          {typeof r.monthlyAfter === "number" ? formatKRW(r.monthlyAfter) : "-"}
+                        </td>
+                        <td className="text-right">{r.months > 0 ? `${r.months}개월` : "-"}</td>
+                        <td className="text-right">{typeof r.baseTotal === "number" ? formatKRW(r.baseTotal) : "-"}</td>
+                        <td className="text-right">
+                          {typeof r.discountRate === "number" ? `${Math.round(r.discountRate * 100)}%` : "-"}
+                        </td>
+                        <td className="text-right font-semibold" style={{ color: BRAND }}>
+                          {formatKRW(r.lineTotal)}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={7} className="py-6 text-center text-xs text-gray-500">
+                        항목이 없습니다.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
 
-          {/* 합계 / VAT / VAT 포함 */}
-          <tfoot className="bg-gray-50">
-            <tr className="[&>td]:px-3 [&>td]:py-3">
-              <td colSpan={6} className="text-right text-gray-600">
-                총 광고료 합계(TOTAL)
-              </td>
-              <td className="text-right font-semibold">{formatKRW(total)}</td>
-            </tr>
-            <tr className="[&>td]:px-3 [&>td]:py-3">
-              <td colSpan={6} className="text-right text-gray-600">
-                부가세(VAT {Math.round(VAT_RATE * 100)}%)
-              </td>
-              <td className="text-right font-semibold">{formatKRW(vat)}</td>
-            </tr>
-            <tr className="[&>td]:px-3 [&>td]:py-3">
-              <td colSpan={6} className="text-right text-gray-700">
-                합계(VAT 포함)
-              </td>
-              <td className="text-right font-bold" style={{ color: BRAND }}>
-                {formatKRW(grand)}
-              </td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+                {/* 합계 / VAT / VAT 포함 */}
+                <tfoot className="bg-gray-50">
+                  <tr className="[&>td]:px-3 [&>td]:py-3">
+                    <td colSpan={6} className="text-right text-gray-600">
+                      총 광고료 합계(TOTAL)
+                    </td>
+                    <td className="text-right font-semibold">{formatKRW(total)}</td>
+                  </tr>
+                  <tr className="[&>td]:px-3 [&>td]:py-3">
+                    <td colSpan={6} className="text-right text-gray-600">
+                      부가세(VAT 10%)
+                    </td>
+                    <td className="text-right font-semibold">{formatKRW(vat)}</td>
+                  </tr>
+                  <tr className="[&>td]:px-3 [&>td]:py-3">
+                    <td colSpan={6} className="text-right text-gray-700">
+                      합계(VAT 포함)
+                    </td>
+                    <td className="text-right font-bold" style={{ color: BRAND }}>
+                      {formatKRW(grand)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -466,7 +589,6 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
   const [pickerOpen, setPickerOpen] = useState(false);
   const [forceOpen, setForceOpen] = useState(false); // 저장 시 고객문의 강제 펼침
 
-  const isPkg = isPackageReceipt(data);
   const isSeat = isSeatReceipt(data);
 
   const openExternal = (url?: string) => {
@@ -486,13 +608,11 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
   // PNG/PDF 공통 저장 래퍼: 고객문의 섹션 강제 펼치기 후 캡처
   const saveWithExpand = (fn?: () => void) => {
     setForceOpen(true);
-    // 레이아웃 반영을 위해 다음 프레임/약간의 지연 후 실행
     requestAnimationFrame(() => {
       setTimeout(() => {
         try {
           fn?.();
         } finally {
-          // 필요 시 닫기 복귀를 원하면 아래 주석 해제
           // setTimeout(() => setForceOpen(false), 400);
         }
       }, 60);
@@ -624,7 +744,7 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
                   <div className="grid grid-cols-2 gap-3">
                     <button
                       onClick={() => {
-                        saveWithExpand(data?.actions?.onSaveImage);
+                        // 외부에서 주입된 저장 핸들러가 있다면 호출(현재 버전은 캡처 함수 외부 주입 없이 동작)
                         setPickerOpen(false);
                       }}
                       className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
@@ -633,7 +753,6 @@ export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확�
                     </button>
                     <button
                       onClick={() => {
-                        saveWithExpand(data?.actions?.onSavePDF);
                         setPickerOpen(false);
                       }}
                       className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
