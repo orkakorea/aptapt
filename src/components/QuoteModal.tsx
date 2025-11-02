@@ -267,6 +267,12 @@ export default function QuoteModal({
           months: it.months,
           item_total_won: lineTotal,
           total_won: lineTotal,
+
+          // ✅ B 플랜: 카운터 4종을 스냅샷에 포함 (없으면 0으로)
+          households: it.households ?? 0,
+          residents: it.residents ?? 0,
+          monthlyImpressions: it.monthlyImpressions ?? 0,
+          monitors: it.monitors ?? 0,
         };
       }),
     };
