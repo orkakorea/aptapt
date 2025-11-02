@@ -3,25 +3,23 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { ClipboardList, ExternalLink, FileSignature, Mail, X, CheckCircle2 } from "lucide-react";
 
-import type { CompleteModalProps, ReceiptData, ReceiptSeat } from "./types";
-import { isSeatReceipt } from "./types";
+import type { CompleteModalProps, ReceiptData, ReceiptSeat, ReceiptPackage } from "./types";
+import { isSeatReceipt, isPackageReceipt } from "./types";
 
-// 저장(전체 캡처) 유틸
+// 저장 유틸(전체 저장)
 import { saveFullContentAsPNG, saveFullContentAsPDF } from "@/core/utils/capture";
 
-/* =========================================================================
- * 공통 상수/유틸
- * ========================================================================= */
+// ✅ 견적 축약 테이블/카운터 재사용
+import QuoteMiniTable, { QuoteMiniCounters } from "@/components/quote/QuoteMiniTable";
+
 const BRAND = "#6F4BF2";
 const BRAND_LIGHT = "#EEE8FF";
 
-const safeNum = (v: any) => (typeof v === "number" && isFinite(v) ? v : 0);
-
+/* ================== Utils ================== */
 function formatKRW(n?: number | null) {
-  if (n == null || !isFinite(Number(n))) return "₩0";
+  if (n == null || !isFinite(Number(n))) return "-";
   return "₩" + Number(n).toLocaleString("ko-KR");
 }
-
 function formatKST(iso: string) {
   try {
     const d = new Date(iso);
@@ -39,7 +37,6 @@ function formatKST(iso: string) {
     return "";
   }
 }
-
 function toYMD(input?: any): string | undefined {
   if (input == null || input === "") return undefined;
   const v = typeof input === "string" ? input.trim() : input;
@@ -52,19 +49,6 @@ function toYMD(input?: any): string | undefined {
   }
   return typeof v === "string" ? v : undefined;
 }
-
-function maskEmail(email?: string | null) {
-  if (!email) return "-";
-  const str = String(email);
-  const at = str.indexOf("@");
-  if (at <= 0) return str.slice(0, 2) + "…";
-  const local = str.slice(0, at);
-  const domain = str.slice(at + 1);
-  const shown = local.slice(0, 2);
-  const masked = local.length > 2 ? "*".repeat(local.length - 2) : "";
-  return `${shown}${masked}@${domain}`;
-}
-
 function useBodyScrollLock(locked: boolean) {
   useEffect(() => {
     if (!locked) return;
@@ -75,10 +59,22 @@ function useBodyScrollLock(locked: boolean) {
     };
   }, [locked]);
 }
+function maskEmail(email?: string | null) {
+  if (!email) return "";
+  const str = String(email);
+  const at = str.indexOf("@");
+  if (at <= 0) {
+    return str.startsWith("@") ? `**${str}` : str.slice(0, 2) + "…";
+  }
+  const local = str.slice(0, at);
+  const domain = str.slice(at + 1);
+  const shown = local.slice(0, 2);
+  const masked = local.length > 2 ? "*".repeat(local.length - 2) : "";
+  return `${shown}${masked}@${domain}`;
+}
+const safeNum = (v: any) => (typeof v === "number" && isFinite(v) ? v : 0);
 
-/* =========================================================================
- * 헤더(성공)
- * ========================================================================= */
+/* ================== Shared Sub Components ================== */
 function HeaderSuccess({ ticketCode, createdAtISO }: { ticketCode: string; createdAtISO: string }) {
   const kst = useMemo(() => formatKST(createdAtISO), [createdAtISO]);
   return (
@@ -102,10 +98,8 @@ function HeaderSuccess({ ticketCode, createdAtISO }: { ticketCode: string; creat
   );
 }
 
-/* =========================================================================
- * 오른쪽: 다음 절차 카드
- * ========================================================================= */
-function NextSteps() {
+/* ================== 오른쪽: 다음 절차(공통) ================== */
+function NextSteps({ variant }: { variant: "SEAT" | "PACKAGE" }) {
   return (
     <div className="rounded-xl border border-gray-100 p-4">
       <div className="mb-2 text-sm font-semibold">다음 절차</div>
@@ -118,7 +112,7 @@ function NextSteps() {
             <ClipboardList size={16} color={BRAND} />
           </span>
           <div className="text-sm leading-6">
-            <b>구좌(T.O) 확인 (1~2일 소요)</b>
+            <b>{variant === "SEAT" ? "구좌(T.O) 확인 (1~2일 소요)" : "문의 내용 확인 (1~2일)"}</b>
           </div>
         </li>
         <li className="grid grid-cols-[28px_1fr] items-start gap-3">
@@ -148,28 +142,30 @@ function NextSteps() {
   );
 }
 
-/* =========================================================================
- * 좌: 고객 문의(항상 펼침)
- * ========================================================================= */
+/* ================== 좌측: 고객 문의(항상 펼침) ================== */
 function RowLine({ label, value }: { label: string; value?: string }) {
   return (
     <div className="grid grid-cols-3 items-start gap-3 py-2">
       <div className="col-span-1 text-xs text-gray-500">{label}</div>
-      <div className="col-span-2 break-words text-sm text-gray-800">{value || "-"}</div>
+      <div className="col-span-2 text-sm text-gray-800 break-words">{value || "-"}</div>
     </div>
   );
 }
-
-function CustomerInquirySection({ data }: { data: ReceiptData }) {
+function CustomerInquirySection({ data }: { data: ReceiptPackage | ReceiptSeat | ReceiptData }) {
   const c: any = (data as any).customer || {};
   const form: any = (data as any).form || {};
   const summary: any = (data as any).summary || {};
 
   const emailMasked = maskEmail(c.email ?? form.email ?? null) || (c.emailDomain ? `**${String(c.emailDomain)}` : "-");
 
-  const campaignType = form.campaignType ?? form.campaign_type ?? summary.campaignType ?? summary.campaign_type ?? "-";
+  const campaignType =
+    form.campaignType ??
+    form.campaign_type ??
+    summary.campaignType ??
+    summary.campaign_type ??
+    c.campaignType ??
+    c.campaign_type;
 
-  // 광고 송출 예정(희망)일
   const preferredRaw =
     form.desiredDate ??
     form.hopeDate ??
@@ -185,8 +181,7 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
     (typeof form.months === "number" ? `${form.months}개월` : undefined) ??
     summary.periodLabel ??
     summary.period_label ??
-    (typeof summary.months === "number" ? `${summary.months}개월` : undefined) ??
-    "-";
+    (typeof summary.months === "number" ? `${summary.months}개월` : undefined);
 
   const promoCode =
     form.promotionCode ??
@@ -199,11 +194,16 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
     summary.promo_code ??
     (data as any)?.meta?.promotionCode ??
     (data as any)?.meta?.promoCode ??
-    (data as any)?.meta?.promo_code ??
-    "-";
+    (data as any)?.meta?.promo_code;
 
   const inquiryText: string =
-    form.request ?? form.message ?? form.memo ?? form.note ?? (data as any)?.meta?.note ?? "-";
+    form.request ??
+    form.message ??
+    form.memo ??
+    form.note ??
+    (data as any)?.meta?.note ??
+    (data as any)?.customer?.note ??
+    "";
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white">
@@ -227,223 +227,128 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
           className="max-h-[40vh] overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-gray-50 px-3 py-3 text-sm"
           data-capture-scroll
         >
-          {inquiryText}
+          {inquiryText ? inquiryText : "-"}
         </div>
       </div>
     </div>
   );
 }
 
-/* =========================================================================
- * 좌: SEAT 문의 내역(카운터/단지명 폴백 포함)
- * ========================================================================= */
+/* ============ 좌측: SEAT 전용 “문의 내역” ============ */
+/** ✅ 정규화 어댑터에서 만들어줄 최소 호환 타입(구조적) */
+type MiniItemCompat = {
+  id: string;
+  name: string; // 단지명
+  months?: number;
+  mediaName?: string;
+  baseMonthly?: number;
+  monthlyAfter?: number;
+  lineTotal?: number;
+  households?: number;
+  residents?: number;
+  monthlyImpressions?: number;
+  monitors?: number;
+};
+
 function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
-  const detailsItems: any[] = (data as any)?.details?.items ?? [];
-  const snapshotItems: any[] = (data as any)?.form?.cart_snapshot?.items ?? (data as any)?.cart_snapshot?.items ?? [];
+  const rawItems: any[] = (data?.details as any)?.items ?? [];
+  const summary: any = (data as any)?.summary || {};
 
-  const length = Math.max(detailsItems.length, snapshotItems.length);
-
-  const getVal = (obj: any, keys: string[], fallback?: any) => {
+  // 다양한 키에서 안전하게 값 꺼내는 헬퍼
+  const val = (obj: any, keys: string[], fallback?: any) => {
     for (const k of keys) {
       const v = obj?.[k];
       if (v !== undefined && v !== null && v !== "") return v;
     }
     return fallback;
   };
+  const toNum = (x: any): number | undefined => {
+    if (x === undefined || x === null) return undefined;
+    if (typeof x === "number" && isFinite(x)) return x;
+    const n = Number(String(x).replace(/[^\d.-]/g, ""));
+    return isFinite(n) ? n : undefined;
+  };
+  const toInt = (x: any): number | undefined => {
+    if (x === undefined || x === null) return undefined;
+    const n = parseInt(String(x).replace(/[^\d-]/g, ""), 10);
+    return isFinite(n) ? n : undefined;
+  };
+  const cleanAptFromSummary = (s?: string) => (s ? s.replace(/\s*외.*$/, "") : undefined);
 
-  const topFallback =
-    typeof (data as any)?.summary?.topAptLabel === "string"
-      ? String((data as any).summary.topAptLabel).replace(/\s*외.*$/, "")
-      : "-";
+  // ✅ 정규화: QuoteMiniTable이 바로 먹을 수 있는 형태로 변환
+  const miniItems: MiniItemCompat[] = useMemo(() => {
+    const topFallback = cleanAptFromSummary(typeof summary?.topAptLabel === "string" ? summary.topAptLabel : undefined);
 
-  const rows = Array.from({ length }).map((_, i) => {
-    const primary = detailsItems[i] ?? {};
-    const shadow = snapshotItems[i] ?? {};
+    return (rawItems ?? []).map((it: any, idx: number) => {
+      const name =
+        val(it, ["apt_name", "aptName", "name", "apt", "complex_name", "complex", "title"], topFallback) ?? "-";
 
-    const aptName =
-      getVal(primary, ["apt_name", "aptName", "name", "apt", "title"]) ??
-      getVal(shadow, ["apt_name", "aptName", "name", "apt", "title"]) ??
-      topFallback ??
-      "-";
+      const months =
+        toInt(val(it, ["months", "month"], undefined)) ??
+        toInt(String(val(it, ["periodLabel", "period_label"], "")).replace(/[^\d]/g, ""));
 
-    const months = Number(getVal(primary, ["months", "month"], getVal(shadow, ["months", "month"], 0)));
-    const periodLabel = months ? `${months}개월` : getVal(primary, ["period", "periodLabel"], "-");
+      const mediaName = val(it, ["product_name", "productName", "mediaName"], undefined);
 
-    const productName =
-      getVal(primary, ["productName", "product_name", "mediaName"]) ??
-      getVal(shadow, ["productName", "product_name", "mediaName"]) ??
-      "-";
+      const baseMonthly = toNum(val(it, ["baseMonthly", "base_monthly", "priceMonthly"], undefined));
 
-    const baseMonthly = Number(
-      getVal(primary, ["baseMonthly", "priceMonthly"], getVal(shadow, ["baseMonthly", "priceMonthly"], 0)),
-    );
+      const monthlyAfter = toNum(val(it, ["monthlyAfter", "monthly_after", "priceMonthlyAfter"], undefined));
 
-    // 기준금액 = baseMonthly * months
-    const baseTotal = baseMonthly && months ? baseMonthly * months : Number(getVal(primary, ["baseTotal"], 0));
+      let lineTotal = toNum(val(it, ["lineTotal", "line_total", "item_total_won", "total_won"], undefined));
 
-    // 총광고료
-    let lineTotal = Number(
-      getVal(
-        primary,
-        ["lineTotal", "item_total_won", "total_won"],
-        getVal(shadow, ["lineTotal", "item_total_won", "total_won"], NaN),
-      ),
-    );
-    if (!isFinite(lineTotal)) {
-      const monthlyAfter = Number(
-        getVal(primary, ["monthlyAfter", "monthly_after"], getVal(shadow, ["monthlyAfter", "monthly_after"], NaN)),
+      // 총액이 비어있으면 월가 * 개월로 보정(견고성)
+      if (!isFinite(Number(lineTotal)) && isFinite(Number(monthlyAfter)) && isFinite(Number(months))) {
+        lineTotal = Number(monthlyAfter) * Number(months);
+      }
+
+      const households = toInt(val(it, ["households", "household", "hh"], undefined));
+      const residents = toInt(val(it, ["residents", "population"], undefined));
+      const monthlyImpressions = toInt(
+        val(it, ["monthlyImpressions", "monthly_impressions", "impressions", "plays"], undefined),
       );
-      if (isFinite(monthlyAfter) && months) lineTotal = monthlyAfter * months;
-      else if (isFinite(baseMonthly) && months) lineTotal = baseMonthly * months;
-      else lineTotal = 0;
-    }
+      const monitors = toInt(val(it, ["monitors", "monitorCount", "monitor_count", "screens"], undefined));
 
-    // 할인율 = 1 - (lineTotal / baseTotal)
-    let discountPct = "-";
-    if (isFinite(baseTotal) && baseTotal > 0 && isFinite(lineTotal)) {
-      const rate = Math.max(0, Math.min(1, 1 - lineTotal / baseTotal));
-      discountPct = `${Math.round(rate * 100)}%`;
-    }
-
-    return {
-      aptName,
-      productName,
-      monthlyFee: baseMonthly, // 월광고료(기준)
-      periodLabel,
-      baseTotal,
-      discountPct,
-      lineTotal,
-    };
-  });
-
-  // 카운터 합계(스냅샷 값도 합산 시도)
-  const totals = rows.reduce(
-    (acc, _r, idx) => {
-      const p = detailsItems[idx] ?? {};
-      const s = snapshotItems[idx] ?? {};
-      const n = (keys: string[]) => {
-        const v = Number(getVal(p, keys, getVal(s, keys, 0)));
-        return isFinite(v) ? v : 0;
+      return {
+        id: it.id ?? String(idx),
+        name,
+        months,
+        mediaName,
+        baseMonthly,
+        monthlyAfter,
+        lineTotal,
+        households,
+        residents,
+        monthlyImpressions,
+        monitors,
       };
-      acc.households += n(["households", "household", "hh"]);
-      acc.residents += n(["residents", "population"]);
-      acc.monthlyImpressions += n(["monthlyImpressions", "monthly_impressions", "impressions", "plays"]);
-      acc.monitors += n(["monitors", "monitor_count", "monitorCount", "screens"]);
-      return acc;
-    },
-    { households: 0, residents: 0, monthlyImpressions: 0, monitors: 0 },
-  );
+    });
+  }, [rawItems, summary]);
 
-  const periodTotal =
-    (data as any)?.details?.periodTotalKRW ??
-    rows.reduce((sum, r) => sum + (isFinite(r.lineTotal) ? r.lineTotal : 0), 0);
-
+  // 카운터 합산(상단 바)
+  // QuoteMiniCounters 내부에서도 합산하지만, 표현만 맡기고 여기서는 items만 준비.
   return (
     <div className="rounded-xl border border-gray-100 bg-white">
-      {/* 제목 */}
-      <div className="px-4 pt-3 text-sm font-semibold">문의 내역</div>
+      <div className="px-4 py-3 text-sm font-semibold">문의 내역</div>
 
-      {/* 카운터 바 */}
-      <div className="px-4 pb-2 text-sm text-[#4B5563] flex flex-wrap gap-x-4 gap-y-1">
-        <span className="font-semibold">{`총 ${rows.length}개 단지`}</span>
-        <span>
-          · 세대수 <b>{totals.households.toLocaleString()}</b> 세대
-        </span>
-        <span>
-          · 거주인원 <b>{totals.residents.toLocaleString()}</b> 명
-        </span>
-        <span>
-          · 송출횟수 <b>{totals.monthlyImpressions.toLocaleString()}</b> 회
-        </span>
-        <span>
-          · 모니터수량 <b>{totals.monitors.toLocaleString()}</b> 대
-        </span>
+      {/* ✅ 카운터 표시 */}
+      <div className="px-1">
+        <QuoteMiniCounters items={miniItems} />
       </div>
 
-      {/* 테이블 (가로 스크롤 허용) */}
-      <div className="border-t border-gray-100 overflow-x-auto" data-capture-scroll>
-        {/* 열 순서: 단지명/상품명/월광고료/광고기간/기준금액/할인율/총광고료 */}
-        <table className="min-w-[920px] text-[13px]">
-          <thead className="bg-gray-50 text-gray-600">
-            <tr className="[&>th]:px-4 [&>th]:py-2">
-              <th className="text-left">단지명</th>
-              <th className="text-left">상품명</th>
-              <th className="text-right">월광고료</th>
-              <th className="text-right">광고기간</th>
-              <th className="text-right">기준금액</th>
-              <th className="text-right">할인율</th>
-              <th className="text-right text-[#6C2DFF]">총광고료</th>
-            </tr>
-          </thead>
-          <tbody className="[&>tr>td]:px-4 [&>tr>td]:py-2">
-            {rows.length ? (
-              rows.map((r, i) => (
-                <tr key={i} className="border-t border-gray-100">
-                  <td className="font-medium text-gray-900">{r.aptName}</td>
-                  <td className="truncate">{r.productName}</td>
-                  <td className="text-right">{formatKRW(r.monthlyFee)}</td>
-                  <td className="text-right">{r.periodLabel}</td>
-                  <td className="text-right">{formatKRW(r.baseTotal)}</td>
-                  <td className="text-right">{r.discountPct}</td>
-                  <td className="text-right font-semibold text-[#6C2DFF]">{formatKRW(r.lineTotal)}</td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={7} className="py-8 text-center text-xs text-gray-500">
-                  항목이 없습니다.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* 합계 카드 (보라/빨강/보라 굵게) */}
-      <div className="px-4 py-4">
-        <div className="rounded-xl border border-[#E5E7EB] bg-[#F7F5FF]">
-          <div className="flex items-center justify-between px-4 py-3">
-            <span className="text-sm text-gray-600">총 광고료 합계(TOTAL)</span>
-            <span className="text-sm font-bold text-[#6C2DFF]">{formatKRW(periodTotal)}</span>
-          </div>
-          <div className="flex items-center justify-between border-t border-[#E5E7EB] px-4 py-3">
-            <span className="text-sm text-gray-600">부가세(VAT 10%)</span>
-            <span className="text-sm font-bold text-red-500">{formatKRW(Math.round(periodTotal * 0.1))}</span>
-          </div>
-          <div className="flex items-center justify-between border-t border-[#E5E7EB] px-4 py-4">
-            <span className="text-[15px] font-semibold text-[#6C2DFF]">최종 광고료 (VAT 포함)</span>
-            <span className="text-[20px] font-extrabold text-[#6C2DFF]">
-              {formatKRW(Math.round(periodTotal * 1.1))}
-            </span>
-          </div>
-        </div>
+      {/* ✅ 테이블(가로스크롤 컨테이너에 캡처 표시) */}
+      <div className="px-4 pb-2" data-capture-scroll>
+        <QuoteMiniTable items={miniItems} showFooterTotal={false} />
       </div>
     </div>
   );
 }
 
-/* =========================================================================
- * 메인 모달
- * ========================================================================= */
-function useIsDesktop() {
-  const get = () =>
-    typeof window === "undefined" || !window.matchMedia ? true : window.matchMedia("(min-width: 1024px)").matches;
-  const [val, setVal] = useState(get);
-  useEffect(() => {
-    if (!window.matchMedia) return;
-    const mql = window.matchMedia("(min-width: 1024px)");
-    const handler = (e: MediaQueryListEvent) => setVal(e.matches);
-    mql.addEventListener?.("change", handler);
-    return () => mql.removeEventListener?.("change", handler);
-  }, []);
-  return val;
-}
-
-export default function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확인" }: CompleteModalProps) {
+/* ================== Main ================== */
+export function CompleteModalDesktop({ open, onClose, data, confirmLabel = "확인" }: CompleteModalProps) {
   useBodyScrollLock(open);
-  const isDesktop = useIsDesktop();
 
   const [pickerOpen, setPickerOpen] = useState(false);
+  const isPkg = isPackageReceipt(data);
+  const isSeat = isSeatReceipt(data);
 
   const openExternal = (url?: string) => {
     if (url) window.open(url, "_blank", "noopener,noreferrer");
@@ -451,7 +356,14 @@ export default function CompleteModalDesktop({ open, onClose, data, confirmLabel
 
   if (!open) return null;
 
-  // 저장(전체) - 루트와 스크롤 컨테이너 선택
+  const saveButtonLabel = "문의 내용 저장";
+  const sheetTitle = saveButtonLabel;
+
+  // PC 고정 링크
+  const LINK_YT = "https://www.youtube.com/@ORKA_KOREA";
+  const LINK_GUIDE = "https://orka.co.kr/ELAVATOR_CONTENTS";
+  const LINK_TEAM = "https://orka.co.kr/orka_members";
+
   const handleSave = async (kind: "png" | "pdf") => {
     const root = document.getElementById("receipt-capture");
     if (!root) return;
@@ -460,17 +372,9 @@ export default function CompleteModalDesktop({ open, onClose, data, confirmLabel
     else await saveFullContentAsPDF(root, `${data.ticketCode}_receipt`, scrollContainers);
   };
 
-  // 링크(우측 카드)
-  const LINK_YT = "https://www.youtube.com/@ORKA_KOREA";
-  const LINK_GUIDE = "https://orka.co.kr/ELAVATOR_CONTENTS";
-  const LINK_TEAM = "https://orka.co.kr/orka_members";
-
-  const isSeat = isSeatReceipt(data);
-
   return createPortal(
     <AnimatePresence>
       <>
-        {/* DIM */}
         <motion.div
           key="dim"
           className="fixed inset-0 z-[1200] bg-black/40"
@@ -480,81 +384,78 @@ export default function CompleteModalDesktop({ open, onClose, data, confirmLabel
           onClick={onClose}
         />
 
-        {/* 패널: column 레이아웃 + 본문만 스크롤(닫기 버튼 항상 보이도록) */}
+        {/* 중앙 정렬 컨테이너 (하한선 + 내부 스크롤) */}
         <div className="fixed inset-0 z-[1201] flex items-center justify-center">
           <motion.div
             id="receipt-capture"
             key="panel"
-            className="flex w-[1000px] max-w-[96vw] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            className="w-[900px] max-w-[94vw] max-h-[92vh] overflow-y-auto rounded-2xl bg-white shadow-2xl"
             role="dialog"
             aria-modal="true"
-            style={{ maxHeight: isDesktop ? "90vh" : "92vh" }}
             initial={{ scale: 0.96, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             exit={{ scale: 0.96, opacity: 0 }}
             transition={{ type: "spring", stiffness: 260, damping: 22 }}
           >
-            {/* 헤더 */}
-            <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-6 py-5">
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-6 py-5 sticky top-0 bg-white/90 backdrop-blur">
               <HeaderSuccess ticketCode={data.ticketCode} createdAtISO={data.createdAtISO} />
               <button aria-label="close" className="rounded-full p-2 hover:bg-gray-50" onClick={onClose}>
                 <X size={18} />
               </button>
             </div>
 
-            {/* 본문 (세로 스크롤) */}
-            <div className="flex-1 overflow-y-auto px-6 py-6" data-capture-scroll>
-              <div className="grid grid-cols-12 gap-6">
-                {/* 좌측 */}
-                <div className="col-span-12 lg:col-span-8 space-y-4">
-                  <CustomerInquirySection data={data as ReceiptData} />
-                  {isSeat && <SeatInquiryTable data={data as ReceiptSeat} />}
-                </div>
+            {/* Body */}
+            <div className="grid grid-cols-12 gap-6 px-6 py-6">
+              {/* 좌측 */}
+              <div className="col-span-8 space-y-4">
+                <CustomerInquirySection data={data as any} />
+                {isSeat && <SeatInquiryTable data={data as ReceiptSeat} />}
+              </div>
 
-                {/* 우측 */}
-                <div className="col-span-12 lg:col-span-4 space-y-4">
-                  <NextSteps />
+              {/* 우측 */}
+              <div className="col-span-4 space-y-4">
+                <NextSteps variant={isSeat ? "SEAT" : "PACKAGE"} />
 
-                  <button
-                    onClick={() => setPickerOpen(true)}
-                    className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white"
-                    style={{ backgroundColor: BRAND }}
-                  >
-                    문의 내용 저장
-                  </button>
+                <button
+                  onClick={() => setPickerOpen(true)}
+                  className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white"
+                  style={{ backgroundColor: BRAND }}
+                >
+                  {saveButtonLabel}
+                </button>
 
-                  <div className="rounded-xl border border-gray-100 p-4">
-                    <div className="text-sm font-semibold">더 많은 정보</div>
-                    <div className="mt-3 grid grid-cols-1 gap-2">
-                      <button
-                        onClick={() => openExternal(LINK_YT)}
-                        className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
-                      >
-                        <ExternalLink size={16} />
-                        광고 소재 채널 바로가기
-                      </button>
-                      <button
-                        onClick={() => openExternal(LINK_GUIDE)}
-                        className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
-                      >
-                        <ExternalLink size={16} />
-                        제작 가이드 바로가기
-                      </button>
-                      <button
-                        onClick={() => openExternal(LINK_TEAM)}
-                        className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
-                      >
-                        <ExternalLink size={16} />
-                        오르카 구성원 확인하기
-                      </button>
-                    </div>
+                <div className="rounded-xl border border-gray-100 p-4">
+                  <div className="text-sm font-semibold">더 많은 정보</div>
+                  <div className="mt-3 grid grid-cols-1 gap-2">
+                    <button
+                      onClick={() => openExternal(LINK_YT)}
+                      className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
+                    >
+                      <ExternalLink size={16} />
+                      광고 소재 채널 바로가기
+                    </button>
+                    <button
+                      onClick={() => openExternal(LINK_GUIDE)}
+                      className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
+                    >
+                      <ExternalLink size={16} />
+                      제작 가이드 바로가기
+                    </button>
+                    <button
+                      onClick={() => openExternal(LINK_TEAM)}
+                      className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
+                    >
+                      <ExternalLink size={16} />
+                      오르카 구성원 확인하기
+                    </button>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* 푸터(항상 보임) */}
-            <div className="flex items-center justify-end border-t border-gray-100 px-6 py-4">
+            {/* Footer: 닫기 버튼 고정 가시성 */}
+            <div className="flex items-center justify-end border-t border-gray-100 px-6 py-4 sticky bottom-0 bg-white">
               <button onClick={onClose} className="rounded-xl bg-black px-5 py-3 text-sm font-semibold text-white">
                 {confirmLabel}
               </button>
@@ -562,7 +463,7 @@ export default function CompleteModalDesktop({ open, onClose, data, confirmLabel
           </motion.div>
         </div>
 
-        {/* 저장 액션 시트: PNG + PDF */}
+        {/* 저장 액션 시트 */}
         <AnimatePresence>
           {pickerOpen && (
             <>
@@ -583,7 +484,7 @@ export default function CompleteModalDesktop({ open, onClose, data, confirmLabel
                 transition={{ type: "spring", stiffness: 260, damping: 22 }}
               >
                 <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
-                  <div className="text-sm font-semibold">문의 내용 저장</div>
+                  <div className="text-sm font-semibold">{sheetTitle}</div>
                   <button
                     aria-label="close-picker"
                     className="rounded-full p-2 hover:bg-gray-50"
@@ -629,3 +530,5 @@ export default function CompleteModalDesktop({ open, onClose, data, confirmLabel
     document.body,
   );
 }
+
+export default CompleteModalDesktop;
