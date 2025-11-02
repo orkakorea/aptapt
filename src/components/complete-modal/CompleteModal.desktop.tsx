@@ -8,6 +8,8 @@ import { isSeatReceipt } from "./types";
 
 // 저장(전체 캡처) 유틸
 import { saveFullContentAsPNG, saveFullContentAsPDF } from "@/core/utils/capture";
+// ⬇️ 할인율 역산 보강을 위한 정책 계산(최후 폴백용)
+import { calcMonthlyWithPolicy, normPolicyKey } from "@/core/pricing";
 
 /* =========================================================================
  * 공통 상수/유틸
@@ -236,6 +238,9 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
 
 /* =========================================================================
  * 좌: SEAT 문의 내역(카운터/단지명 폴백 포함)
+ *  - 할인율 계산 보강:
+ *    1) monthlyAfter, baseMonthly가 없으면 lineTotal/months, baseTotal/months로 역산
+ *    2) 여전히 0%에 수렴하면 정책 계산(calcMonthlyWithPolicy)로 최후 폴백
  * ========================================================================= */
 function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
   const detailsItems: any[] = (data as any)?.details?.items ?? [];
@@ -256,6 +261,19 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
       ? String((data as any).summary.topAptLabel).replace(/\s*외.*$/, "")
       : "-";
 
+  // 정책용: 같은 상품군 개수(사전보상 할인 추정)에 사용
+  const productKeyCounts = (() => {
+    const m = new Map<string, number>();
+    const src = Array.isArray(snapshotItems) && snapshotItems.length ? snapshotItems : detailsItems;
+    src.forEach((raw) => {
+      const p = raw?.product_name ?? raw?.productName ?? raw?.product_code ?? raw?.mediaName ?? "";
+      const key = normPolicyKey(p);
+      if (!key || key === "_NONE") return;
+      m.set(key, (m.get(key) || 0) + 1);
+    });
+    return m;
+  })();
+
   const rows = Array.from({ length }).map((_, i) => {
     const primary = detailsItems[i] ?? {};
     const shadow = snapshotItems[i] ?? {};
@@ -270,18 +288,21 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
     const periodLabel = months ? `${months}개월` : getVal(primary, ["period", "periodLabel"], "-");
 
     const productName =
-      getVal(primary, ["productName", "product_name", "mediaName"]) ??
-      getVal(shadow, ["productName", "product_name", "mediaName"]) ??
+      getVal(primary, ["productName", "product_name", "mediaName", "product_code"]) ??
+      getVal(shadow, ["productName", "product_name", "mediaName", "product_code"]) ??
       "-";
 
-    const baseMonthly = Number(
-      getVal(primary, ["baseMonthly", "priceMonthly"], getVal(shadow, ["baseMonthly", "priceMonthly"], 0)),
+    // ⬇️ 기준 월가 / 기준금액
+    const baseMonthlyRaw = Number(
+      getVal(primary, ["baseMonthly", "priceMonthly"], getVal(shadow, ["baseMonthly", "priceMonthly"], NaN)),
     );
+    const baseMonthly = isFinite(baseMonthlyRaw) ? baseMonthlyRaw : NaN;
 
-    // 기준금액 = baseMonthly * months
-    const baseTotal = baseMonthly && months ? baseMonthly * months : Number(getVal(primary, ["baseTotal"], 0));
+    const baseTotalRaw =
+      Number(getVal(primary, ["baseTotal"], NaN)) || (isFinite(baseMonthly) && months ? baseMonthly * months : NaN);
+    const baseTotal = isFinite(baseTotalRaw) ? baseTotalRaw : NaN;
 
-    // 총광고료
+    // ⬇️ 총광고료
     let lineTotal = Number(
       getVal(
         primary,
@@ -290,27 +311,66 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
       ),
     );
     if (!isFinite(lineTotal)) {
-      const monthlyAfter = Number(
-        getVal(primary, ["monthlyAfter", "monthly_after"], getVal(shadow, ["monthlyAfter", "monthly_after"], NaN)),
+      const monthlyAfterFallback = Number(
+        getVal(
+          primary,
+          ["monthlyAfter", "monthly_after", "priceMonthlyAfter"],
+          getVal(shadow, ["monthlyAfter", "monthly_after", "priceMonthlyAfter"], NaN),
+        ),
       );
-      if (isFinite(monthlyAfter) && months) lineTotal = monthlyAfter * months;
-      else if (isFinite(baseMonthly) && months) lineTotal = baseMonthly * months;
+      if (isFinite(monthlyAfterFallback) && months) lineTotal = Math.round(monthlyAfterFallback * months);
+      else if (isFinite(baseMonthly) && months) lineTotal = Math.round(baseMonthly * months);
       else lineTotal = 0;
     }
 
-    // 할인율 = 1 - (lineTotal / baseTotal)
+    // ⬇️ 할인율 계산(보강)
+    // 1) 월가/기준월가 역산
+    const monthlyAfterRaw = Number(
+      getVal(
+        primary,
+        ["monthlyAfter", "monthly_after", "priceMonthlyAfter"],
+        getVal(shadow, ["monthlyAfter", "monthly_after", "priceMonthlyAfter"], NaN),
+      ),
+    );
+    const monthlyAfterEff = isFinite(monthlyAfterRaw)
+      ? monthlyAfterRaw
+      : isFinite(lineTotal) && months
+        ? Math.round(lineTotal / months)
+        : NaN;
+    const baseMonthlyEff =
+      (isFinite(baseMonthly) && baseMonthly > 0 ? baseMonthly : NaN) ||
+      (isFinite(baseTotal) && months ? Math.round(baseTotal / months) : NaN);
+
+    const clamp01 = (n: number) => (n < 0 ? 0 : n > 1 ? 1 : n);
+
     let discountPct = "-";
-    if (isFinite(baseTotal) && baseTotal > 0 && isFinite(lineTotal)) {
-      const rate = Math.max(0, Math.min(1, 1 - lineTotal / baseTotal));
-      discountPct = `${Math.round(rate * 100)}%`;
+    if (isFinite(baseMonthlyEff) && baseMonthlyEff > 0 && isFinite(monthlyAfterEff)) {
+      const rate = clamp01(1 - monthlyAfterEff / baseMonthlyEff);
+      if (isFinite(rate)) discountPct = `${Math.round(rate * 100)}%`;
+    } else if (isFinite(baseTotal) && baseTotal > 0 && isFinite(lineTotal)) {
+      const rate = clamp01(1 - lineTotal / baseTotal);
+      if (isFinite(rate)) discountPct = `${Math.round(rate * 100)}%`;
+    }
+
+    // 2) 여전히 0%/NaN 같으면 정책으로 최후 폴백(표시만 보정)
+    const pctNum = Number(discountPct.replace("%", ""));
+    const looksZero = !isFinite(pctNum) || Math.abs(pctNum) < 1;
+    if (looksZero && isFinite(baseMonthlyEff) && baseMonthlyEff > 0 && months > 0) {
+      const key = normPolicyKey(String(productName));
+      const sameCount = key && key !== "_NONE" ? (productKeyCounts.get(key) ?? 1) : 1;
+      const { monthly } = calcMonthlyWithPolicy(String(productName), months, baseMonthlyEff, undefined, sameCount);
+      if (monthly > 0 && monthly <= baseMonthlyEff) {
+        const r = clamp01(1 - monthly / baseMonthlyEff);
+        discountPct = `${Math.round(r * 100)}%`;
+      }
     }
 
     return {
       aptName,
       productName,
-      monthlyFee: baseMonthly, // 월광고료(기준)
+      monthlyFee: baseMonthlyEff, // 표시는 기준월가(역산 포함)
       periodLabel,
-      baseTotal,
+      baseTotal: isFinite(baseTotal) ? baseTotal : 0,
       discountPct,
       lineTotal,
     };
