@@ -1,8 +1,60 @@
 import type { SeatItem, SeatSummary } from "@/components/complete-modal/types";
 
-/** 1탭 '총 비용'을 최대한 호환성 있게 추출 */
+/* ============================================================
+ * 공통 유틸
+ * ============================================================ */
+
+/** '2,520,000원' / '₩2,520,000' 같은 값을 숫자로 안전 변환 */
+function parseMoney(v: any): number | null {
+  if (v == null) return null;
+  if (typeof v === "number" && isFinite(v)) return Math.round(v);
+  if (typeof v === "string") {
+    const s = v.replace(/[^\d.-]/g, ""); // 숫자/부호 외 제거
+    if (!s) return null;
+    const n = Number(s);
+    return isFinite(n) ? Math.round(n) : null;
+  }
+  return null;
+}
+
+/** Number 가능하면 숫자, 아니면 undefined */
+function toNum(v: any): number | undefined {
+  const n = Number(v);
+  return isFinite(n) ? n : undefined;
+}
+
+/** 숫자 or null */
+function numOrNull(v: any): number | null {
+  const n = Number(v);
+  return isFinite(n) ? n : null;
+}
+
+/** baseMonthly / monthlyAfter / months 로 lineTotal 계산(가능할 때만) */
+function calcLineTotal(
+  baseMonthly?: number | null,
+  monthlyAfter?: number | null,
+  months?: number | null,
+): number | null {
+  if (!months || months <= 0) return null;
+  const m =
+    (typeof monthlyAfter === "number" ? monthlyAfter : undefined) ??
+    (typeof baseMonthly === "number" ? baseMonthly : undefined);
+  return typeof m === "number" ? Math.round(m * months) : null;
+}
+
+/** 안전한 문자열 */
+const strOrDash = (v: any) => {
+  const s = typeof v === "string" ? v.trim() : v;
+  return s && String(s).length > 0 ? String(s) : "-";
+};
+
+/* ============================================================
+ * 1탭 '총 비용'을 최대한 호환성 있게 추출
+ * ============================================================ */
 export function pickCartTotal(snap: any): number | null {
   if (!snap) return null;
+
+  // 후보 키들에서 먼저 시도
   const candidates = [
     snap.cartTotal,
     snap.cart_total,
@@ -15,18 +67,31 @@ export function pickCartTotal(snap: any): number | null {
     snap.total,
   ];
   for (const c of candidates) {
-    const n = Number(c);
-    if (isFinite(n) && n > 0) return n;
+    const n = parseMoney(c);
+    if (typeof n === "number" && n > 0) return n;
   }
+
+  // 라인 합으로 보정
   if (Array.isArray(snap.items) && snap.items.length > 0) {
     const sum = snap.items.reduce((acc: number, it: any) => {
-      const n = Number(it?.itemTotalWon ?? it?.item_total_won ?? it?.totalWon ?? it?.total_won ?? it?.lineTotal ?? 0);
+      const n =
+        parseMoney(it?.itemTotalWon) ??
+        parseMoney(it?.item_total_won) ??
+        parseMoney(it?.totalWon) ??
+        parseMoney(it?.total_won) ??
+        parseMoney(it?.lineTotal) ??
+        parseMoney(it?.line_total) ??
+        0;
       return acc + (isFinite(n) ? n : 0);
     }, 0);
     return sum > 0 ? sum : null;
   }
   return null;
 }
+
+/* ============================================================
+ * 전화/이메일 유틸
+ * ============================================================ */
 
 /** 전화번호 마스킹 (010-****-1234 형태) */
 export function maskPhone(phone?: string | null): string | undefined {
@@ -45,6 +110,10 @@ export function emailToDomain(email?: string | null): string | undefined {
   if (at < 0) return undefined;
   return "@" + String(email).slice(at + 1);
 }
+
+/* ============================================================
+ * 스냅샷 분석
+ * ============================================================ */
 
 /** 스냅샷에서 (개월 집계) months 최댓값과 유니크 개수 반환 */
 function extractMonths(snap: any): { max: number | null; uniqueCount: number } {
@@ -132,87 +201,56 @@ export function makeSeatSummary(prefill?: {
   };
 }
 
-/** 숫자 or null */
-function numOrNull(v: any): number | null {
-  const n = Number(v);
-  return isFinite(n) ? n : null;
-}
-
-/** 내부 숫자 파서(0/NaN 가드) */
-function toNum(v: any): number | undefined {
-  const n = Number(v);
-  return isFinite(n) ? n : undefined;
-}
-
-/** baseMonthly/ monthlyAfter / months로 lineTotal 계산 (가능할 때만) */
-function calcLineTotal(
-  baseMonthly?: number | null,
-  monthlyAfter?: number | null,
-  months?: number | null,
-): number | null {
-  if (!months || months <= 0) return null;
-  const m =
-    (typeof monthlyAfter === "number" ? monthlyAfter : undefined) ??
-    (typeof baseMonthly === "number" ? baseMonthly : undefined);
-  return typeof m === "number" ? Math.round(m * months) : null;
-}
-
-/** 안전한 문자열 */
-const strOrDash = (v: any) => {
-  const s = typeof v === "string" ? v.trim() : v;
-  return s && String(s).length > 0 ? String(s) : "-";
-};
-
-/** SEAT 라인아이템 목록 생성 (접수증 자세히 테이블) — ★ 키 정규화 보강(A안) */
+/* ============================================================
+ * SEAT 라인아이템 생성 (A-보강: 총광고료/키 매핑 강제 수선)
+ * ============================================================ */
 export function buildSeatItemsFromSnapshot(snap: any): SeatItem[] {
   const items: any[] = Array.isArray(snap?.items) ? snap.items : [];
-
   const fallbackMonths = numOrNull(snap?.months ?? null);
 
   return items.map((it) => {
-    // --- 단지명/상품명: 다양한 키 대응 ---
+    // 단지/상품
     const aptName = it?.apt_name ?? it?.aptName ?? it?.apt ?? it?.title ?? it?.name ?? "-";
-
     const productName = it?.product_name ?? it?.productName ?? it?.mediaName ?? it?.product_code ?? "-";
 
-    // --- 기간 ---
+    // 개월
     const months = numOrNull(it?.months ?? it?.month ?? fallbackMonths ?? null);
 
-    // --- 금액(정가/할인 후 월가) ---
-    const baseMonthly = numOrNull(
-      it?.baseMonthly ??
-        it?.base_monthly ??
-        it?.priceMonthly ??
-        it?.price_monthly ??
-        it?.monthlyFee ??
-        it?.monthly_fee ??
-        null,
-    );
+    // 월 정가 / 할인 후 월가
+    const baseMonthly =
+      parseMoney(it?.baseMonthly) ??
+      parseMoney(it?.base_monthly) ??
+      parseMoney(it?.priceMonthly) ??
+      parseMoney(it?.price_monthly) ??
+      parseMoney(it?.monthlyFee) ??
+      parseMoney(it?.monthly_fee) ??
+      null;
 
     const monthlyAfter =
-      numOrNull(
-        it?.monthlyAfter ??
-          it?.monthly_after ??
-          it?.priceMonthlyAfter ??
-          it?.price_monthly_after ??
-          it?.discountedMonthly ??
-          it?.discounted_monthly ??
-          null,
-      ) ??
+      parseMoney(it?.monthlyAfter) ??
+      parseMoney(it?.monthly_after) ??
+      parseMoney(it?.priceMonthlyAfter) ??
+      parseMoney(it?.price_monthly_after) ??
+      parseMoney(it?.discountedMonthly) ??
+      parseMoney(it?.discounted_monthly) ??
       baseMonthly ??
       null;
 
-    // --- 총액(우선순위: 계산 가능한 경우 → 제공값) ---
+    // 총액: 1) 다양한 키에서 파싱 → 2) 계산 보정
     let lineTotal =
-      calcLineTotal(baseMonthly, monthlyAfter, months) ??
-      numOrNull(it?.lineTotal ?? it?.item_total_won ?? it?.itemTotalWon ?? it?.total_won ?? it?.totalWon ?? null) ??
+      parseMoney(it?.lineTotal) ??
+      parseMoney(it?.line_total) ??
+      parseMoney(it?.item_total_won) ??
+      parseMoney(it?.itemTotalWon) ??
+      parseMoney(it?.total_won) ??
+      parseMoney(it?.totalWon) ??
       null;
 
-    // --- 기준금액(정가 × 개월) — SeatItem에는 별도 필드 없지만,
-    //     완료모달 테이블에서 표시 계산에 쓰이므로 lineTotal이 없을 때 대체 계산에 도움됨
-    //     (필요 시 monthlyAfter가 없으면 baseMonthly로 처리)
-    if (lineTotal === null && months && baseMonthly) {
-      lineTotal = Math.round(baseMonthly * months);
+    if (lineTotal == null) {
+      lineTotal = calcLineTotal(baseMonthly, monthlyAfter, months);
+    }
+    if (lineTotal == null && months && baseMonthly) {
+      lineTotal = Math.round((baseMonthly as number) * (months as number));
     }
 
     const discountNote: string | null =
@@ -230,7 +268,7 @@ export function buildSeatItemsFromSnapshot(snap: any): SeatItem[] {
       baseMonthly,
       discountNote,
       monthlyAfter,
-      lineTotal,
+      lineTotal: lineTotal ?? null,
     };
 
     return seat;
@@ -238,10 +276,9 @@ export function buildSeatItemsFromSnapshot(snap: any): SeatItem[] {
 }
 
 /* ============================================================
- * (1) 완료모달 → 견적 테이블 호환 어댑터
+ * 완료모달 → 견적 테이블 호환 어댑터
  * ============================================================ */
 
-/** 견적 테이블 구조와 호환되는 최소 타입(의존성 순환 방지용) */
 export type QuoteLineItemCompat = {
   id: string;
   name: string; // 단지명
@@ -262,11 +299,6 @@ export type QuoteLineItemCompat = {
   productKeyHint?: string;
 };
 
-/**
- * 완료 모달의 details.items(Seat 기반) → 견적 라인아이템 구조로 변환.
- * - key 매핑은 우선순위 규칙으로 폭넓게 대응
- * - id는 안정성을 위해 apt|media|months 기반으로 생성(동명이인 대비 index suffix 포함)
- */
 export function adaptQuoteItemsFromReceipt(rawItems: any[] | null | undefined): QuoteLineItemCompat[] {
   const arr: any[] = Array.isArray(rawItems) ? rawItems : [];
   return arr.map((raw, idx): QuoteLineItemCompat => {
@@ -277,24 +309,26 @@ export function adaptQuoteItemsFromReceipt(rawItems: any[] | null | undefined): 
 
     const months = toNum(raw?.months ?? raw?.month) ?? 0;
 
-    const baseMonthly = toNum(raw?.baseMonthly ?? raw?.base_monthly ?? raw?.priceMonthly);
+    const baseMonthly =
+      parseMoney(raw?.baseMonthly) ?? parseMoney(raw?.base_monthly) ?? parseMoney(raw?.priceMonthly) ?? undefined;
 
     const monthlyAfter =
-      toNum(raw?.monthlyAfter ?? raw?.monthly_after ?? raw?.priceMonthlyAfter) ??
-      (toNum(raw?.lineTotal ?? raw?.item_total_won ?? raw?.total_won) && months > 0
-        ? Math.round(Number(raw?.lineTotal ?? raw?.item_total_won ?? raw?.total_won) / months)
+      parseMoney(raw?.monthlyAfter) ??
+      parseMoney(raw?.monthly_after) ??
+      parseMoney(raw?.priceMonthlyAfter) ??
+      (parseMoney(raw?.lineTotal ?? raw?.item_total_won ?? raw?.total_won) && months > 0
+        ? Math.round((parseMoney(raw?.lineTotal ?? raw?.item_total_won ?? raw?.total_won) as number) / months)
         : undefined);
 
-    const rawLineTotal = toNum(raw?.lineTotal ?? raw?.item_total_won ?? raw?.total_won);
+    const rawLineTotal =
+      parseMoney(raw?.lineTotal) ?? parseMoney(raw?.item_total_won) ?? parseMoney(raw?.total_won) ?? undefined;
 
     const lineTotal = rawLineTotal ?? calcLineTotal(baseMonthly, monthlyAfter, months) ?? undefined;
 
     const monitors = toNum(raw?.monitors ?? raw?.monitorCount ?? raw?.monitor_count ?? raw?.screens);
-
     const households = toNum(raw?.households);
     const residents = toNum(raw?.residents);
     const monthlyImpressions = toNum(raw?.monthlyImpressions);
-
     const productKeyHint = typeof raw?.product_code === "string" ? raw.product_code : undefined;
 
     const idBase = `${String(name)}|${String(mediaName ?? "")}|${months}`;
@@ -318,10 +352,9 @@ export function adaptQuoteItemsFromReceipt(rawItems: any[] | null | undefined): 
 }
 
 /* ============================================================
- * (2) 카운터 합계 계산
+ * 카운터 합계 계산
  * ============================================================ */
 
-/** 카운터 바에 쓰는 합계치(세대/인원/송출/모니터/행수) */
 export function computeQuoteTotals(items: Array<Partial<QuoteLineItemCompat>>): {
   count: number;
   households: number;
