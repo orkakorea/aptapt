@@ -1,3 +1,4 @@
+// src/components/InquiryModal.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -60,10 +61,8 @@ function fmtWon(n: number | null | undefined) {
   return `${Number(n).toLocaleString()}원`;
 }
 
-// ''(빈문자열)을 undefined로 치환해서 payload에 안 나가게
 const clean = (v: any) => (typeof v === "string" && v.trim() === "" ? undefined : v);
 
-/** 접수번호 생성(프론트 임시 규칙) */
 function genTicketCode() {
   const d = new Date();
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -73,24 +72,19 @@ function genTicketCode() {
   return code;
 }
 
-/** 접수증 링크 토큰(임시) */
 function makeToken(len = 22) {
   const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   let out = "";
   for (let i = 0; i < len; i++) out += chars[(Math.random() * chars.length) | 0];
   return out;
 }
-/** 로컬 스냅샷 저장(서버 마이그레이션 전 임시) */
 function persistReceiptLocal(token: string, data: any) {
   try {
     localStorage.setItem(`receipt:${token}`, JSON.stringify(data));
   } catch {}
 }
 
-// 간단 이메일 형식 체크(서버의 CHECK와 일치할 필요는 없고 UX 보조용)
 const emailOk = (v: string) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
-
-// 서버 CHECK(phone ~ '^[0-9]{9,12}$') 만족 보조
 const phoneOk = (digits: string) => digits.length >= 9 && digits.length <= 12;
 
 export default function InquiryModal({ open, mode, prefill, onClose, sourcePage, onSubmitted }: Props) {
@@ -106,10 +100,9 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
 
   const [agreePrivacy, setAgreePrivacy] = useState(false);
 
-  // 정책/완료 모달
   const [policyOpen, setPolicyOpen] = useState(false);
 
-  // ✅ 새 완료 모달 상태 (InquiryModal 닫혀도 독립 표시)
+  // ✅ 완료 모달 상태
   const [completeOpen, setCompleteOpen] = useState(false);
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
 
@@ -117,7 +110,6 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
 
-  // ❗ 스팸/봇 방지용 허니팟(사용자는 보지 못함)
   const [hny, setHny] = useState<string>("");
 
   const page = useMemo(() => {
@@ -127,9 +119,7 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
   }, [sourcePage]);
 
   useEffect(() => {
-    // open=false로 닫혀도 completeOpen=true면 완료 모달만 보이도록 유지
     if (!open && !completeOpen) {
-      // reset on close
       setBrand("");
       setCampaignType("");
       setManagerName("");
@@ -150,18 +140,15 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
     }
   }, [open, completeOpen]);
 
-  // InquiryModal UI는 숨기되, 완료 모달만 띄우기 위한 렌더 가드
   if (!open && !completeOpen) return null;
 
   const isSeat = mode === "SEAT";
 
-  // 연락처: 숫자만 허용
   function handlePhoneChange(v: string) {
     const digitsOnly = v.replace(/\D/g, "");
     setPhone(digitsOnly);
   }
 
-  // ====== SEAT "문의 내용" 박스 파생값 (헤더 요약) ======
   function deriveSeatHeaderBox() {
     const labels = buildSeatHeaderLabels({
       apt_name: prefill?.apt_name,
@@ -182,7 +169,6 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
     setErrorMsg(null);
     setOkMsg(null);
 
-    // 허니팟 채워졌으면 봇으로 판단
     if (hny && hny.trim().length > 0) {
       setErrorMsg("제출이 차단되었습니다. (봇 의심)");
       return;
@@ -200,9 +186,8 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
       setSubmitting(true);
       const utm = getUTM();
 
-      // ✅ 서버로 넘길 페이로드(서버에서 2차 검증/정규화)
       const payload: any = {
-        inquiry_kind: mode, // "SEAT" | "PACKAGE" (대문자)
+        inquiry_kind: mode,
         customer_name: clean(managerName),
         phone: clean(phone),
         company: clean(brand),
@@ -229,17 +214,14 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
           agree_privacy: !!agreePrivacy,
         },
 
-        // 서버 로그/리스크 제어용 보조 정보
         client_ts: new Date().toISOString(),
         user_agent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
       };
 
-      // ❗❗ 프런트에서 직접 INSERT 금지 → 서버 RPC로 위임
-      //    (다음 턴에서 Postgres 함수(inquiries_submit) SQL을 줄게)
       const { error: rpcError } = await (supabase as any).rpc("inquiries_submit", { payload });
       if (rpcError) throw rpcError;
 
-      // 접수증 데이터 구성 (기존 로직 유지)
+      // ===== 접수증 데이터 구성 =====
       const ticketCode = genTicketCode();
       const createdAtISO = new Date().toISOString();
       const token = makeToken();
@@ -279,7 +261,12 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
             monthlyTotalKRW: summary.monthlyTotalKRW ?? null,
             periodTotalKRW: summary.periodTotalKRW ?? null,
           },
-          form: { desiredDate: hopeDate || undefined, promotionCode: promoCode || undefined },
+          // ✅✅ 핵심 수정: 완료모달이 읽을 수 있도록 스냅샷을 form에 포함
+          form: {
+            desiredDate: hopeDate || undefined,
+            promotionCode: promoCode || undefined,
+            cart_snapshot: prefill?.cart_snapshot || null,
+          },
           links: { receiptUrl },
           actions: {
             onSaveImage: () => {
@@ -326,10 +313,8 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
         } as ReceiptPackage;
       }
 
-      // 임시: 로컬 저장(링크 열람용)
       persistReceiptLocal(token, rd);
 
-      // 문의 폼은 숨기고(렌더 안 함), 완료 모달만 중앙 표시
       setReceiptData(rd);
       setCompleteOpen(true);
 
@@ -347,28 +332,25 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
   /* ========================= 렌더 ========================= */
   return (
     <>
-      {/* ✅ 완료 모달 (PC/모바일 자동 분기) — InquiryModal과 독립 표시 */}
+      {/* 완료 모달 */}
       {receiptData && (
         <CompleteModal
           open={completeOpen}
           onClose={() => {
             setCompleteOpen(false);
-            onClose(); // 부모에 알림(폼 완전 종료)
+            onClose();
           }}
           data={receiptData}
           confirmLabel="확인"
         />
       )}
 
-      {/* ❌ completeOpen 상태에서는 문의 모달 UI 렌더 자체를 막음 */}
+      {/* 문의 모달 UI */}
       {open && !completeOpen && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center">
-          {/* Backdrop */}
           <div className="absolute inset-0 bg-black/40" onClick={() => !submitting && onClose()} />
 
-          {/* Panel */}
           <div className="relative z-[1001] w-[720px] max-w-[92vw] rounded-2xl bg-white shadow-2xl">
-            {/* Header */}
             <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
               <div>
                 <div className="text-lg font-bold">
@@ -391,9 +373,7 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
               </button>
             </div>
 
-            {/* Body */}
             <form onSubmit={handleSubmit} className="px-6 py-5 space-y-5">
-              {/* 허니팟(사용자는 보지 못함) */}
               <div style={{ display: "none" }} aria-hidden>
                 <label>
                   홈페이지
@@ -408,7 +388,6 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
                 </label>
               </div>
 
-              {/* ===== SEAT: 문의 내용 박스 ===== */}
               {mode === "SEAT" &&
                 (() => {
                   const s = deriveSeatHeaderBox();
@@ -439,7 +418,6 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
                   );
                 })()}
 
-              {/* ===== 입력 폼 ===== */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <div className={LABEL}>
@@ -543,7 +521,6 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
               {errorMsg && <div className="text-[13px] text-red-600">{errorMsg}</div>}
               {okMsg && <div className="text-[13px] text-emerald-600">{okMsg}</div>}
 
-              {/* 하단: 정책 버튼 + 체크 1개 + 제출 */}
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3 flex-wrap">
                   <button
@@ -578,7 +555,6 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
             </form>
           </div>
 
-          {/* == 정책 안내 모달 == */}
           {policyOpen && (
             <div className="fixed inset-0 z-[1100] flex items-center justify-center">
               <div className="absolute inset-0 bg-black/40" onClick={() => setPolicyOpen(false)} />
