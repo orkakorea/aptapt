@@ -1,4 +1,3 @@
-// src/core/utils/receipt.ts
 import type { SeatItem, SeatSummary } from "@/components/complete-modal/types";
 
 /** 1탭 '총 비용'을 최대한 호환성 있게 추출 */
@@ -21,7 +20,7 @@ export function pickCartTotal(snap: any): number | null {
   }
   if (Array.isArray(snap.items) && snap.items.length > 0) {
     const sum = snap.items.reduce((acc: number, it: any) => {
-      const n = Number(it?.itemTotalWon ?? it?.item_total_won ?? it?.totalWon ?? it?.total_won ?? 0);
+      const n = Number(it?.itemTotalWon ?? it?.item_total_won ?? it?.totalWon ?? it?.total_won ?? it?.lineTotal ?? 0);
       return acc + (isFinite(n) ? n : 0);
     }, 0);
     return sum > 0 ? sum : null;
@@ -133,36 +132,109 @@ export function makeSeatSummary(prefill?: {
   };
 }
 
-/** SEAT 라인아이템 목록 생성 (접수증 자세히 테이블) */
-export function buildSeatItemsFromSnapshot(snap: any): SeatItem[] {
-  const items: any[] = Array.isArray(snap?.items) ? snap.items : [];
-  return items.map((it) => {
-    const baseMonthly = numOrNull(it?.baseMonthly ?? it?.base_monthly ?? it?.priceMonthly ?? null);
-    const monthlyAfter = numOrNull(it?.monthlyAfter ?? it?.monthly_after ?? it?.priceMonthlyAfter ?? null);
-    const months = numOrNull(it?.months ?? null);
-    const lineTotal =
-      months && (monthlyAfter ?? baseMonthly)
-        ? Math.round((monthlyAfter ?? baseMonthly!) * months)
-        : numOrNull(it?.lineTotal ?? it?.item_total_won ?? it?.total_won ?? null);
-
-    const discountNote: string | null = it?.discountNote ?? it?.discount_note ?? it?.applied_discounts_text ?? null;
-
-    return {
-      aptName: it?.apt_name ?? it?.aptName ?? "-",
-      productName: it?.product_name ?? it?.productName ?? it?.product_code ?? "-",
-      months,
-      baseMonthly,
-      discountNote,
-      monthlyAfter: monthlyAfter ?? baseMonthly ?? null,
-      lineTotal,
-      // 확장 필드가 들어와도 SeatItem에는 영향 없음(렌더시 합계/카운터용으로는 아래 어댑터 사용)
-    };
-  });
-}
-
+/** 숫자 or null */
 function numOrNull(v: any): number | null {
   const n = Number(v);
   return isFinite(n) ? n : null;
+}
+
+/** 내부 숫자 파서(0/NaN 가드) */
+function toNum(v: any): number | undefined {
+  const n = Number(v);
+  return isFinite(n) ? n : undefined;
+}
+
+/** baseMonthly/ monthlyAfter / months로 lineTotal 계산 (가능할 때만) */
+function calcLineTotal(
+  baseMonthly?: number | null,
+  monthlyAfter?: number | null,
+  months?: number | null,
+): number | null {
+  if (!months || months <= 0) return null;
+  const m =
+    (typeof monthlyAfter === "number" ? monthlyAfter : undefined) ??
+    (typeof baseMonthly === "number" ? baseMonthly : undefined);
+  return typeof m === "number" ? Math.round(m * months) : null;
+}
+
+/** 안전한 문자열 */
+const strOrDash = (v: any) => {
+  const s = typeof v === "string" ? v.trim() : v;
+  return s && String(s).length > 0 ? String(s) : "-";
+};
+
+/** SEAT 라인아이템 목록 생성 (접수증 자세히 테이블) — ★ 키 정규화 보강(A안) */
+export function buildSeatItemsFromSnapshot(snap: any): SeatItem[] {
+  const items: any[] = Array.isArray(snap?.items) ? snap.items : [];
+
+  const fallbackMonths = numOrNull(snap?.months ?? null);
+
+  return items.map((it) => {
+    // --- 단지명/상품명: 다양한 키 대응 ---
+    const aptName = it?.apt_name ?? it?.aptName ?? it?.apt ?? it?.title ?? it?.name ?? "-";
+
+    const productName = it?.product_name ?? it?.productName ?? it?.mediaName ?? it?.product_code ?? "-";
+
+    // --- 기간 ---
+    const months = numOrNull(it?.months ?? it?.month ?? fallbackMonths ?? null);
+
+    // --- 금액(정가/할인 후 월가) ---
+    const baseMonthly = numOrNull(
+      it?.baseMonthly ??
+        it?.base_monthly ??
+        it?.priceMonthly ??
+        it?.price_monthly ??
+        it?.monthlyFee ??
+        it?.monthly_fee ??
+        null,
+    );
+
+    const monthlyAfter =
+      numOrNull(
+        it?.monthlyAfter ??
+          it?.monthly_after ??
+          it?.priceMonthlyAfter ??
+          it?.price_monthly_after ??
+          it?.discountedMonthly ??
+          it?.discounted_monthly ??
+          null,
+      ) ??
+      baseMonthly ??
+      null;
+
+    // --- 총액(우선순위: 계산 가능한 경우 → 제공값) ---
+    let lineTotal =
+      calcLineTotal(baseMonthly, monthlyAfter, months) ??
+      numOrNull(it?.lineTotal ?? it?.item_total_won ?? it?.itemTotalWon ?? it?.total_won ?? it?.totalWon ?? null) ??
+      null;
+
+    // --- 기준금액(정가 × 개월) — SeatItem에는 별도 필드 없지만,
+    //     완료모달 테이블에서 표시 계산에 쓰이므로 lineTotal이 없을 때 대체 계산에 도움됨
+    //     (필요 시 monthlyAfter가 없으면 baseMonthly로 처리)
+    if (lineTotal === null && months && baseMonthly) {
+      lineTotal = Math.round(baseMonthly * months);
+    }
+
+    const discountNote: string | null =
+      it?.discountNote ??
+      it?.discount_note ??
+      it?.applied_discounts_text ??
+      it?.discountText ??
+      it?.discount_summary ??
+      null;
+
+    const seat: SeatItem = {
+      aptName: strOrDash(aptName),
+      productName: strOrDash(productName),
+      months,
+      baseMonthly,
+      discountNote,
+      monthlyAfter,
+      lineTotal,
+    };
+
+    return seat;
+  });
 }
 
 /* ============================================================
@@ -190,21 +262,6 @@ export type QuoteLineItemCompat = {
   productKeyHint?: string;
 };
 
-/** 내부 숫자 파서(0/NaN 가드) */
-function toNum(v: any): number | undefined {
-  const n = Number(v);
-  return isFinite(n) ? n : undefined;
-}
-
-/** baseMonthly/ monthlyAfter / months로 lineTotal 계산 (가능할 때만) */
-function calcLineTotal(baseMonthly?: number, monthlyAfter?: number, months?: number): number | undefined {
-  if (!months || months <= 0) return undefined;
-  const m =
-    (typeof monthlyAfter === "number" ? monthlyAfter : undefined) ??
-    (typeof baseMonthly === "number" ? baseMonthly : undefined);
-  return typeof m === "number" ? Math.round(m * months) : undefined;
-}
-
 /**
  * 완료 모달의 details.items(Seat 기반) → 견적 라인아이템 구조로 변환.
  * - key 매핑은 우선순위 규칙으로 폭넓게 대응
@@ -230,7 +287,7 @@ export function adaptQuoteItemsFromReceipt(rawItems: any[] | null | undefined): 
 
     const rawLineTotal = toNum(raw?.lineTotal ?? raw?.item_total_won ?? raw?.total_won);
 
-    const lineTotal = rawLineTotal ?? calcLineTotal(baseMonthly, monthlyAfter, months);
+    const lineTotal = rawLineTotal ?? calcLineTotal(baseMonthly, monthlyAfter, months) ?? undefined;
 
     const monitors = toNum(raw?.monitors ?? raw?.monitorCount ?? raw?.monitor_count ?? raw?.screens);
 
