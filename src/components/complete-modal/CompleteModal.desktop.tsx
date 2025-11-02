@@ -1,4 +1,3 @@
-// 전체 파일 내용
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
@@ -7,13 +6,18 @@ import { ClipboardList, ExternalLink, FileSignature, Mail, X, CheckCircle2 } fro
 import type { CompleteModalProps, ReceiptData, ReceiptSeat } from "./types";
 import { isSeatReceipt } from "./types";
 
+// 저장(전체 캡처) 유틸
 import { saveFullContentAsPNG, saveFullContentAsPDF } from "@/core/utils/capture";
+// ⬇️ 할인율 역산 보강을 위한 정책 계산(최후 폴백용)
+import { calcMonthlyWithPolicy, normPolicyKey } from "@/core/pricing";
 
 /* =========================================================================
  * 공통 상수/유틸
  * ========================================================================= */
 const BRAND = "#6F4BF2";
 const BRAND_LIGHT = "#EEE8FF";
+
+const safeNum = (v: any) => (typeof v === "number" && isFinite(v) ? v : 0);
 
 function formatKRW(n?: number | null) {
   if (n == null || !isFinite(Number(n))) return "₩0";
@@ -72,111 +76,6 @@ function useBodyScrollLock(locked: boolean) {
       document.body.style.overflow = prev;
     };
   }, [locked]);
-}
-
-/* =========================================================================
- * (A) 견적서와 동일한 할인 규칙 계산(파일 내부 한정)
- * ========================================================================= */
-type RangeRule = { min: number; max: number; rate: number };
-type ProductRules = { precomp?: RangeRule[]; period: RangeRule[] };
-type DiscountPolicy = Record<string, ProductRules>;
-
-const QUOTE_DEFAULT_POLICY: DiscountPolicy = {
-  "ELEVATOR TV": {
-    precomp: [
-      { min: 1, max: 2, rate: 0.03 },
-      { min: 3, max: 12, rate: 0.05 },
-    ],
-    period: [
-      { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.15 },
-      { min: 12, max: 12, rate: 0.2 },
-    ],
-  },
-  TOWNBORD_S: {
-    period: [
-      { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.15 },
-      { min: 12, max: 12, rate: 0.2 },
-    ],
-  },
-  TOWNBORD_L: {
-    period: [
-      { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.2 },
-      { min: 12, max: 12, rate: 0.3 },
-    ],
-  },
-  "MEDIA MEET": {
-    period: [
-      { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.2 },
-      { min: 12, max: 12, rate: 0.3 },
-    ],
-  },
-  "SPACE LIVING": {
-    period: [
-      { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.2 },
-      { min: 12, max: 12, rate: 0.3 },
-    ],
-  },
-  "HI-POST": {
-    period: [
-      { min: 1, max: 5, rate: 0 },
-      { min: 6, max: 11, rate: 0.05 },
-      { min: 12, max: 12, rate: 0.1 },
-    ],
-  },
-};
-
-const norm = (s?: string) => (s ? s.replace(/\s+/g, "").toLowerCase() : "");
-function classifyProductForPolicy(productName?: string): keyof DiscountPolicy | undefined {
-  const pn = norm(productName);
-  if (!pn) return undefined;
-
-  if (
-    pn.includes("townbord_l") ||
-    pn.includes("townboard_l") ||
-    /\btownbord[-_\s]?l\b/.test(pn) ||
-    /\btownboard[-_\s]?l\b/.test(pn)
-  )
-    return "TOWNBORD_L";
-  if (
-    pn.includes("townbord_s") ||
-    pn.includes("townboard_s") ||
-    /\btownbord[-_\s]?s\b/.test(pn) ||
-    /\btownboard[-_\s]?s\b/.test(pn)
-  )
-    return "TOWNBORD_S";
-
-  if (pn.includes("elevatortv") || pn.includes("엘리베이터tv") || pn.includes("elevator")) return "ELEVATOR TV";
-  if (pn.includes("mediameet") || pn.includes("media-meet") || pn.includes("미디어")) return "MEDIA MEET";
-  if (pn.includes("spaceliving") || pn.includes("스페이스") || pn.includes("living")) return "SPACE LIVING";
-  if (pn.includes("hipost") || pn.includes("hi-post") || pn.includes("하이포스트")) return "HI-POST";
-
-  if (pn.includes("townbord") || pn.includes("townboard") || pn.includes("타운보드")) return "TOWNBORD_S";
-  return undefined;
-}
-function findRate(rules: RangeRule[] | undefined, months: number): number {
-  if (!rules || !Number.isFinite(months)) return 0;
-  return rules.find((r) => months >= r.min && months <= r.max)?.rate ?? 0;
-}
-
-/** "12개월" → 12 처럼 안전 파서 */
-function parseMonths(value: any): number {
-  if (value == null) return 0;
-  if (typeof value === "number" && isFinite(value)) return Math.max(0, Math.floor(value));
-  if (typeof value === "string") {
-    const num = parseInt(value.replace(/[^\d]/g, ""), 10);
-    return isNaN(num) ? 0 : num;
-  }
-  return 0;
 }
 
 /* =========================================================================
@@ -269,8 +168,10 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
   const summary: any = (data as any).summary || {};
 
   const emailMasked = maskEmail(c.email ?? form.email ?? null) || (c.emailDomain ? `**${String(c.emailDomain)}` : "-");
+
   const campaignType = form.campaignType ?? form.campaign_type ?? summary.campaignType ?? summary.campaign_type ?? "-";
 
+  // 광고 송출 예정(희망)일
   const preferredRaw =
     form.desiredDate ??
     form.hopeDate ??
@@ -279,7 +180,6 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
     (data as any)?.meta?.desiredDate ??
     (data as any)?.meta?.startDate ??
     (data as any)?.meta?.start_date;
-
   const desiredValue =
     toYMD(preferredRaw) ??
     form.periodLabel ??
@@ -337,11 +237,15 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
 }
 
 /* =========================================================================
- * 좌: SEAT 문의 내역(총광고료/할인 — 견적서와 일치)
+ * 좌: SEAT 문의 내역(카운터/단지명 폴백 포함)
+ *  - 할인율 계산 보강:
+ *    1) monthlyAfter, baseMonthly가 없으면 lineTotal/months, baseTotal/months로 역산
+ *    2) 여전히 0%에 수렴하면 정책 계산(calcMonthlyWithPolicy)로 최후 폴백
  * ========================================================================= */
 function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
   const detailsItems: any[] = (data as any)?.details?.items ?? [];
   const snapshotItems: any[] = (data as any)?.form?.cart_snapshot?.items ?? (data as any)?.cart_snapshot?.items ?? [];
+
   const length = Math.max(detailsItems.length, snapshotItems.length);
 
   const getVal = (obj: any, keys: string[], fallback?: any) => {
@@ -357,6 +261,19 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
       ? String((data as any).summary.topAptLabel).replace(/\s*외.*$/, "")
       : "-";
 
+  // 정책용: 같은 상품군 개수(사전보상 할인 추정)에 사용
+  const productKeyCounts = (() => {
+    const m = new Map<string, number>();
+    const src = Array.isArray(snapshotItems) && snapshotItems.length ? snapshotItems : detailsItems;
+    src.forEach((raw) => {
+      const p = raw?.product_name ?? raw?.productName ?? raw?.product_code ?? raw?.mediaName ?? "";
+      const key = normPolicyKey(p);
+      if (!key || key === "_NONE") return;
+      m.set(key, (m.get(key) || 0) + 1);
+    });
+    return m;
+  })();
+
   const rows = Array.from({ length }).map((_, i) => {
     const primary = detailsItems[i] ?? {};
     const shadow = snapshotItems[i] ?? {};
@@ -367,27 +284,47 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
       topFallback ??
       "-";
 
-    // ● 개월수 안전 파싱
-    const monthsRaw = getVal(primary, ["months", "month"], getVal(shadow, ["months", "month"], 0));
-    const months = parseMonths(monthsRaw);
+    const months = Number(getVal(primary, ["months", "month"], getVal(shadow, ["months", "month"], 0)));
     const periodLabel = months ? `${months}개월` : getVal(primary, ["period", "periodLabel"], "-");
 
     const productName =
-      getVal(primary, ["productName", "product_name", "mediaName"]) ??
-      getVal(shadow, ["productName", "product_name", "mediaName"]) ??
+      getVal(primary, ["productName", "product_name", "mediaName", "product_code"]) ??
+      getVal(shadow, ["productName", "product_name", "mediaName", "product_code"]) ??
       "-";
 
-    const baseMonthly = Number(
-      getVal(primary, ["baseMonthly", "priceMonthly"], getVal(shadow, ["baseMonthly", "priceMonthly"], 0)),
+    // ⬇️ 기준 월가 / 기준금액
+    const baseMonthlyRaw = Number(
+      getVal(primary, ["baseMonthly", "priceMonthly"], getVal(shadow, ["baseMonthly", "priceMonthly"], NaN)),
     );
+    const baseMonthly = isFinite(baseMonthlyRaw) ? baseMonthlyRaw : NaN;
 
-    // 기준금액 = baseMonthly * months (표시는 견적서와 동일한 계산식 사용)
-    const baseTotal =
-      Number.isFinite(baseMonthly) && months > 0
-        ? baseMonthly * months
-        : Number(getVal(primary, ["baseTotal"], getVal(shadow, ["baseTotal"], 0))) || 0;
+    const baseTotalRaw =
+      Number(getVal(primary, ["baseTotal"], NaN)) || (isFinite(baseMonthly) && months ? baseMonthly * months : NaN);
+    const baseTotal = isFinite(baseTotalRaw) ? baseTotalRaw : NaN;
 
-    // 1) 월가 스냅샷 우선
+    // ⬇️ 총광고료
+    let lineTotal = Number(
+      getVal(
+        primary,
+        ["lineTotal", "item_total_won", "total_won"],
+        getVal(shadow, ["lineTotal", "item_total_won", "total_won"], NaN),
+      ),
+    );
+    if (!isFinite(lineTotal)) {
+      const monthlyAfterFallback = Number(
+        getVal(
+          primary,
+          ["monthlyAfter", "monthly_after", "priceMonthlyAfter"],
+          getVal(shadow, ["monthlyAfter", "monthly_after", "priceMonthlyAfter"], NaN),
+        ),
+      );
+      if (isFinite(monthlyAfterFallback) && months) lineTotal = Math.round(monthlyAfterFallback * months);
+      else if (isFinite(baseMonthly) && months) lineTotal = Math.round(baseMonthly * months);
+      else lineTotal = 0;
+    }
+
+    // ⬇️ 할인율 계산(보강)
+    // 1) 월가/기준월가 역산
     const monthlyAfterRaw = Number(
       getVal(
         primary,
@@ -395,68 +332,97 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
         getVal(shadow, ["monthlyAfter", "monthly_after", "priceMonthlyAfter"], NaN),
       ),
     );
+    const monthlyAfterEff = isFinite(monthlyAfterRaw)
+      ? monthlyAfterRaw
+      : isFinite(lineTotal) && months
+        ? Math.round(lineTotal / months)
+        : NaN;
+    const baseMonthlyEff =
+      (isFinite(baseMonthly) && baseMonthly > 0 ? baseMonthly : NaN) ||
+      (isFinite(baseTotal) && months ? Math.round(baseTotal / months) : NaN);
 
-    // 2) 정책으로 재계산 (없을 때만) — 견적서와 동일: (1-기간할인)*(1-사전보상)
-    let monthlyAfterByPolicy: number | undefined;
-    if (!isFinite(monthlyAfterRaw) && Number.isFinite(baseMonthly) && months > 0) {
-      const key = classifyProductForPolicy(String(productName));
-      const rule = key ? QUOTE_DEFAULT_POLICY[key] : undefined;
-      const periodRate = findRate(rule?.period, months);
-      const precompRate = key === "ELEVATOR TV" ? findRate(rule?.precomp, months) : 0;
-      monthlyAfterByPolicy = Math.round(baseMonthly * (1 - periodRate) * (1 - precompRate));
+    const clamp01 = (n: number) => (n < 0 ? 0 : n > 1 ? 1 : n);
+
+    let discountPct = "-";
+    if (isFinite(baseMonthlyEff) && baseMonthlyEff > 0 && isFinite(monthlyAfterEff)) {
+      const rate = clamp01(1 - monthlyAfterEff / baseMonthlyEff);
+      if (isFinite(rate)) discountPct = `${Math.round(rate * 100)}%`;
+    } else if (isFinite(baseTotal) && baseTotal > 0 && isFinite(lineTotal)) {
+      const rate = clamp01(1 - lineTotal / baseTotal);
+      if (isFinite(rate)) discountPct = `${Math.round(rate * 100)}%`;
     }
 
-    const monthlyAfter =
-      (isFinite(monthlyAfterRaw) ? monthlyAfterRaw : undefined) ??
-      monthlyAfterByPolicy ??
-      (Number.isFinite(baseMonthly) ? baseMonthly : 0);
-
-    // 총광고료 = 월가 × 개월
-    const lineTotal = months > 0 && Number.isFinite(monthlyAfter) ? Math.round(monthlyAfter * months) : 0;
-
-    // 할인율 = 1 - (monthlyAfter / baseMonthly)
-    let discountPct = "-";
-    if (Number.isFinite(baseMonthly) && baseMonthly > 0 && Number.isFinite(monthlyAfter)) {
-      const rate = Math.max(0, Math.min(1, 1 - monthlyAfter / baseMonthly));
-      discountPct = `${Math.round(rate * 100)}%`;
+    // 2) 여전히 0%/NaN 같으면 정책으로 최후 폴백(표시만 보정)
+    const pctNum = Number(discountPct.replace("%", ""));
+    const looksZero = !isFinite(pctNum) || Math.abs(pctNum) < 1;
+    if (looksZero && isFinite(baseMonthlyEff) && baseMonthlyEff > 0 && months > 0) {
+      const key = normPolicyKey(String(productName));
+      const sameCount = key && key !== "_NONE" ? (productKeyCounts.get(key) ?? 1) : 1;
+      const { monthly } = calcMonthlyWithPolicy(String(productName), months, baseMonthlyEff, undefined, sameCount);
+      if (monthly > 0 && monthly <= baseMonthlyEff) {
+        const r = clamp01(1 - monthly / baseMonthlyEff);
+        discountPct = `${Math.round(r * 100)}%`;
+      }
     }
 
     return {
       aptName,
       productName,
-      monthlyFee: monthlyAfter,
+      monthlyFee: baseMonthlyEff, // 표시는 기준월가(역산 포함)
       periodLabel,
-      baseTotal,
+      baseTotal: isFinite(baseTotal) ? baseTotal : 0,
       discountPct,
       lineTotal,
     };
   });
 
-  // 합계(재계산된 lineTotal 기준)
-  const periodTotal = rows.reduce((sum, r) => sum + (isFinite(r.lineTotal) ? r.lineTotal : 0), 0);
+  // 카운터 합계(스냅샷 값도 합산 시도)
+  const totals = rows.reduce(
+    (acc, _r, idx) => {
+      const p = detailsItems[idx] ?? {};
+      const s = snapshotItems[idx] ?? {};
+      const n = (keys: string[]) => {
+        const v = Number(getVal(p, keys, getVal(s, keys, 0)));
+        return isFinite(v) ? v : 0;
+      };
+      acc.households += n(["households", "household", "hh"]);
+      acc.residents += n(["residents", "population"]);
+      acc.monthlyImpressions += n(["monthlyImpressions", "monthly_impressions", "impressions", "plays"]);
+      acc.monitors += n(["monitors", "monitor_count", "monitorCount", "screens"]);
+      return acc;
+    },
+    { households: 0, residents: 0, monthlyImpressions: 0, monitors: 0 },
+  );
+
+  const periodTotal =
+    (data as any)?.details?.periodTotalKRW ??
+    rows.reduce((sum, r) => sum + (isFinite(r.lineTotal) ? r.lineTotal : 0), 0);
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white">
+      {/* 제목 */}
       <div className="px-4 pt-3 text-sm font-semibold">문의 내역</div>
 
-      {/* 카운터 바(원 요청 UI 유지) — 카운터 값은 B 단계에서 보강 예정 */}
+      {/* 카운터 바 */}
       <div className="px-4 pb-2 text-sm text-[#4B5563] flex flex-wrap gap-x-4 gap-y-1">
         <span className="font-semibold">{`총 ${rows.length}개 단지`}</span>
         <span>
-          · 세대수 <b>0</b> 세대
+          · 세대수 <b>{totals.households.toLocaleString()}</b> 세대
         </span>
         <span>
-          · 거주인원 <b>0</b> 명
+          · 거주인원 <b>{totals.residents.toLocaleString()}</b> 명
         </span>
         <span>
-          · 송출횟수 <b>0</b> 회
+          · 송출횟수 <b>{totals.monthlyImpressions.toLocaleString()}</b> 회
         </span>
         <span>
-          · 모니터수량 <b>0</b> 대
+          · 모니터수량 <b>{totals.monitors.toLocaleString()}</b> 대
         </span>
       </div>
 
+      {/* 테이블 (가로 스크롤 허용) */}
       <div className="border-t border-gray-100 overflow-x-auto" data-capture-scroll>
+        {/* 열 순서: 단지명/상품명/월광고료/광고기간/기준금액/할인율/총광고료 */}
         <table className="min-w-[920px] text-[13px]">
           <thead className="bg-gray-50 text-gray-600">
             <tr className="[&>th]:px-4 [&>th]:py-2">
@@ -493,6 +459,7 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
         </table>
       </div>
 
+      {/* 합계 카드 (보라/빨강/보라 굵게) */}
       <div className="px-4 py-4">
         <div className="rounded-xl border border-[#E5E7EB] bg-[#F7F5FF]">
           <div className="flex items-center justify-between px-4 py-3">
@@ -544,14 +511,16 @@ export default function CompleteModalDesktop({ open, onClose, data, confirmLabel
 
   if (!open) return null;
 
+  // 저장(전체) - 루트와 스크롤 컨테이너 선택
   const handleSave = async (kind: "png" | "pdf") => {
     const root = document.getElementById("receipt-capture");
     if (!root) return;
     const scrollContainers = Array.from(root.querySelectorAll<HTMLElement>("[data-capture-scroll]"));
-    if (kind === "png") await saveFullContentAsPNG(root, `${(data as any).ticketCode}_receipt`, scrollContainers);
-    else await saveFullContentAsPDF(root, `${(data as any).ticketCode}_receipt`, scrollContainers);
+    if (kind === "png") await saveFullContentAsPNG(root, `${data.ticketCode}_receipt`, scrollContainers);
+    else await saveFullContentAsPDF(root, `${data.ticketCode}_receipt`, scrollContainers);
   };
 
+  // 링크(우측 카드)
   const LINK_YT = "https://www.youtube.com/@ORKA_KOREA";
   const LINK_GUIDE = "https://orka.co.kr/ELAVATOR_CONTENTS";
   const LINK_TEAM = "https://orka.co.kr/orka_members";
@@ -561,6 +530,7 @@ export default function CompleteModalDesktop({ open, onClose, data, confirmLabel
   return createPortal(
     <AnimatePresence>
       <>
+        {/* DIM */}
         <motion.div
           key="dim"
           className="fixed inset-0 z-[1200] bg-black/40"
@@ -570,6 +540,7 @@ export default function CompleteModalDesktop({ open, onClose, data, confirmLabel
           onClick={onClose}
         />
 
+        {/* 패널: column 레이아웃 + 본문만 스크롤(닫기 버튼 항상 보이도록) */}
         <div className="fixed inset-0 z-[1201] flex items-center justify-center">
           <motion.div
             id="receipt-capture"
@@ -583,20 +554,24 @@ export default function CompleteModalDesktop({ open, onClose, data, confirmLabel
             exit={{ scale: 0.96, opacity: 0 }}
             transition={{ type: "spring", stiffness: 260, damping: 22 }}
           >
+            {/* 헤더 */}
             <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-6 py-5">
-              <HeaderSuccess ticketCode={(data as any).ticketCode} createdAtISO={(data as any).createdAtISO} />
+              <HeaderSuccess ticketCode={data.ticketCode} createdAtISO={data.createdAtISO} />
               <button aria-label="close" className="rounded-full p-2 hover:bg-gray-50" onClick={onClose}>
                 <X size={18} />
               </button>
             </div>
 
+            {/* 본문 (세로 스크롤) */}
             <div className="flex-1 overflow-y-auto px-6 py-6" data-capture-scroll>
               <div className="grid grid-cols-12 gap-6">
+                {/* 좌측 */}
                 <div className="col-span-12 lg:col-span-8 space-y-4">
                   <CustomerInquirySection data={data as ReceiptData} />
                   {isSeat && <SeatInquiryTable data={data as ReceiptSeat} />}
                 </div>
 
+                {/* 우측 */}
                 <div className="col-span-12 lg:col-span-4 space-y-4">
                   <NextSteps />
 
@@ -638,6 +613,7 @@ export default function CompleteModalDesktop({ open, onClose, data, confirmLabel
               </div>
             </div>
 
+            {/* 푸터(항상 보임) */}
             <div className="flex items-center justify-end border-t border-gray-100 px-6 py-4">
               <button onClick={onClose} className="rounded-xl bg-black px-5 py-3 text-sm font-semibold text-white">
                 {confirmLabel}
@@ -646,6 +622,7 @@ export default function CompleteModalDesktop({ open, onClose, data, confirmLabel
           </motion.div>
         </div>
 
+        {/* 저장 액션 시트: PNG + PDF */}
         <AnimatePresence>
           {pickerOpen && (
             <>
