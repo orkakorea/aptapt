@@ -32,6 +32,7 @@ export type CustomerSnapshot = {
   company?: string;
   name?: string;
   phoneMasked?: string; // 마스킹된 값 권장
+  email?: string;
   emailDomain?: string; // @example.com
   campaignType?: string;
   inquiryKind?: string;
