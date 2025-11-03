@@ -1,3 +1,4 @@
+// src/components/mobile/DetailPanel.tsx
 import React, { useMemo, useState } from "react";
 import type { SelectedApt } from "@/core/types";
 import { fmtNum, fmtWon } from "@/core/utils";
@@ -6,17 +7,56 @@ const COLOR_PRIMARY = "#6F4BF2";
 const COLOR_PRIMARY_LIGHT = "#EEE8FF";
 const COLOR_GRAY_CARD = "#F4F6FA";
 
-/** 상품 이미지 폴백 */
+/** 상품 이미지 폴백(영문/한글 키워드 모두 지원) */
 function fallbackProductImage(productName?: string) {
-  const p = (productName || "").toLowerCase().replace(/\s+/g, "");
-  if (p.includes("elevat")) return "/products/elevator-tv.png";
-  if (p.includes("townbord") || p.includes("townboard")) {
-    if (p.includes("_l") || p.endsWith("l")) return "/products/townbord-b.png";
+  const raw = productName || "";
+  const lower = raw.toLowerCase();
+  const compactLower = lower.replace(/\s+/g, "");
+  const compact = raw.replace(/\s+/g, ""); // 한글 판별용
+
+  // ====== 엘리베이터 TV ======
+  if (
+    compactLower.includes("elevat") || // elevator, elevator-tv 등
+    compact.includes("엘리베이터") ||
+    compact.includes("엘티비") ||
+    compact.includes("엘리베이터tv")
+  ) {
+    return "/products/elevator-tv.png";
+  }
+
+  // ====== 타운보드 (A/B 변형) ======
+  if (compactLower.includes("townbord") || compactLower.includes("townboard") || compact.includes("타운보드")) {
+    if (compactLower.includes("_l") || compactLower.endsWith("l") || compact.endsWith("L")) {
+      return "/products/townbord-b.png";
+    }
     return "/products/townbord-a.png";
   }
-  if (p.includes("media")) return "/products/media-meet-a.png";
-  if (p.includes("space")) return "/products/space-living.png";
-  if (p.includes("hipost") || (p.includes("hi") && p.includes("post"))) return "/products/hi-post.png";
+
+  // ====== 미디어밋(미디어미트 표기 포함) ======
+  if (
+    compactLower.includes("mediameet") ||
+    (compactLower.includes("media") && compactLower.includes("meet")) ||
+    compact.includes("미디어밋") ||
+    compact.includes("미디어미트")
+  ) {
+    return "/products/media-meet-a.png";
+  }
+
+  // ====== 스페이스 리빙 ======
+  if (compactLower.includes("spaceliving") || compactLower.includes("space") || compact.includes("스페이스리빙")) {
+    return "/products/space-living.png";
+  }
+
+  // ====== 하이포스트 ======
+  if (
+    compactLower.includes("hipost") ||
+    (compactLower.includes("hi") && compactLower.includes("post")) ||
+    compact.includes("하이포스트")
+  ) {
+    return "/products/hi-post.png";
+  }
+
+  // 그 외
   return "/placeholder.svg";
 }
 
@@ -45,7 +85,7 @@ export default function DetailPanel({
 
   // ---- 방어적 매핑 (키 이름 다양성 대응) ---------------------------------
   const displayedName: string =
-    (getField(selected as any, ["name", "aptName", "name_kr", "단지명"]) as string) || "미상";
+    (getField(selected as any, ["name", "aptName", "name_kr", "단지명", "apt_name", "title"]) as string) || "미상";
 
   const displayedProduct: string =
     (getField(selected as any, ["productName", "product_name", "product", "상품명"]) as string) || "ELEVATOR TV";
