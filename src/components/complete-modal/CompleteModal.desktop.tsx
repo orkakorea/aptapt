@@ -8,8 +8,8 @@ import { isSeatReceipt } from "./types";
 
 // 저장(전체 캡처)
 import { saveFullContentAsPNG, saveFullContentAsPDF } from "@/core/utils/capture";
-// 할인율 보정용 정책 계산(최후 폴백)
-import { calcMonthlyWithPolicy, normPolicyKey } from "@/core/pricing";
+// 정책 유틸
+import { calcMonthlyWithPolicy, normPolicyKey, DEFAULT_POLICY, rateFromRanges } from "@/core/pricing";
 
 /* =========================================================================
  * 공통 상수/유틸
@@ -62,16 +62,18 @@ function parseMonths(value: any): number {
   return 0;
 }
 
+/** 이메일을 ***@domain 형태로 마스킹 */
 function maskEmail(email?: string | null) {
   if (!email) return "-";
-  const str = String(email);
+  const str = String(email).trim();
   const at = str.indexOf("@");
-  if (at <= 0) return str.slice(0, 2) + "…";
-  const local = str.slice(0, at);
-  const domain = str.slice(at + 1);
-  const shown = local.slice(0, 2);
-  const masked = local.length > 2 ? "*".repeat(local.length - 2) : "";
-  return `${shown}${masked}@${domain}`;
+  if (at <= 0) return "***";
+  // 도메인은 항상 보여주고, 로컬파트는 ***로 고정
+  const domain = str
+    .slice(at + 1)
+    .replace(/\s+/g, "")
+    .toLowerCase();
+  return `***@${domain.replace(/^@/, "")}`;
 }
 
 /** 얕은 객체 여러 개에서 첫 번째 일치 값 반환 */
@@ -233,7 +235,7 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
 
   // 이메일
   const emailRaw = pickEmailLike(c, form, summary, meta) ?? pickEmailLike(form?.values) ?? undefined;
-  const emailMasked = maskEmail(emailRaw) || (c.emailDomain ? `**${String(c.emailDomain)}` : "-");
+  const emailMasked = maskEmail(emailRaw) || (c.emailDomain ? `***${String(c.emailDomain).replace(/^@/, "@")}` : "-");
 
   // 캠페인 유형
   const campaignType =
@@ -315,7 +317,8 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
  * 좌: SEAT 문의 내역(카운터 제거)
  *  - 월가(표시): 기준 월가(FMK=4주)
  *  - 할인율: 스냅샷/총액 역산 → 정책 폴백(calcMonthlyWithPolicy)
- *  - TOTAL: 행(lineTotal) 합계로만 계산(서버 값 무시)
+ *  - ELEVATOR TV: 기준금액 × (1-기간할인) × (1-사전보상할인[개월기준]) 로 강제 계산
+ *  - TOTAL: 행(lineTotal) 합계로만 계산
  * ========================================================================= */
 function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
   const detailsItems: any[] = (data as any)?.details?.items ?? [];
@@ -334,19 +337,6 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
     typeof (data as any)?.summary?.topAptLabel === "string"
       ? String((data as any).summary.topAptLabel).replace(/\s*외.*$/, "")
       : "-";
-
-  // 정책용: 같은 상품군 개수(사전보상 할인 추정)
-  const productKeyCounts = (() => {
-    const m = new Map<string, number>();
-    const src = Array.isArray(snapshotItems) && snapshotItems.length ? snapshotItems : detailsItems;
-    src.forEach((raw) => {
-      const p = raw?.product_name ?? raw?.productName ?? raw?.product_code ?? raw?.mediaName ?? "";
-      const key = normPolicyKey(p);
-      if (!key || key === "_NONE") return;
-      m.set(key, (m.get(key) || 0) + 1);
-    });
-    return m;
-  })();
 
   const rows = Array.from({ length }).map((_, i) => {
     const primary = detailsItems[i] ?? {};
@@ -373,9 +363,9 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
     const baseTotalRaw =
       Number(getVal(primary, ["baseTotal"], NaN)) ||
       (isFinite(baseMonthlyRaw) && months ? baseMonthlyRaw * months : NaN);
-    const baseTotal = isFinite(baseTotalRaw) ? baseTotalRaw : 0;
+    let baseTotal = isFinite(baseTotalRaw) ? baseTotalRaw : 0;
 
-    // 총광고료
+    // 총광고료(일반 로직)
     let lineTotal = Number(
       getVal(
         primary,
@@ -400,51 +390,47 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
       else lineTotal = 0;
     }
 
-    // 할인율 계산(역산 → 총액 역산 → 정책 폴백)
-    const monthlyAfterRaw = Number(
-      getVal(
-        primary,
-        ["monthlyAfter", "monthly_after", "priceMonthlyAfter", "discountedMonthly", "discounted_monthly"],
-        getVal(
-          shadow,
-          ["monthlyAfter", "monthly_after", "priceMonthlyAfter", "discountedMonthly", "discounted_monthly"],
-          NaN,
-        ),
-      ),
-    );
-
-    const monthlyAfterEff = isFinite(monthlyAfterRaw)
-      ? monthlyAfterRaw
-      : isFinite(lineTotal) && months
-        ? Math.round(lineTotal / months)
-        : NaN;
-
+    // 표시용 월가(기준)
     const baseMonthlyEff =
       (isFinite(baseMonthlyRaw) && baseMonthlyRaw > 0 ? baseMonthlyRaw : NaN) ||
       (isFinite(baseTotal) && months ? Math.round(baseTotal / months) : NaN);
 
+    // 기본 할인율 역산
     const clamp01 = (n: number) => (n < 0 ? 0 : n > 1 ? 1 : n);
-
     let discountPct = "-";
-    if (isFinite(baseMonthlyEff) && baseMonthlyEff > 0 && isFinite(monthlyAfterEff)) {
-      const rate = clamp01(1 - monthlyAfterEff / baseMonthlyEff);
-      discountPct = `${Math.round(rate * 100)}%`;
-    } else if (isFinite(baseTotal) && baseTotal > 0 && isFinite(lineTotal)) {
+    if (isFinite(baseTotal) && baseTotal > 0 && isFinite(lineTotal)) {
       const rate = clamp01(1 - lineTotal / baseTotal);
       discountPct = `${Math.round(rate * 100)}%`;
     }
 
-    // 최후 폴백(정책)
-    const pctNum = Number(discountPct.replace("%", ""));
-    const looksZero = !isFinite(pctNum) || Math.abs(pctNum) < 1;
-    if (looksZero && isFinite(baseMonthlyEff) && baseMonthlyEff > 0 && months > 0) {
-      const key = normPolicyKey(String(productName));
-      const sameCount = key && key !== "_NONE" ? (productKeyCounts.get(key) ?? 1) : 1;
-      const { monthly } = calcMonthlyWithPolicy(String(productName), months, baseMonthlyEff, undefined, sameCount);
-      if (monthly > 0 && monthly <= baseMonthlyEff) {
-        const r = clamp01(1 - monthly / baseMonthlyEff);
-        discountPct = `${Math.round(r * 100)}%`;
-        lineTotal = Math.round(monthly * months);
+    // ───────────────────────────────────────────────────────────
+    // ELEVATOR TV 전용 규칙 강제 적용:
+    //   총액 = 기준금액 × (1-기간할인[구간]) × (1-사전보상할인[개월<3:3%, ≥3:5%])
+    //   할인율 = 1 - 총액 / 기준금액
+    // ───────────────────────────────────────────────────────────
+    const key = normPolicyKey(String(productName));
+    if (key === "ELEVATOR TV" && months > 0) {
+      if (!isFinite(baseTotal) || baseTotal <= 0) {
+        // 기준금액이 없으면 월가×개월로 복원
+        baseTotal = isFinite(baseMonthlyEff) && months ? baseMonthlyEff * months : 0;
+      }
+      const periodRate = rateFromRanges(DEFAULT_POLICY["ELEVATOR TV"].period, months);
+      const precompRate = months < 3 ? 0.03 : 0.05;
+      const tvTotal = Math.round(baseTotal * (1 - periodRate) * (1 - precompRate));
+      lineTotal = tvTotal;
+      const eff = baseTotal > 0 ? clamp01(1 - tvTotal / baseTotal) : 0;
+      discountPct = `${Math.round(eff * 100)}%`;
+    } else {
+      // 비 ELEVATOR TV: 기존 폴백(정책) 유지
+      const pctNum = Number(String(discountPct).replace("%", ""));
+      const looksZero = !isFinite(pctNum) || Math.abs(pctNum) < 1;
+      if (looksZero && isFinite(baseMonthlyEff) && baseMonthlyEff > 0 && months > 0) {
+        const { monthly } = calcMonthlyWithPolicy(String(productName), months, baseMonthlyEff, undefined, 1);
+        if (monthly > 0 && monthly <= baseMonthlyEff) {
+          const r = clamp01(1 - monthly / baseMonthlyEff);
+          discountPct = `${Math.round(r * 100)}%`;
+          lineTotal = Math.round(monthly * months);
+        }
       }
     }
 
@@ -459,7 +445,7 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
     };
   });
 
-  // 합계(서버 값 무시, 행 합계로만)
+  // 합계(행 합계로만)
   const periodTotal = rows.reduce((sum, r) => sum + (isFinite(r.lineTotal) ? r.lineTotal : 0), 0);
 
   return (
