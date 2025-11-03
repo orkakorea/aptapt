@@ -1,3 +1,4 @@
+// src/pages/mobile/index.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
@@ -21,6 +22,87 @@ import { calcMonthlyWithPolicy, normPolicyKey, DEFAULT_POLICY, rateFromRanges } 
 const COLOR_PRIMARY = "#6F4BF2";
 
 type ActiveTab = "detail" | "cart" | "quote";
+
+/* ============================================================
+ * ✅ 추가: selected 정규화(키 이름/중첩 차이吸収, DetailPanel 표준키 보장)
+ * ============================================================ */
+function getField(obj: any, keys: string[]) {
+  for (const k of keys) {
+    try {
+      const v = k.split(".").reduce((o: any, p: string) => (o == null ? undefined : o[p]), obj);
+      if (v !== undefined && v !== null && v !== "") return v;
+    } catch {}
+  }
+  return undefined;
+}
+
+function normalizeSelected(apt: any): SelectedApt {
+  const name =
+    (getField(apt, ["name", "aptName", "apt_name", "title", "aptTitle", "apt_title", "properties.name", "meta.name"]) ??
+      apt?.name) ||
+    "미상";
+
+  const productName =
+    getField(apt, ["productName", "product_name", "product", "mediaName", "media_name", "properties.productName"]) ??
+    apt?.productName;
+
+  const imageUrl =
+    getField(apt, ["imageUrl", "image_url", "thumbnail", "thumb", "images.0", "meta.imageUrl"]) ?? apt?.imageUrl;
+
+  const address = getField(apt, ["address", "addr", "주소", "properties.address"]) ?? apt?.address;
+  const installLocation =
+    getField(apt, ["installLocation", "install_location", "설치위치", "properties.installLocation"]) ??
+    apt?.installLocation;
+
+  const households =
+    getField(apt, ["households", "세대수", "properties.households"]) ?? (apt?.households as number | undefined);
+  const residents =
+    getField(apt, ["residents", "거주인원", "properties.residents"]) ?? (apt?.residents as number | undefined);
+
+  const monitors = getField(apt, ["monitors", "monitorCount", "properties.monitors"]) ?? apt?.monitors;
+  const monthlyImpressions =
+    getField(apt, [
+      "monthlyImpressions",
+      "impressions_month",
+      "monthly_impressions",
+      "properties.monthlyImpressions",
+    ]) ?? apt?.monthlyImpressions;
+  const costPerPlay =
+    getField(apt, ["costPerPlay", "cpp", "cost_per_play", "properties.costPerPlay"]) ?? apt?.costPerPlay;
+  const hours = getField(apt, ["hours", "operating_hours", "properties.hours"]) ?? apt?.hours;
+
+  const monthlyFee = apt?.monthlyFee;
+  const monthlyFeeY1 = apt?.monthlyFeeY1;
+
+  const lat = apt?.lat;
+  const lng = apt?.lng;
+
+  const rowKey = apt?.rowKey;
+  const rowId = apt?.rowId;
+
+  return {
+    // 원본 속성 유지
+    ...apt,
+    // 표준 키 보장
+    name,
+    productName,
+    imageUrl,
+    address,
+    installLocation,
+    households,
+    residents,
+    monitors,
+    monthlyImpressions,
+    costPerPlay,
+    hours,
+    monthlyFee,
+    monthlyFeeY1,
+    lat,
+    lng,
+    rowKey,
+    rowId,
+  } as SelectedApt;
+}
 
 export default function MapMobilePageV2() {
   /** =========================
@@ -113,7 +195,9 @@ export default function MapMobilePageV2() {
     map,
     clusterer,
     onSelect: (apt) => {
-      setSelected(apt);
+      // ✅ 변경: 표준화 후 상태 반영(단지명/상품명/이미지 누락 방지)
+      const norm = normalizeSelected(apt);
+      setSelected(norm);
       setActiveTab("detail");
       setSheetOpen(true);
       recalcSheetMax();
@@ -208,7 +292,7 @@ export default function MapMobilePageV2() {
     if (!selected) return;
     const next: CartItem = {
       rowKey: selected.rowKey,
-      aptName: selected.name,
+      aptName: selected.name, // ✅ normalizeSelected로 보장된 단지명 사용
       productName: selected.productName ?? "기본상품",
       months: 1,
       baseMonthly: selected.monthlyFee ?? 0,
