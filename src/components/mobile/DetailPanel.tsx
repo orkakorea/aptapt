@@ -1,4 +1,3 @@
-// src/components/mobile/DetailPanel.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import type { SelectedApt } from "@/core/types";
 import { fmtNum, fmtWon } from "@/core/utils";
@@ -13,6 +12,7 @@ const COLOR_GRAY_CARD = "#F4F6FA";
 const PRIMARY_ASSET_BASE = (import.meta as any).env?.VITE_ASSET_BASE || "/products/";
 const FALLBACK_ASSET_BASE = (import.meta as any).env?.VITE_ASSET_BASE_FALLBACK || "";
 const PLACEHOLDER = "/placeholder.svg";
+const ELEVATOR_FILE = "elevator-tv.png";
 
 const ensureSlash = (s: string) => (s.endsWith("/") ? s : s + "/");
 const PRIMARY_BASE = ensureSlash(PRIMARY_ASSET_BASE);
@@ -26,6 +26,9 @@ function toImageUrl(input?: string): string | undefined {
   if (isAbsoluteLike(input)) return input;
   return PRIMARY_BASE + input.replace(/^\/+/, "");
 }
+
+/** 파일명이 엘리베이터 기본인지 판별 */
+const isElevatorFile = (p?: string) => !!p && /(^|\/)elevator-tv\.png$/i.test(p);
 
 /** 문자열 정규화 */
 const norm = (s?: string) => (s ? s.replace(/\s+/g, "").toLowerCase() : "");
@@ -84,42 +87,51 @@ export default function DetailPanel({
     (getField(selected as any, ["productName", "product_name", "product", "상품명"]) as string) || "-";
 
   const installLocForDisplay: string = (getField(selected as any, ["installLocation", "설치위치"]) as string) || "-";
-
   const displayedAddress: string = (getField(selected as any, ["address", "주소"]) as string) || "-";
 
-  // 이미지 우선순위:
-  // 1) selected.imageUrl 절대/루트 → 그대로
-  // 2) selected.imageUrl 파일명/부분경로 → primary 베이스
-  // 3) 상품/설치위치로 파일명 매핑 → primary 베이스
-  // 4) PLACEHOLDER
+  // 후보 1: selected.imageUrl (절대/루트면 그대로, 파일명이면 /products/)
   const candidateFromSelected =
     (getField(selected as any, ["imageUrl", "image_url", "이미지", "썸네일", "thumbnail"]) as string) || undefined;
+  const candidateUrl = toImageUrl(candidateFromSelected);
 
+  // 후보 2: 상품/설치위치로 계산한 파일명
   const mappedFile = resolveProductFile(
     getField(selected as any, ["productName", "product_name", "상품명"]) as string,
     getField(selected as any, ["installLocation", "설치위치"]) as string,
   );
+  const mappedUrl = toImageUrl(mappedFile);
 
-  const initialImg = toImageUrl(candidateFromSelected) || toImageUrl(mappedFile) || PLACEHOLDER;
+  // ✅ 최종 선택 규칙 (핵심 수정)
+  // - mappedUrl 이 있고,
+  //   (candidate 가 없거나 placeholder 이거나 "elevator-tv.png"인 경우) → mappedUrl 우선
+  // - 그 외는 candidateUrl → mappedUrl → PLACEHOLDER
+  const initialImg =
+    (mappedUrl && (!candidateUrl || candidateUrl.endsWith(PLACEHOLDER) || isElevatorFile(candidateUrl))) ||
+    (!candidateUrl && mappedUrl)
+      ? mappedUrl
+      : candidateUrl || mappedUrl || PLACEHOLDER;
 
   const [imgSrc, setImgSrc] = useState<string>(initialImg);
   const [fallbackTried, setFallbackTried] = useState<boolean>(false);
 
   // 선택 변경 시 이미지 초기화
   useEffect(() => {
-    const next =
+    const cand =
       toImageUrl(
         (getField(selected as any, ["imageUrl", "image_url", "이미지", "썸네일", "thumbnail"]) as string) || undefined,
-      ) ||
-      toImageUrl(
-        resolveProductFile(
-          getField(selected as any, ["productName", "product_name", "상품명"]) as string,
-          getField(selected as any, ["installLocation", "설치위치"]) as string,
-        ),
-      ) ||
-      PLACEHOLDER;
+      ) || undefined;
+    const mapd = toImageUrl(
+      resolveProductFile(
+        getField(selected as any, ["productName", "product_name", "상품명"]) as string,
+        getField(selected as any, ["installLocation", "설치위치"]) as string,
+      ),
+    );
+    const next =
+      (mapd && (!cand || cand.endsWith(PLACEHOLDER) || isElevatorFile(cand))) || (!cand && mapd)
+        ? mapd
+        : cand || mapd || PLACEHOLDER;
 
-    setImgSrc(next);
+    setImgSrc(next || PLACEHOLDER);
     setFallbackTried(false);
   }, [selected]);
 
