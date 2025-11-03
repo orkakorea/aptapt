@@ -1,4 +1,3 @@
-// src/components/mobile/MobileInquirySheet.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -31,6 +30,7 @@ export default function MobileInquirySheet({
   sourcePage?: string;
   onSubmitted?: (id: string) => void;
 }) {
+  // ===== 진행선 컬러 =====
   const PROGRESS_BG = "#E9E1FF";
   const PROGRESS_FG = "#7C3AED";
 
@@ -187,7 +187,7 @@ export default function MobileInquirySheet({
       };
 
       const payload: any = {
-        inquiry_kind: mode,              // "SEAT" | "PACKAGE"
+        inquiry_kind: mode, // "SEAT" | "PACKAGE"
         // status는 정책상 기본 'new'로 처리되므로 보낼 필요 없음
         customer_name: managerName || null,
         phone: phone || null,
@@ -207,9 +207,7 @@ export default function MobileInquirySheet({
       };
 
       // ✅ 중요: SELECT를 유발하지 않도록 'returning: minimal'
-      const { error } = await (supabase as any)
-        .from("inquiries")
-        .insert(payload, { returning: "minimal" });
+      const { error } = await (supabase as any).from("inquiries").insert(payload, { returning: "minimal" });
 
       if (error) throw error;
 
@@ -247,14 +245,19 @@ export default function MobileInquirySheet({
       {/* dimmed */}
       <div className="absolute inset-0 bg-black/40" onClick={() => !submitting && onClose()} />
 
-      {/* panel */}
-      <div className="absolute inset-0 overflow-auto flex items-start justify-center">
+      {/* === Bottom Sheet Panel (하단 고정, 절반 높이) === */}
+      <div className="absolute inset-x-0 bottom-0 flex justify-center" onClick={() => !submitting && onClose()}>
         <div
-          className="relative mt-4 mb-10 w-[720px] max-w-[92vw] rounded-2xl bg-white shadow-2xl border border-gray-100"
+          className="relative w-full max-w-[720px] rounded-t-2xl bg-white shadow-2xl border border-gray-100 h-[62vh] max-h-[70vh] overflow-auto pb-[env(safe-area-inset-bottom)]"
           onClick={(e) => e.stopPropagation()}
         >
+          {/* drag handle */}
+          <div className="sticky top-0 z-[2] flex items-center justify-center pt-2 bg-white rounded-t-2xl">
+            <div className="h-1.5 w-12 rounded-full bg-gray-200" />
+          </div>
+
           {/* header */}
-          <div className="flex items-start justify-between px-5 sm:px-6 py-5 border-b border-gray-100 sticky top-0 bg-white/95 rounded-t-2xl">
+          <div className="flex items-start justify-between px-4 sm:px-5 py-4 border-b border-gray-100 sticky top-[14px] bg-white/95">
             <div>
               <div className="text-[18px] font-extrabold text-gray-900">
                 {mode === "SEAT" ? "구좌(T.O) 문의" : "시·군·구 등 단위 / 패키지문의"}
@@ -273,21 +276,18 @@ export default function MobileInquirySheet({
           </div>
 
           {/* progress */}
-          <div className="px-5 sm:px-6 pt-3">
+          <div className="px-4 sm:px-5 pt-3">
             <div className="mx-auto h-1.5 w-full rounded-full" style={{ backgroundColor: PROGRESS_BG }}>
               <div
                 className="h-1.5 rounded-full transition-all duration-300"
-                style={{
-                  width: step === 1 ? "50%" : "100%",
-                  backgroundColor: PROGRESS_FG,
-                }}
+                style={{ width: step === 1 ? "50%" : "100%", backgroundColor: PROGRESS_FG }}
               />
             </div>
             <div className="mx-auto mt-2 h-1.5 w-16 rounded-full bg-gray-200" />
           </div>
 
           {/* body */}
-          <div className="px-5 sm:px-6 py-5">
+          <div className="px-4 sm:px-5 py-4">
             {step === 1 ? (
               <form
                 onSubmit={(e) => {
@@ -481,6 +481,7 @@ export default function MobileInquirySheet({
         </div>
       </div>
 
+      {/* 개인정보 처리방침 모달(오버레이 위로) */}
       {policyOpen && (
         <div className="fixed inset-0 z-[1100]">
           <div className="absolute inset-0 bg-black/40" onClick={() => setPolicyOpen(false)} />
