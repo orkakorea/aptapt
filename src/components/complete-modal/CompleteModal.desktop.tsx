@@ -62,14 +62,17 @@ function parseMonths(value: any): number {
   return 0;
 }
 
-/** 이메일을 ***@domain 형태로 마스킹 */
+/** 이메일을 **ster@domain 형태로 마스킹 */
 function maskEmail(email?: string | null) {
   if (!email) return "-";
   const str = String(email).trim();
   const at = str.indexOf("@");
   if (at <= 0) return "**";
   const local = str.slice(0, at);
-  const domain = str.slice(at + 1).replace(/\s+/g, "").toLowerCase();
+  const domain = str
+    .slice(at + 1)
+    .replace(/\s+/g, "")
+    .toLowerCase();
   const maskedLocal = local.length <= 2 ? "**" : `**${local.slice(2)}`;
   return `${maskedLocal}@${domain.replace(/^@/, "")}`;
 }
@@ -231,11 +234,15 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
   const summary: any = (data as any).summary || {};
   const meta: any = (data as any).meta || {};
 
-  // 이메일
+  // 이메일: emailRaw(여러 위치 탐색) 우선 → 없으면 domain fallback
   const emailRaw = pickEmailLike(c, form, summary, meta) ?? pickEmailLike(form?.values) ?? undefined;
-  const emailMasked =
-    maskEmail(c.email ?? form.email ?? null) ||
-    (c.emailDomain ? `**@${String(c.emailDomain).replace(/^@/, "")}` : "-");
+  let emailMasked = "-";
+  const chosenEmail = emailRaw ?? c.email ?? form.email;
+  if (chosenEmail) {
+    emailMasked = maskEmail(chosenEmail);
+  } else if (c.emailDomain) {
+    emailMasked = `**@${String(c.emailDomain).replace(/^@/, "")}`;
+  }
 
   // 캠페인 유형
   const campaignType =
