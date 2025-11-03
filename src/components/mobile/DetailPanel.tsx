@@ -1,5 +1,5 @@
 // src/components/mobile/DetailPanel.tsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import type { SelectedApt } from "@/core/types";
 import { fmtNum, fmtWon } from "@/core/utils";
 
@@ -7,43 +7,57 @@ const COLOR_PRIMARY = "#6F4BF2";
 const COLOR_PRIMARY_LIGHT = "#EEE8FF";
 const COLOR_GRAY_CARD = "#F4F6FA";
 
-/* =========================================================================
- * PC 규칙과 동일한 정적 에셋 베이스/유틸
- * ========================================================================= */
-const PRIMARY_ASSET_BASE = (import.meta as any).env?.VITE_ASSET_BASE || "/products/";
-const FALLBACK_ASSET_BASE = (import.meta as any).env?.VITE_ASSET_BASE_FALLBACK || "";
-const PLACEHOLDER = "/placeholder.svg";
-const ensureSlash = (s: string) => (s.endsWith("/") ? s : s + "/");
-const PRIMARY_BASE = ensureSlash(PRIMARY_ASSET_BASE);
-const FALLBACK_BASE = FALLBACK_ASSET_BASE ? ensureSlash(FALLBACK_ASSET_BASE) : "";
+/** 상품 이미지 폴백(영문/한글 키워드 모두 지원) */
+function fallbackProductImage(productName?: string) {
+  const raw = productName || "";
+  const lower = raw.toLowerCase();
+  const compactLower = lower.replace(/\s+/g, "");
+  const compact = raw.replace(/\s+/g, ""); // 한글 판별용
 
-/** 절대/루트 경로면 그대로 사용 */
-const isAbsoluteLike = (s?: string) => !!s && /^(https?:|data:|\/)/i.test(s || "");
-/** 파일명(or 부분경로)을 풀 URL로 변환(기본 primary 베이스) */
-function toImageUrl(input?: string): string | undefined {
-  if (!input) return undefined;
-  if (isAbsoluteLike(input)) return input;
-  return PRIMARY_BASE + input.replace(/^\/+/, "");
-}
+  // ====== 엘리베이터 TV ======
+  if (
+    compactLower.includes("elevat") || // elevator, elevator-tv 등
+    compact.includes("엘리베이터") ||
+    compact.includes("엘티비") ||
+    compact.includes("엘리베이터tv")
+  ) {
+    return "/products/elevator-tv.png";
+  }
 
-/** PC MapChrome.tsx 규칙 기반: 상품명+설치위치 → 파일명 선택 */
-const norm = (s?: string) => (s ? s.replace(/\s+/g, "").toLowerCase() : "");
-function resolveProductFile(productName?: string, installLocation?: string): string | undefined {
-  const pn = norm(productName);
-  const loc = norm(installLocation);
-  if (pn.includes("townbord") || pn.includes("townboard") || pn.includes("타운보드")) {
-    if (loc.includes("ev내부")) return "townbord-a.png";
-    if (loc.includes("ev대기공간")) return "townbord-b.png";
+  // ====== 타운보드 (A/B 변형) ======
+  if (compactLower.includes("townbord") || compactLower.includes("townboard") || compact.includes("타운보드")) {
+    if (compactLower.includes("_l") || compactLower.endsWith("l") || compact.endsWith("L")) {
+      return "/products/townbord-b.png";
+    }
+    return "/products/townbord-a.png";
   }
-  if (pn.includes("mediameet") || pn.includes("media-meet") || pn.includes("미디어")) {
-    if (loc.includes("ev내부")) return "media-meet-a.png";
-    if (loc.includes("ev대기공간")) return "media-meet-b.png";
-    return "media-meet-a.png";
+
+  // ====== 미디어밋(미디어미트 표기 포함) ======
+  if (
+    compactLower.includes("mediameet") ||
+    (compactLower.includes("media") && compactLower.includes("meet")) ||
+    compact.includes("미디어밋") ||
+    compact.includes("미디어미트")
+  ) {
+    return "/products/media-meet-a.png";
   }
-  if (pn.includes("엘리베이터tv") || pn.includes("elevatortv") || pn.includes("elevator")) return "elevator-tv.png";
-  if (pn.includes("hipost") || pn.includes("hi-post") || pn.includes("하이포스트")) return "hi-post.png";
-  if (pn.includes("spaceliving") || pn.includes("스페이스") || pn.includes("living")) return "space-living.png";
-  return undefined;
+
+  // ====== 스페이스 리빙 ======
+  if (compactLower.includes("spaceliving") || compactLower.includes("space") || compact.includes("스페이스리빙")) {
+    return "/products/space-living.png";
+  }
+
+  // ====== 하이포스트 ======
+  if (
+    compactLower.includes("hipost") ||
+    (compactLower.includes("hi") && compactLower.includes("post")) ||
+    compact.includes("하이포스트")
+  ) {
+    return "/products/hi-post.png";
+  }
+
+  // 그 외
+  return "/placeholder.svg";
 }
 
 /** 안전하게 필드 꺼내기(여러 이름 대응) */
@@ -71,7 +85,7 @@ export default function DetailPanel({
 
   // ---- 방어적 매핑 (키 이름 다양성 대응) ---------------------------------
   const displayedName: string =
-    (getField(selected as any, ["name", "aptName", "name_kr", "단지명"]) as string) || "미상";
+    (getField(selected as any, ["name", "aptName", "name_kr", "단지명", "apt_name", "title"]) as string) || "미상";
 
   const displayedProduct: string =
     (getField(selected as any, ["productName", "product_name", "product", "상품명"]) as string) || "ELEVATOR TV";
@@ -80,43 +94,14 @@ export default function DetailPanel({
 
   const displayedAddress: string = (getField(selected as any, ["address", "주소"]) as string) || "-";
 
-  // 이미지 우선순위:
-  // 1) selected.imageUrl이 절대/루트면 그대로
-  // 2) selected.imageUrl이 파일명/부분경로면 primary 베이스로
-  // 3) 상품/설치위치로 파일명 매핑 → primary 베이스
-  // 4) PLACEHOLDER
-  const candidateFromSelected =
-    (getField(selected as any, ["imageUrl", "image_url", "이미지", "썸네일", "thumbnail"]) as string) || undefined;
-  const mappedFile = resolveProductFile(displayedProduct, displayedInstallLoc);
-  const initialImg = toImageUrl(candidateFromSelected) || toImageUrl(mappedFile) || PLACEHOLDER;
+  const initialImg: string =
+    (getField(selected as any, ["imageUrl", "image_url", "이미지", "썸네일", "thumbnail"]) as string) ||
+    fallbackProductImage(displayedProduct);
 
   const [imgSrc, setImgSrc] = useState<string>(initialImg);
-  const [fallbackTried, setFallbackTried] = useState<boolean>(false);
-
-  // 선택 변경 시 이미지 초기화
-  useEffect(() => {
-    const next =
-      toImageUrl(
-        (getField(selected as any, ["imageUrl", "image_url", "이미지", "썸네일", "thumbnail"]) as string) || undefined,
-      ) ||
-      toImageUrl(resolveProductFile(displayedProduct, displayedInstallLoc)) ||
-      PLACEHOLDER;
-    setImgSrc(next);
-    setFallbackTried(false);
-  }, [selected, displayedProduct, displayedInstallLoc]);
-
   const onImgError: React.ReactEventHandler<HTMLImageElement> = () => {
-    // 1) primary 베이스를 사용 중이고 fallback 베이스가 있으면 fallback으로 재시도
-    if (!fallbackTried && FALLBACK_BASE && imgSrc.startsWith(PRIMARY_BASE)) {
-      const alt = imgSrc.replace(PRIMARY_BASE, FALLBACK_BASE);
-      setFallbackTried(true);
-      setImgSrc(alt);
-      return;
-    }
-    // 2) 마지막으로 PLACEHOLDER
-    if (imgSrc !== PLACEHOLDER) {
-      setImgSrc(PLACEHOLDER);
-    }
+    const fb = fallbackProductImage(displayedProduct);
+    if (imgSrc !== fb) setImgSrc(fb);
   };
 
   const y1Monthly =
@@ -131,7 +116,7 @@ export default function DetailPanel({
 
   return (
     <div className="space-y-3">
-      {/* 상단 이미지 */}
+      {/* 상단 이미지 (UI 동일) */}
       <div className="rounded-2xl overflow-hidden bg-gray-100 aspect-[4/3]">
         {imgSrc ? (
           <img src={imgSrc} alt={displayedName} className="w-full h-full object-cover" onError={onImgError} />
@@ -140,7 +125,7 @@ export default function DetailPanel({
         )}
       </div>
 
-      {/* 타이틀 + 닫기(X) */}
+      {/* 타이틀 + 닫기(X) (UI 동일) */}
       <div className="flex items-start gap-3">
         <div className="flex-1">
           <div className="text-[20px] font-extrabold">{displayedName}</div>
@@ -160,7 +145,7 @@ export default function DetailPanel({
         )}
       </div>
 
-      {/* 가격 카드들 */}
+      {/* 가격 카드들 (UI 동일) */}
       <div className="space-y-2">
         <div className="rounded-2xl px-4 py-3" style={{ backgroundColor: COLOR_GRAY_CARD }}>
           <div className="text-sm text-gray-600">월 광고료</div>
@@ -180,7 +165,7 @@ export default function DetailPanel({
         </div>
       </div>
 
-      {/* 담기 버튼 */}
+      {/* 담기 버튼 (UI 동일) */}
       <div className="pt-1">
         <button
           className={`w-full h-12 rounded-2xl font-extrabold ${inCart ? "text-gray-700" : "text-white"}`}
@@ -192,7 +177,7 @@ export default function DetailPanel({
         </button>
       </div>
 
-      {/* 상세정보 테이블 */}
+      {/* 상세정보 테이블 (UI 동일, 데이터 매핑만 반영) */}
       <section className="mt-1">
         <div className="mb-2 text-[15px] font-extrabold">상세정보</div>
         <div className="rounded-2xl border overflow-hidden">
