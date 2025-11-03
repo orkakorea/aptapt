@@ -1,3 +1,4 @@
+// src/hooks/useMarkers.ts
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { buildRowKeyFromRow, groupKeyFromRow } from "@/core/map/rowKey";
@@ -28,16 +29,55 @@ const toNum = (v: any) => {
   return Number.isFinite(n) ? n : undefined;
 };
 
+/** ✅ 상품 이미지 매핑(영문+한글 키워드 모두 지원) */
 function imageForProduct(productName?: string): string {
-  const p = (productName || "").toLowerCase().replace(/\s+/g, "");
-  if (p.includes("elevat")) return "/products/elevator-tv.png";
-  if (p.includes("townbord") || p.includes("townboard")) {
-    if (p.includes("_l") || p.endsWith("l")) return "/products/townbord-b.png";
+  const raw = productName || "";
+  const lower = raw.toLowerCase();
+  const compactLower = lower.replace(/\s+/g, "");
+  const compact = raw.replace(/\s+/g, "");
+
+  // 엘리베이터 TV
+  if (
+    compactLower.includes("elevat") ||
+    compact.includes("엘리베이터") ||
+    compact.includes("엘티비") ||
+    compact.includes("엘리베이터tv")
+  ) {
+    return "/products/elevator-tv.png";
+  }
+
+  // 타운보드 (A/B 변형)
+  if (compactLower.includes("townbord") || compactLower.includes("townboard") || compact.includes("타운보드")) {
+    if (compactLower.includes("_l") || compactLower.endsWith("l") || compact.endsWith("L")) {
+      return "/products/townbord-b.png";
+    }
     return "/products/townbord-a.png";
   }
-  if (p.includes("media")) return "/products/media-meet-a.png";
-  if (p.includes("space")) return "/products/space-living.png";
-  if (p.includes("hipost") || (p.includes("hi") && p.includes("post"))) return "/products/hi-post.png";
+
+  // 미디어밋(미디어미트)
+  if (
+    compactLower.includes("mediameet") ||
+    (compactLower.includes("media") && compactLower.includes("meet")) ||
+    compact.includes("미디어밋") ||
+    compact.includes("미디어미트")
+  ) {
+    return "/products/media-meet-a.png";
+  }
+
+  // 스페이스리빙
+  if (compactLower.includes("spaceliving") || compactLower.includes("space") || compact.includes("스페이스리빙")) {
+    return "/products/space-living.png";
+  }
+
+  // 하이포스트
+  if (
+    compactLower.includes("hipost") ||
+    (compactLower.includes("hi") && compactLower.includes("post")) ||
+    compact.includes("하이포스트")
+  ) {
+    return "/products/hi-post.png";
+  }
+
   return "/placeholder.svg";
 }
 
@@ -135,8 +175,8 @@ export default function useMarkers({
 
   /** 행 -> 선택객체(기본: map용 최소 컬럼만으로 생성) */
   const toSelectedBase = useCallback((rowKey: string, row: PlaceRow, lat: number, lng: number): SelectedApt => {
-    const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
-    const productName = getField(row, ["상품명", "productName", "product_name"]) || "";
+    const name = getField(row, ["단지명", "단지 명", "name", "아파트명", "apt_name", "aptName", "title"]) || "";
+    const productName = getField(row, ["상품명", "productName", "product_name", "mediaName"]) || "";
     const rawImage = getField(row, ["image_url", "imageUrl", "이미지", "썸네일", "thumbnail"]) || undefined;
     return {
       rowKey,
@@ -161,8 +201,19 @@ export default function useMarkers({
 
   /** 상세 응답 -> SelectedApt로 보강 */
   const enrichWithDetail = useCallback((base: SelectedApt, d: any): SelectedApt => {
+    const detailName = (getField(d, ["name"]) as string) ?? (getField(d, ["apt_name"]) as string);
+    const detailProduct =
+      (getField(d, ["product_name"]) as string) ?? (getField(d, ["productName"]) as string) ?? base.productName;
+
+    const detailImage = (getField(d, ["image_url"]) as string) ?? base.imageUrl;
+
     return {
       ...base,
+      // ✅ 이름/상품명/이미지도 상세 값으로 보강
+      name: detailName ?? base.name,
+      productName: detailProduct,
+      imageUrl: detailImage ?? imageForProduct(detailProduct),
+
       installLocation:
         toNum(getField(d, ["install_location"])) != null
           ? (getField(d, ["install_location"]) as any)
@@ -176,7 +227,6 @@ export default function useMarkers({
       address: (getField(d, ["address"]) as string) ?? base.address,
       monthlyFee: toNum(getField(d, ["monthly_fee"])) ?? base.monthlyFee,
       monthlyFeeY1: toNum(getField(d, ["monthly_fee_y1"])) ?? base.monthlyFeeY1,
-      imageUrl: (getField(d, ["image_url"]) as string) ?? base.imageUrl,
       lat: toNum(getField(d, ["lat"])) ?? base.lat,
       lng: toNum(getField(d, ["lng"])) ?? base.lng,
     };
@@ -225,7 +275,7 @@ export default function useMarkers({
         nextIdKeys.add(idKey);
 
         const pos = new maps.LatLng(lat, lng);
-        const title = String(getField(row, ["단지명", "name", "아파트명"]) || "");
+        const title = String(getField(row, ["단지명", "name", "아파트명", "apt_name", "title"]) || "");
 
         let mk = poolRef.current.get(idKey);
         if (!mk) {
@@ -399,7 +449,7 @@ export default function useMarkers({
         place_id: r.place_id, // 안정 키
         lat: r.lat,
         lng: r.lng,
-        name: r.name,
+        name: r.name ?? undefined, // 일부 null 방지
         product_name: r.product_name,
         productName: r.product_name,
         image_url: r.image_url,
