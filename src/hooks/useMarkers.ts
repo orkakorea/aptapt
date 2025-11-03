@@ -421,7 +421,7 @@ export default function useMarkers({
       // ✅ 지도용 최소 뷰 → 빠름
       const { data, error } = await (supabase as any)
         .from("public_map_places")
-        .select("place_id,name,product_name,lat,lng,image_url,is_active,city,district,updated_at,install_location")
+        .select("place_id,name,product_name,lat,lng,image_url,is_active,city,district,updated_at")
         .eq("is_active", true)
         .not("lat", "is", null)
         .not("lng", "is", null)
@@ -449,7 +449,6 @@ export default function useMarkers({
         product_name: r.product_name,
         productName: r.product_name,
         image_url: r.image_url,
-        installLocation: r.install_location,
         city: r.city,
         district: r.district,
         updated_at: r.updated_at,
