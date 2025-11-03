@@ -17,7 +17,7 @@ import { calcMonthlyWithPolicy, normPolicyKey } from "@/core/pricing";
 const BRAND = "#6F4BF2";
 const BRAND_LIGHT = "#EEE8FF";
 
-/** 숫자를 '1,234원' 형태로 */
+/** 숫자를 '1,234원' 형태로 표기 */
 const formatWon = (n?: number | null) =>
   n == null || !isFinite(Number(n)) ? "0원" : `${Number(n).toLocaleString("ko-KR")}원`;
 
@@ -233,7 +233,7 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
       <div className="mt-2 border-t border-gray-100 px-4 py-3">
         <div className="mb-2 text-xs text-gray-500">문의내용</div>
         <div
-          className="max-h-[40vh] overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-gray-50 px-3 py-3 text-sm"
+          className="max-h-[40vh] min-h-[140px] overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-gray-50 px-3 py-3 text-sm"
           data-capture-scroll
         >
           {inquiryText}
@@ -247,6 +247,7 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
  * 좌: SEAT 문의 내역(카운터 제거)
  *  - 월가(표시): 기준 월가(FMK=4주)
  *  - 할인율: 스냅샷/총액 역산 → 정책 폴백(calcMonthlyWithPolicy)
+ *  - TOTAL: 행(lineTotal) 합계로만 계산(서버 값 무시)
  * ========================================================================= */
 function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
   const detailsItems: any[] = (data as any)?.details?.items ?? [];
@@ -390,17 +391,15 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
     };
   });
 
-  // 합계
-  const periodTotal =
-    (data as any)?.details?.periodTotalKRW ??
-    rows.reduce((sum, r) => sum + (isFinite(r.lineTotal) ? r.lineTotal : 0), 0);
+  // 합계(서버 값 무시, 행 합계로만)
+  const periodTotal = rows.reduce((sum, r) => sum + (isFinite(r.lineTotal) ? r.lineTotal : 0), 0);
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white">
       {/* 제목 */}
       <div className="px-4 pt-3 text-sm font-semibold">문의 내역</div>
 
-      {/* 테이블 (카운터 바 제거됨) */}
+      {/* 테이블 (카운터 바 제거) */}
       <div className="border-t border-gray-100 overflow-x-auto" data-capture-scroll>
         <table className="min-w-[920px] text-[13px]">
           <thead className="bg-gray-50 text-gray-600">
@@ -438,7 +437,7 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
         </table>
       </div>
 
-      {/* 합계 카드 (라벨/통화 표기 수정) */}
+      {/* 합계 카드 */}
       <div className="px-4 py-4">
         <div className="rounded-xl border border-[#E5E7EB] bg-[#F7F5FF]">
           <div className="flex items-center justify-between px-4 py-3">
@@ -541,13 +540,12 @@ export default function CompleteModalDesktop({ open, onClose, data, confirmLabel
             {/* 본문 */}
             <div className="flex-1 overflow-y-auto px-6 py-6" data-capture-scroll>
               <div className="grid grid-cols-12 gap-6">
-                {/* 좌측 */}
+                {/* 좌측: 고객 정보만 */}
                 <div className="col-span-12 lg:col-span-8 space-y-4">
                   <CustomerInquirySection data={data as ReceiptData} />
-                  {isSeat && <SeatInquiryTable data={data as ReceiptSeat} />}
                 </div>
 
-                {/* 우측 */}
+                {/* 우측: 다음 절차/저장/안내/링크 */}
                 <div className="col-span-12 lg:col-span-4 space-y-4">
                   <NextSteps />
 
@@ -588,6 +586,13 @@ export default function CompleteModalDesktop({ open, onClose, data, confirmLabel
                     </div>
                   </div>
                 </div>
+
+                {/* 새 행: 문의 내역(테이블+합계) 전체폭 */}
+                {isSeat && (
+                  <div className="col-span-12">
+                    <SeatInquiryTable data={data as ReceiptSeat} />
+                  </div>
+                )}
               </div>
             </div>
 
