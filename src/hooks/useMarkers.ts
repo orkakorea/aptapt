@@ -29,14 +29,13 @@ const toNum = (v: any) => {
   return Number.isFinite(n) ? n : undefined;
 };
 
-/** ✅ 상품 이미지 매핑(영문+한글 키워드 모두 지원) */
+/** ✅ 상품 이미지 매핑(영문+한글 키워드 지원) */
 function imageForProduct(productName?: string): string {
   const raw = productName || "";
   const lower = raw.toLowerCase();
   const compactLower = lower.replace(/\s+/g, "");
   const compact = raw.replace(/\s+/g, "");
 
-  // 엘리베이터 TV
   if (
     compactLower.includes("elevat") ||
     compact.includes("엘리베이터") ||
@@ -45,16 +44,12 @@ function imageForProduct(productName?: string): string {
   ) {
     return "/products/elevator-tv.png";
   }
-
-  // 타운보드 (A/B 변형)
   if (compactLower.includes("townbord") || compactLower.includes("townboard") || compact.includes("타운보드")) {
     if (compactLower.includes("_l") || compactLower.endsWith("l") || compact.endsWith("L")) {
       return "/products/townbord-b.png";
     }
     return "/products/townbord-a.png";
   }
-
-  // 미디어밋(미디어미트)
   if (
     compactLower.includes("mediameet") ||
     (compactLower.includes("media") && compactLower.includes("meet")) ||
@@ -63,13 +58,9 @@ function imageForProduct(productName?: string): string {
   ) {
     return "/products/media-meet-a.png";
   }
-
-  // 스페이스리빙
   if (compactLower.includes("spaceliving") || compactLower.includes("space") || compact.includes("스페이스리빙")) {
     return "/products/space-living.png";
   }
-
-  // 하이포스트
   if (
     compactLower.includes("hipost") ||
     (compactLower.includes("hi") && compactLower.includes("post")) ||
@@ -77,21 +68,18 @@ function imageForProduct(productName?: string): string {
   ) {
     return "/products/hi-post.png";
   }
-
-  return "/placeholder.svg";
+  return "/products/elevator-tv.png"; // 최종 폴백을 제품 계열로
 }
 
 type MarkerState = "purple" | "yellow" | "clicked";
 
-/** 오버스캔 비율(조회 영역 확대) — 너무 크지 않게 */
+/** 오버스캔/최소 스팬 */
 const OVERSCAN_RATIO = 0.2;
-
-/** 바운드가 비정상적으로 작은 경우 fetch 스킵(임시 레이아웃/relayout 구간 보호) */
-const MIN_LAT_SPAN = 0.0001; // 약 90m
-const MIN_LNG_SPAN = 0.0001; // 약 90m
+const MIN_LAT_SPAN = 0.0001;
+const MIN_LNG_SPAN = 0.0001;
 
 /* =========================================================================
- * 훅 본체(⚠️ 훅 호출은 항상 동일한 순서/개수로 유지)
+ * 훅 본체
  * ========================================================================= */
 export default function useMarkers({
   kakao,
@@ -106,30 +94,24 @@ export default function useMarkers({
   onSelect: (apt: SelectedApt) => void;
   externalSelectedRowKeys?: string[];
 }) {
-  /** 풀/인덱스/상태 */
-  const poolRef = useRef<Map<string, any>>(new Map()); // idKey -> Marker
-  const rowKeyIndexRef = useRef<Map<string, any>>(new Map()); // rowKey -> Marker
+  const poolRef = useRef<Map<string, any>>(new Map());
+  const rowKeyIndexRef = useRef<Map<string, any>>(new Map());
   const lastClickedRef = useRef<any | null>(null);
 
-  /** 선택 집합을 ref로 보관 → 렌더 영향 없이 참조 */
   const selectedSetRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     selectedSetRef.current = new Set(externalSelectedRowKeys);
   }, [externalSelectedRowKeys]);
 
-  /** 중복 요청/늦은 응답/빈결과 스트릭 가드 */
   const fetchInFlightRef = useRef(false);
   const requestVersionRef = useRef(0);
-  const emptyStreakRef = useRef(0); // 연속 0건 응답 횟수 (2회 이상이면 정리 허용)
+  const emptyStreakRef = useRef(0);
 
-  /** 마커 이미지 캐시 (항상 훅은 호출, 내부에서 kakao 준비 여부만 분기) */
   const imgs = useMemo(() => {
     if (!kakao?.maps) return null;
     const { maps } = kakao;
     const mk = (url: string, size: number) =>
-      new maps.MarkerImage(url, new maps.Size(size, size), {
-        offset: new maps.Point(size / 2, size),
-      });
+      new maps.MarkerImage(url, new maps.Size(size, size), { offset: new maps.Point(size / 2, size) });
     try {
       return {
         purple: mk("/makers/pin-purple@2x.png", 51),
@@ -141,7 +123,6 @@ export default function useMarkers({
     }
   }, [kakao]);
 
-  /** 상태 변화시에만 이미지 교체 */
   const setMarkerState = useCallback(
     (mk: any, next: MarkerState) => {
       if (!imgs || !mk) return;
@@ -154,35 +135,40 @@ export default function useMarkers({
     [imgs],
   );
 
-  /** 공통 컬러링 규칙 (선택 > 클릭 > 기본) */
   const colorByRule = useCallback(
     (mk: any) => {
       if (!mk) return;
       const rowKey = mk.__rowKey as string | undefined;
       const isSelected = !!rowKey && selectedSetRef.current.has(rowKey);
-      if (isSelected) {
-        setMarkerState(mk, "yellow"); // 담긴 건 항상 노랑
-        return;
-      }
-      if (lastClickedRef.current === mk) {
-        setMarkerState(mk, "clicked");
-        return;
-      }
+      if (isSelected) return setMarkerState(mk, "yellow");
+      if (lastClickedRef.current === mk) return setMarkerState(mk, "clicked");
       setMarkerState(mk, "purple");
     },
     [setMarkerState],
   );
 
-  /** 행 -> 선택객체(기본: map용 최소 컬럼만으로 생성) */
+  /** ✅ 기본 선택 객체 생성: 이미지 키를 넓게 탐색 */
   const toSelectedBase = useCallback((rowKey: string, row: PlaceRow, lat: number, lng: number): SelectedApt => {
     const name = getField(row, ["단지명", "단지 명", "name", "아파트명", "apt_name", "aptName", "title"]) || "";
     const productName = getField(row, ["상품명", "productName", "product_name", "mediaName"]) || "";
-    const rawImage = getField(row, ["image_url", "imageUrl", "이미지", "썸네일", "thumbnail"]) || undefined;
+    const rawImage =
+      getField(row, [
+        "imageUrl",
+        "image_url",
+        "image",
+        "thumbnail",
+        "thumb",
+        "thumb_url",
+        "thumbUrl",
+        "이미지",
+        "썸네일",
+      ]) || undefined;
+
     return {
       rowKey,
       rowId: row.id != null ? String(row.id) : row.place_id != null ? String(row.place_id) : undefined,
       name,
-      address: "", // 상세 호출 후 채움
+      address: "",
       productName,
       installLocation: undefined,
       households: undefined,
@@ -193,27 +179,27 @@ export default function useMarkers({
       hours: "",
       monthlyFee: undefined,
       monthlyFeeY1: undefined,
-      imageUrl: rawImage || imageForProduct(productName),
+      imageUrl: rawImage || imageForProduct(productName), // ✨ 반드시 채워지도록 보장
       lat,
       lng,
     };
   }, []);
 
-  /** 상세 응답 -> SelectedApt로 보강 */
+  /** ✅ 상세 응답 보강: 이미지/이름/상품명도 보강 */
   const enrichWithDetail = useCallback((base: SelectedApt, d: any): SelectedApt => {
     const detailName = (getField(d, ["name"]) as string) ?? (getField(d, ["apt_name"]) as string);
     const detailProduct =
       (getField(d, ["product_name"]) as string) ?? (getField(d, ["productName"]) as string) ?? base.productName;
 
-    const detailImage = (getField(d, ["image_url"]) as string) ?? base.imageUrl;
+    const detailImage =
+      (getField(d, ["imageUrl", "image_url", "image", "thumbnail", "thumb", "thumb_url", "thumbUrl"]) as string) ??
+      base.imageUrl;
 
     return {
       ...base,
-      // ✅ 이름/상품명/이미지도 상세 값으로 보강
       name: detailName ?? base.name,
       productName: detailProduct,
       imageUrl: detailImage ?? imageForProduct(detailProduct),
-
       installLocation:
         toNum(getField(d, ["install_location"])) != null
           ? (getField(d, ["install_location"]) as any)
@@ -232,7 +218,6 @@ export default function useMarkers({
     };
   }, []);
 
-  /** 안정키: row.id/place_id 우선, 없으면 좌표 5자리 + 그룹/상품/설치 */
   function stableIdKeyFromRow(row: PlaceRow): string {
     if (row.id != null) return `id:${String(row.id)}`;
     if (row.place_id != null) return `pid:${String(row.place_id)}`;
@@ -246,22 +231,16 @@ export default function useMarkers({
     return `geo:${lat5},${lng5}|${gk}|${prod}|${loc}`;
   }
 
-  /** DIFF 반영 (오직 새 fetch 결과 기준으로만 추가/제거) */
   const applyRows = useCallback(
     (rows: PlaceRow[]) => {
       if (!kakao?.maps || !map || !imgs) return;
       const { maps } = kakao;
 
-      // ⚠️ 빈 배열 보호: 기존 마커가 있고 rows가 0이면 "일시적 공백"일 가능성 → 적용 스킵
-      if ((rows?.length ?? 0) === 0 && poolRef.current.size > 0) {
-        return; // 전체 사라짐 방지
-      }
+      if ((rows?.length ?? 0) === 0 && poolRef.current.size > 0) return;
 
       const nextIdKeys = new Set<string>();
       const toAdd: any[] = [];
       const toRemove: any[] = [];
-
-      // 새 rowKey 인덱스 (전체 교체)
       const nextRowKeyIndex = new Map<string, any>();
 
       for (const row of rows) {
@@ -279,12 +258,11 @@ export default function useMarkers({
 
         let mk = poolRef.current.get(idKey);
         if (!mk) {
-          // 최초 생성(추가만)
           try {
             mk = new maps.Marker({
               position: pos,
               title,
-              image: imgs.purple, // 기본은 보라 (선택/클릭 규칙으로 즉시 보정)
+              image: imgs.purple,
               clickable: true,
             });
             mk.__imgState = "purple";
@@ -296,16 +274,13 @@ export default function useMarkers({
           mk.__row = row;
 
           const onClick = async () => {
-            // 1) 빠른 선택(기본 정보)
             const baseSel = toSelectedBase(mk.__rowKey, mk.__row, lat, lng);
             onSelect(baseSel);
 
-            // 2) 클릭 색상 규칙
             if (lastClickedRef.current && lastClickedRef.current !== mk) colorByRule(lastClickedRef.current);
             lastClickedRef.current = mk;
             colorByRule(mk);
 
-            // 3) 상세 보강 (place_id/id 우선 사용)
             const pid = Number(mk.__row?.place_id ?? mk.__row?.id);
             if (Number.isFinite(pid)) {
               mk.__detailVer = (mk.__detailVer || 0) + 1;
@@ -318,56 +293,42 @@ export default function useMarkers({
                 }
                 const d = (data && (Array.isArray(data) ? data[0] : data)) || null;
                 if (!d) return;
-                // 늦게 도착한 응답 폐기
                 if (mk.__detailVer !== myVer) return;
 
-                // 마커 내부 row에도 병합(다음 클릭 시 즉시 사용)
                 mk.__row = { ...mk.__row, ...d };
-
-                // UI 덮어쓰기
-                const enriched = enrichWithDetail(baseSel, d);
-                onSelect(enriched);
+                onSelect(enrichWithDetail(baseSel, d));
               } catch (e) {
                 console.warn("[useMarkers] detail fetch failed:", e);
               }
             }
           };
           mk.__onClick = onClick as any;
-
           maps.event.addListener(mk, "click", onClick);
 
           poolRef.current.set(idKey, mk);
           toAdd.push(mk);
         } else {
-          // 재사용: 위치/타이틀 변동시에만 갱신
           try {
             const oldPos = mk.getPosition?.();
-            if (!oldPos || oldPos.getLat() !== lat || oldPos.getLng() !== lng) {
-              mk.setPosition(pos);
-            }
+            if (!oldPos || oldPos.getLat() !== lat || oldPos.getLng() !== lng) mk.setPosition(pos);
             if (mk.getTitle?.() !== title) mk.setTitle?.(title);
           } catch {}
           mk.__rowKey = rowKey;
           mk.__row = row;
-
-          // 색 규칙 적용(변화시에만 이미지 교체)
           colorByRule(mk);
         }
 
         nextRowKeyIndex.set(rowKey, mk);
       }
 
-      // 먼저 추가를 반영 → 화면 공백 방지
       if (toAdd.length) {
         try {
           if (clusterer?.addMarkers) clusterer.addMarkers(toAdd);
           else toAdd.forEach((m) => m.setMap(map));
         } catch {}
-        // 추가분 색상 최종 적용(선택 반영)
         toAdd.forEach((mk) => colorByRule(mk));
       }
 
-      // 제거 대상: 이번 결과에 없는 idKey만 제거 (오직 새 데이터 기준)
       poolRef.current.forEach((mk, idKey) => {
         if (!nextIdKeys.has(idKey)) {
           toRemove.push(mk);
@@ -380,21 +341,17 @@ export default function useMarkers({
           if (clusterer?.removeMarkers) clusterer.removeMarkers(toRemove);
           else toRemove.forEach((m) => m.setMap(null));
         } catch {}
-        // 이벤트 해제(메모리 누수 방지)
         try {
-          toRemove.forEach((mk) => {
-            kakao.maps.event.removeListener(mk, "click", mk.__onClick);
-          });
+          toRemove.forEach((mk) => kakao.maps.event.removeListener(mk, "click", mk.__onClick));
         } catch {}
       }
 
-      // 인덱스 교체
       rowKeyIndexRef.current = nextRowKeyIndex;
     },
     [clusterer, colorByRule, imgs, kakao, map, onSelect, toSelectedBase, enrichWithDetail],
   );
 
-  /** 바운드 내 데이터 요청 + DIFF 반영 */
+  /** ✅ 바운드 내 데이터 요청: image 관련 필드를 넓게 정규화하여 row에 실어둠 */
   const refreshInBounds = useCallback(async () => {
     if (!kakao?.maps || !map) return;
     const kbounds = map.getBounds?.();
@@ -403,12 +360,10 @@ export default function useMarkers({
     const sw = kbounds.getSouthWest();
     const ne = kbounds.getNorthEast();
 
-    // ❗ 비정상적으로 작은 바운드(레이아웃 전환/relayout 중)면 스킵 → 집단 깜빡임 방지
     const latSpan = Math.abs(ne.getLat() - sw.getLat());
     const lngSpan = Math.abs(ne.getLng() - sw.getLng());
     if (latSpan < MIN_LAT_SPAN || lngSpan < MIN_LNG_SPAN) return;
 
-    // 오버스캔 적용
     const latPad = (ne.getLat() - sw.getLat()) * OVERSCAN_RATIO;
     const lngPad = (ne.getLng() - sw.getLng()) * OVERSCAN_RATIO;
     const minLat = Math.min(sw.getLat(), ne.getLat()) - latPad;
@@ -416,16 +371,16 @@ export default function useMarkers({
     const minLng = Math.min(sw.getLng(), ne.getLng()) - lngPad;
     const maxLng = Math.max(sw.getLng(), ne.getLng()) + lngPad;
 
-    // 중복 요청 가드
     if (fetchInFlightRef.current) return;
     fetchInFlightRef.current = true;
     const myVersion = ++requestVersionRef.current;
 
     try {
-      // ✅ 지도용 최소 뷰 → 빠름
       const { data, error } = await (supabase as any)
         .from("public_map_places")
-        .select("place_id,name,product_name,lat,lng,image_url,is_active,city,district,updated_at")
+        .select(
+          "place_id,name,product_name,lat,lng,image_url,image,thumbnail,thumb_url,is_active,city,district,updated_at",
+        )
         .eq("is_active", true)
         .not("lat", "is", null)
         .not("lng", "is", null)
@@ -436,29 +391,29 @@ export default function useMarkers({
         .order("updated_at", { ascending: false })
         .limit(5000);
 
-      // 느리게 도착한 응답은 폐기
       if (myVersion !== requestVersionRef.current) return;
-
       if (error) {
         console.error("Supabase(public_map_places) error:", error.message);
         return;
       }
 
-      // 🔁 새 뷰 스키마 → 기존 로직이 쓰는 키로 정규화
       const rows: PlaceRow[] = (data ?? []).map((r: any) => ({
-        place_id: r.place_id, // 안정 키
+        place_id: r.place_id,
         lat: r.lat,
         lng: r.lng,
-        name: r.name ?? undefined, // 일부 null 방지
+        name: r.name ?? undefined,
         product_name: r.product_name,
         productName: r.product_name,
-        image_url: r.image_url,
+        // ✨ 이미지 후보들을 모두 row에 싣는다 (toSelectedBase가 집어서 사용)
+        image_url: r.image_url ?? r.image ?? r.thumbnail ?? r.thumb_url ?? undefined,
+        image: r.image ?? undefined,
+        thumbnail: r.thumbnail ?? undefined,
+        thumb_url: r.thumb_url ?? undefined,
         city: r.city,
         district: r.district,
         updated_at: r.updated_at,
       }));
 
-      // ❗ 일시적 0건 보호: 1회는 무시, 2회 연속이면 진짜로 비어있다고 판단
       if (rows.length === 0) {
         emptyStreakRef.current += 1;
         if (emptyStreakRef.current < 2 && poolRef.current.size > 0) return;
@@ -472,25 +427,19 @@ export default function useMarkers({
     }
   }, [applyRows, kakao, map]);
 
-  /** idle에서만 갱신 (UI 액션과 분리) + 초기 1회 강제 */
   useEffect(() => {
     if (!kakao?.maps || !map) return;
     const { maps } = kakao;
 
-    const handleIdle = () => {
-      refreshInBounds();
-    };
-
+    const handleIdle = () => refreshInBounds();
     maps.event.addListener(map, "idle", handleIdle);
 
-    // 초기: 다음 프레임에 강제 1회 실행 (초기 idle 누락 대비)
     requestAnimationFrame(() => refreshInBounds());
 
     return () => {
       try {
         maps.event.removeListener(map, "idle", handleIdle);
       } catch {}
-      // 정리
       const all: any[] = [];
       poolRef.current.forEach((mk) => all.push(mk));
       try {
@@ -498,9 +447,7 @@ export default function useMarkers({
         else all.forEach((m) => m.setMap(null));
       } catch {}
       try {
-        all.forEach((mk) => {
-          kakao.maps.event.removeListener(mk, "click", mk.__onClick);
-        });
+        all.forEach((mk) => kakao.maps.event.removeListener(mk, "click", mk.__onClick));
       } catch {}
       poolRef.current.clear();
       rowKeyIndexRef.current.clear();
@@ -508,7 +455,6 @@ export default function useMarkers({
     };
   }, [kakao, map, refreshInBounds, clusterer]);
 
-  /** 외부 포커스: rowKey로 선택/이동 (+ 상세 보강) */
   const selectByRowKey = useCallback(
     async (rowKey: string) => {
       const mk = rowKeyIndexRef.current.get(rowKey);
@@ -524,16 +470,13 @@ export default function useMarkers({
         map.panTo?.(pos);
       } catch {}
 
-      // 1) 기본 선택
       const baseSel = toSelectedBase(rowKey, row, lat, lng);
       onSelect(baseSel);
 
-      // 2) 색 규칙 갱신
       if (lastClickedRef.current && lastClickedRef.current !== mk) colorByRule(lastClickedRef.current);
       lastClickedRef.current = mk;
       colorByRule(mk);
 
-      // 3) 상세 보강
       const pid = Number(mk.__row?.place_id ?? mk.__row?.id);
       if (Number.isFinite(pid)) {
         mk.__detailVer = (mk.__detailVer || 0) + 1;
@@ -558,6 +501,5 @@ export default function useMarkers({
     [colorByRule, enrichWithDetail, kakao, map, onSelect, toSelectedBase],
   );
 
-  // 항상 동일 shape의 API 반환
   return { refreshInBounds, selectByRowKey };
 }
