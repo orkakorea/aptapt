@@ -67,13 +67,11 @@ function maskEmail(email?: string | null) {
   if (!email) return "-";
   const str = String(email).trim();
   const at = str.indexOf("@");
-  if (at <= 0) return "***";
-  // 도메인은 항상 보여주고, 로컬파트는 ***로 고정
-  const domain = str
-    .slice(at + 1)
-    .replace(/\s+/g, "")
-    .toLowerCase();
-  return `***@${domain.replace(/^@/, "")}`;
+  if (at <= 0) return "**";
+  const local = str.slice(0, at);
+  const domain = str.slice(at + 1).replace(/\s+/g, "").toLowerCase();
+  const maskedLocal = local.length <= 2 ? "**" : `**${local.slice(2)}`;
+  return `${maskedLocal}@${domain.replace(/^@/, "")}`;
 }
 
 /** 얕은 객체 여러 개에서 첫 번째 일치 값 반환 */
@@ -235,7 +233,9 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
 
   // 이메일
   const emailRaw = pickEmailLike(c, form, summary, meta) ?? pickEmailLike(form?.values) ?? undefined;
-  const emailMasked = maskEmail(emailRaw) || (c.emailDomain ? `***${String(c.emailDomain).replace(/^@/, "@")}` : "-");
+  const emailMasked =
+    maskEmail(c.email ?? form.email ?? null) ||
+    (c.emailDomain ? `**@${String(c.emailDomain).replace(/^@/, "")}` : "-");
 
   // 캠페인 유형
   const campaignType =
