@@ -29,7 +29,7 @@ const toNum = (v: any) => {
   return Number.isFinite(n) ? n : undefined;
 };
 
-/** ✅ 상품 이미지 매핑(영문+한글 키워드 지원) */
+/** 상품 이미지 매핑(영문+한글 키워드 지원) */
 function imageForProduct(productName?: string): string {
   const raw = productName || "";
   const lower = raw.toLowerCase();
@@ -68,7 +68,7 @@ function imageForProduct(productName?: string): string {
   ) {
     return "/products/hi-post.png";
   }
-  return "/products/elevator-tv.png"; // 최종 폴백을 제품 계열로
+  return "/products/elevator-tv.png"; // 최종 폴백
 }
 
 type MarkerState = "purple" | "yellow" | "clicked";
@@ -147,7 +147,7 @@ export default function useMarkers({
     [setMarkerState],
   );
 
-  /** ✅ 기본 선택 객체 생성: 이미지 키를 넓게 탐색 */
+  /** 기본 선택 객체 생성: 이미지 키를 넓게 탐색 */
   const toSelectedBase = useCallback((rowKey: string, row: PlaceRow, lat: number, lng: number): SelectedApt => {
     const name = getField(row, ["단지명", "단지 명", "name", "아파트명", "apt_name", "aptName", "title"]) || "";
     const productName = getField(row, ["상품명", "productName", "product_name", "mediaName"]) || "";
@@ -179,13 +179,13 @@ export default function useMarkers({
       hours: "",
       monthlyFee: undefined,
       monthlyFeeY1: undefined,
-      imageUrl: rawImage || imageForProduct(productName), // ✨ 반드시 채워지도록 보장
+      imageUrl: rawImage || imageForProduct(productName),
       lat,
       lng,
     };
   }, []);
 
-  /** ✅ 상세 응답 보강: 이미지/이름/상품명도 보강 */
+  /** 상세 응답 보강: 이미지/이름/상품명도 보강 */
   const enrichWithDetail = useCallback((base: SelectedApt, d: any): SelectedApt => {
     const detailName = (getField(d, ["name"]) as string) ?? (getField(d, ["apt_name"]) as string);
     const detailProduct =
@@ -236,6 +236,7 @@ export default function useMarkers({
       if (!kakao?.maps || !map || !imgs) return;
       const { maps } = kakao;
 
+      // 빈 배열이면서 기존 풀 존재 → 일시적 공백 보호
       if ((rows?.length ?? 0) === 0 && poolRef.current.size > 0) return;
 
       const nextIdKeys = new Set<string>();
@@ -351,7 +352,7 @@ export default function useMarkers({
     [clusterer, colorByRule, imgs, kakao, map, onSelect, toSelectedBase, enrichWithDetail],
   );
 
-  /** ✅ 바운드 내 데이터 요청: image 관련 필드를 넓게 정규화하여 row에 실어둠 */
+  /** 바운드 내 데이터 요청 (존재하는 컬럼만 선택) */
   const refreshInBounds = useCallback(async () => {
     if (!kakao?.maps || !map) return;
     const kbounds = map.getBounds?.();
@@ -378,9 +379,7 @@ export default function useMarkers({
     try {
       const { data, error } = await (supabase as any)
         .from("public_map_places")
-        .select(
-          "place_id,name,product_name,lat,lng,image_url,image,thumbnail,thumb_url,is_active,city,district,updated_at",
-        )
+        .select("place_id,name,product_name,lat,lng,image_url,is_active,city,district,updated_at")
         .eq("is_active", true)
         .not("lat", "is", null)
         .not("lng", "is", null)
@@ -404,11 +403,7 @@ export default function useMarkers({
         name: r.name ?? undefined,
         product_name: r.product_name,
         productName: r.product_name,
-        // ✨ 이미지 후보들을 모두 row에 싣는다 (toSelectedBase가 집어서 사용)
-        image_url: r.image_url ?? r.image ?? r.thumbnail ?? r.thumb_url ?? undefined,
-        image: r.image ?? undefined,
-        thumbnail: r.thumbnail ?? undefined,
-        thumb_url: r.thumb_url ?? undefined,
+        image_url: r.image_url, // 존재하는 칼럼만 사용
         city: r.city,
         district: r.district,
         updated_at: r.updated_at,
