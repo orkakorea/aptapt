@@ -11,6 +11,8 @@ import { isSeatReceipt } from "./types";
 import { saveFullContentAsPNG, saveFullContentAsPDF } from "@/core/utils/capture";
 // 할인율 보정용 정책 계산(최후 폴백)
 import { calcMonthlyWithPolicy, normPolicyKey } from "@/core/pricing";
+// 카운터/라인 합계 호환 유틸(스냅샷 다양 키 대응)
+import { adaptQuoteItemsFromReceipt, computeQuoteTotals } from "@/core/utils/receipt";
 
 /* =========================================================================
  * 공통 상수/유틸
@@ -253,6 +255,8 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
   const snapshotItems: any[] = (data as any)?.form?.cart_snapshot?.items ?? (data as any)?.cart_snapshot?.items ?? [];
   const length = Math.max(detailsItems.length, snapshotItems.length);
 
+  const snapshot = (data as any)?.form?.cart_snapshot ?? (data as any)?.cart_snapshot ?? null;
+
   const getVal = (obj: any, keys: string[], fallback?: any) => {
     for (const k of keys) {
       const v = obj?.[k];
@@ -306,7 +310,7 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
       Number(getVal(primary, ["baseTotal"], NaN)) || (isFinite(baseMonthly) && months ? baseMonthly * months : NaN);
     const baseTotal = isFinite(baseTotalRaw) ? baseTotalRaw : NaN;
 
-    // 총광고료
+    // 총광고료(기존 값 우선)
     let lineTotal = Number(
       getVal(
         primary,
@@ -358,7 +362,7 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
     }
 
     // 최후 폴백(정책)
-    const pctNum = Number(discountPct.replace("%", ""));
+    const pctNum = Number(String(discountPct).replace("%", ""));
     const looksZero = !isFinite(pctNum) || Math.abs(pctNum) < 1;
     if (looksZero && isFinite(baseMonthlyEff) && baseMonthlyEff > 0 && months > 0) {
       const key = normPolicyKey(String(productName));
@@ -368,6 +372,13 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
         const r = clamp01(1 - monthly / baseMonthlyEff);
         discountPct = `${Math.round(r * 100)}%`;
       }
+    }
+
+    // (요구사항) 기준금액×(1-할인율)로 총광고료 재산출 — 기존값이 없을 때만 보정
+    const discountRateNum = Number(String(discountPct).replace("%", ""));
+    if ((!isFinite(lineTotal) || lineTotal <= 0) && isFinite(baseTotal) && baseTotal > 0 && isFinite(discountRateNum)) {
+      const rate01 = clamp01(discountRateNum / 100);
+      lineTotal = Math.round(baseTotal * (1 - rate01));
     }
 
     return {
@@ -381,25 +392,21 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
     };
   });
 
-  // 카운터 합계(스냅샷 포함)
-  const totals = rows.reduce(
-    (acc, _r, idx) => {
-      const p = detailsItems[idx] ?? {};
-      const s = snapshotItems[idx] ?? {};
-      const n = (keys: string[]) => {
-        const v = Number(getVal(p, keys, getVal(s, keys, 0)));
-        return isFinite(v) ? v : 0;
-      };
-      acc.households += n(["households", "household", "hh"]);
-      acc.residents += n(["residents", "population"]);
-      acc.monthlyImpressions += n(["monthlyImpressions", "monthly_impressions", "impressions", "plays"]);
-      acc.monitors += n(["monitors", "monitor_count", "monitorCount", "screens"]);
-      return acc;
-    },
-    { households: 0, residents: 0, monthlyImpressions: 0, monitors: 0 },
-  );
+  // (요구사항) 카운터 합계 — 스냅샷/디테일을 호환 어댑터로 정규화 후 합산
+  const compatItems = useMemo(() => {
+    const src = Array.isArray(snapshot?.items) && snapshot.items.length ? snapshot.items : detailsItems;
+    return adaptQuoteItemsFromReceipt(src);
+  }, [snapshot, detailsItems]);
 
-  // 합계: 서버가 내려준 periodTotalKRW 우선
+  const counters = computeQuoteTotals(compatItems);
+  const totals = {
+    households: counters.households,
+    residents: counters.residents,
+    monthlyImpressions: counters.monthlyImpressions,
+    monitors: counters.monitors,
+  };
+
+  // 합계: 서버가 내려준 periodTotalKRW 우선, 없으면 라인 합산
   const periodTotal =
     (data as any)?.details?.periodTotalKRW ??
     rows.reduce((sum, r) => sum + (isFinite(r.lineTotal) ? r.lineTotal : 0), 0);
