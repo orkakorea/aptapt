@@ -1,3 +1,4 @@
+// src/components/complete-modal/CompleteModal.desktop.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
@@ -6,14 +7,12 @@ import { ClipboardList, ExternalLink, FileSignature, Mail, X, CheckCircle2 } fro
 import type { CompleteModalProps, ReceiptData, ReceiptSeat } from "./types";
 import { isSeatReceipt } from "./types";
 
-// 저장(전체 캡처)
 import { saveFullContentAsPNG, saveFullContentAsPDF } from "@/core/utils/capture";
-// 정책 계산(폴백)
 import { calcMonthlyWithPolicy, normPolicyKey } from "@/core/pricing";
 
-/* =========================================================================
+/* =======================================================================
  * 공통 상수/유틸
- * ========================================================================= */
+ * ======================================================================= */
 const BRAND = "#6F4BF2";
 const BRAND_LIGHT = "#EEE8FF";
 
@@ -96,9 +95,9 @@ function num(v: any): number {
 }
 const clamp01 = (n: number) => (n < 0 ? 0 : n > 1 ? 1 : n);
 
-/* =========================================================================
+/* =======================================================================
  * 헤더(성공)
- * ========================================================================= */
+ * ======================================================================= */
 function HeaderSuccess({ ticketCode, createdAtISO }: { ticketCode: string; createdAtISO: string }) {
   const kst = useMemo(() => formatKST(createdAtISO), [createdAtISO]);
   return (
@@ -122,9 +121,9 @@ function HeaderSuccess({ ticketCode, createdAtISO }: { ticketCode: string; creat
   );
 }
 
-/* =========================================================================
+/* =======================================================================
  * 오른쪽: 다음 절차 카드
- * ========================================================================= */
+ * ======================================================================= */
 function NextSteps() {
   return (
     <div className="rounded-xl border border-gray-100 p-4">
@@ -168,9 +167,9 @@ function NextSteps() {
   );
 }
 
-/* =========================================================================
+/* =======================================================================
  * 좌: 고객 문의(항상 펼침)
- * ========================================================================= */
+ * ======================================================================= */
 function RowLine({ label, value }: { label: string; value?: string }) {
   return (
     <div className="grid grid-cols-3 items-start gap-3 py-2">
@@ -253,28 +252,24 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
   );
 }
 
-/* =========================================================================
- * 좌: SEAT 문의 내역
- *  - 카운터: 스냅샷→디테일 폴백 + 둘 다 0이면 합산(이중 소스) + 문자열 숫자 + 별칭 흡수
- *  - ELEVATOR TV: 네가 지정한 곱연산 규칙으로 ‘강제’ 계산
- *  - 타 상품: 기존 로직(역산→정책 폴백) 유지
- *  - 합계: 라인 합계 재집계
- * ========================================================================= */
+/* =======================================================================
+ * 좌: SEAT 문의 내역 (카운터 극단 보강 + ELEVATOR TV 곱연산)
+ * ======================================================================= */
 function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
   const form: any = (data as any)?.form || {};
   const detailsItems: any[] = (data as any)?.details?.items ?? [];
   const snapshotItems: any[] = form?.cart_snapshot?.items ?? (data as any)?.cart_snapshot?.items ?? [];
   const length = Math.max(detailsItems.length, snapshotItems.length);
 
-  // 디버그: 콘솔 접근(요청대로 __LAST_RECEIPT_DATA__ 지원)
+  // 콘솔 디버깅 변수
   try {
+    (window as any).__LAST_RECEIPT_DATA__ = data;
     (window as any).__ORKA_RECEIPT_DEBUG__ = {
       ...(window as any).__ORKA_RECEIPT_DEBUG__,
       source: "SeatInquiryTable",
       snapshotItems,
       detailsItems,
     };
-    (window as any).__LAST_RECEIPT_DATA__ = data;
   } catch {}
 
   const getVal = (obj: any, keys: string[], fallback?: any) => {
@@ -290,7 +285,7 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
       ? String((data as any).summary.topAptLabel).replace(/\s*외.*$/, "")
       : "-";
 
-  // 정책용: 같은 상품군 개수(사전보상 할인에서 쓰일 수 있으나, ELEVATOR TV는 아래 오버라이드)
+  // 같은 상품군 개수(정책 계산 보조)
   const productKeyCounts = (() => {
     const m = new Map<string, number>();
     const src = snapshotItems.length ? snapshotItems : detailsItems;
@@ -303,41 +298,121 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
     return m;
   })();
 
-  /* -------------------- 카운터 합산 -------------------- */
+  /* -------------------- 카운터: 아이템 합산 -------------------- */
   type Cnt = { households: number; residents: number; monthlyImpressions: number; monitors: number };
 
-  const sumCounters = (arr: any[]): Cnt =>
+  const sumCountersFromItems = (arr: any[]): Cnt =>
     (arr ?? []).reduce<Cnt>(
       (acc, it) => {
-        // 다양한 별칭 흡수
         acc.households += num(it?.households ?? it?.household ?? it?.hh ?? it?.house ?? it?.house_cnt);
         acc.residents += num(it?.residents ?? it?.population ?? it?.resident ?? it?.people);
         acc.monthlyImpressions += num(
-          it?.monthlyImpressions ?? it?.monthly_impressions ?? it?.impressions ?? it?.plays ?? it?.exposures,
+          it?.monthlyImpressions ??
+            it?.monthly_impressions ??
+            it?.impressions ??
+            it?.plays ??
+            it?.exposures ??
+            it?.exposure_count,
         );
         acc.monitors += num(
-          it?.monitors ?? it?.monitorCount ?? it?.monitor_count ?? it?.screens ?? it?.screenCount ?? it?.screen_count,
+          it?.monitors ??
+            it?.monitorCount ??
+            it?.monitor_count ??
+            it?.screens ??
+            it?.screenCount ??
+            it?.screen_count ??
+            it?.display_count,
         );
         return acc;
       },
       { households: 0, residents: 0, monthlyImpressions: 0, monitors: 0 },
     );
 
-  const snapCnt = sumCounters(snapshotItems);
-  const detCnt = sumCounters(detailsItems);
+  const snapItemCnt = sumCountersFromItems(snapshotItems);
+  const detItemCnt = sumCountersFromItems(detailsItems);
 
-  // 1순위: 스냅샷, 2순위: 디테일, 3순위: 둘 다 합
-  const zero = (c: Cnt) => c.households + c.residents + c.monthlyImpressions + c.monitors === 0;
-  const counters = !zero(snapCnt)
-    ? snapCnt
-    : !zero(detCnt)
-      ? detCnt
-      : {
-          households: snapCnt.households + detCnt.households,
-          residents: snapCnt.residents + detCnt.residents,
-          monthlyImpressions: snapCnt.monthlyImpressions + detCnt.monthlyImpressions,
-          monitors: snapCnt.monitors + detCnt.monitors,
-        };
+  /* -------------------- 카운터: 집계 필드 탐색(스냅샷/디테일/요약/메타) -------------------- */
+  type Bag = Record<string, any> | undefined | null;
+
+  const pickAgg = (bags: Bag[], aliases: string[]): number => {
+    const paths = ["", "totals", "counts", "counters", "summary", "meta"]; // 얕은 경로
+    for (const b of bags) {
+      if (!b || typeof b !== "object") continue;
+      for (const p of paths) {
+        const obj = p === "" ? (b as any) : (b as any)?.[p];
+        if (!obj || typeof obj !== "object") continue;
+        for (const a of aliases) {
+          const v = obj[a];
+          const n = num(v);
+          if (n > 0) return n;
+        }
+        // 1단계 더: 객체 값들 중에 {households: ...} 같은 게 들어있을 수 있음
+        for (const child of Object.values(obj)) {
+          if (!child || typeof child !== "object" || Array.isArray(child)) continue;
+          for (const a of aliases) {
+            const v = (child as any)[a];
+            const n = num(v);
+            if (n > 0) return n;
+          }
+        }
+      }
+    }
+    return 0;
+  };
+
+  const bags: Bag[] = [
+    form,
+    form?.cart_snapshot,
+    (data as any)?.details,
+    (data as any)?.summary,
+    (data as any)?.meta,
+    data as any,
+  ];
+
+  const aggCnt: Cnt = {
+    households: pickAgg(bags, ["households", "households_total", "total_households", "house_total", "house_cnt"]),
+    residents: pickAgg(bags, ["residents", "population", "residents_total", "total_residents", "people"]),
+    monthlyImpressions: pickAgg(bags, [
+      "monthlyImpressions",
+      "monthly_impressions",
+      "impressions",
+      "impressions_total",
+      "total_impressions",
+      "plays",
+      "plays_total",
+      "exposures",
+      "exposure_count",
+    ]),
+    monitors: pickAgg(bags, [
+      "monitors",
+      "monitorCount",
+      "monitor_count",
+      "screens",
+      "screenCount",
+      "screen_count",
+      "display_count",
+      "monitors_total",
+      "total_monitors",
+      "screens_total",
+      "total_screens",
+    ]),
+  };
+
+  const isZero = (c: Cnt) => c.households + c.residents + c.monthlyImpressions + c.monitors === 0;
+
+  // 우선순위: 아이템(스냅샷) → 아이템(디테일) → 집계필드 → 스냅샷+디테일 합
+  const counters: Cnt = !isZero(snapItemCnt)
+    ? snapItemCnt
+    : !isZero(detItemCnt)
+      ? detItemCnt
+      : !isZero(aggCnt)
+        ? aggCnt
+        : {
+            households: snapItemCnt.households + detItemCnt.households,
+            residents: snapItemCnt.residents + detItemCnt.residents,
+            monthlyImpressions: snapItemCnt.monthlyImpressions + detItemCnt.monthlyImpressions,
+            monitors: snapItemCnt.monitors + detItemCnt.monitors,
+          };
 
   /* -------------------- 테이블 행 구성 -------------------- */
   const rows = Array.from({ length }).map((_, i) => {
@@ -387,23 +462,16 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
       ),
     );
 
-    /* ===== ELEVATOR TV : 네가 지정한 곱연산 규칙 강제 =====
-       사전보상: months<3 → 3%,  else → 5%
-       기간할인: months<3 → 10%,  months<6 → 15%,  else → 20%
-       총광고료 = 기준금액 × (1-사전) × (1-기간)
-    ======================================================== */
+    /* ===== ELEVATOR TV : 곱연산 규칙 강제 ===== */
     const policyKey = normPolicyKey(String(productName));
     if (policyKey === "ELEVATOR TV") {
-      // 기준금액 확보(없으면 추정)
       if (!isFinite(baseTotal) && isFinite(baseMonthlyRaw) && months > 0) baseTotal = baseMonthlyRaw * months;
       if (!isFinite(baseTotal) && months > 0) {
-        if (isFinite(monthlyAfterRaw))
-          baseTotal = monthlyAfterRaw * months; // 이후 할인 재적용되므로 정확도 OK
-        else if (isFinite(snapLineTotal)) baseTotal = snapLineTotal; // 이후 할인 재적용
+        if (isFinite(monthlyAfterRaw)) baseTotal = monthlyAfterRaw * months;
+        else if (isFinite(snapLineTotal)) baseTotal = snapLineTotal;
       }
       if (!isFinite(baseTotal)) baseTotal = 0;
 
-      // 규칙 계산
       const precompRate = months < 3 ? 0.03 : 0.05;
       const periodRate = months < 3 ? 0.1 : months < 6 ? 0.15 : 0.2;
 
@@ -416,7 +484,7 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
       return {
         aptName,
         productName,
-        monthlyFee: baseMonthlyEff, // 월 정가(표시)
+        monthlyFee: baseMonthlyEff,
         periodLabel,
         baseTotal: baseTotal || 0,
         discountPct,
@@ -569,9 +637,9 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
   );
 }
 
-/* =========================================================================
+/* =======================================================================
  * 메인 모달
- * ========================================================================= */
+ * ======================================================================= */
 function useIsDesktop() {
   const get = () =>
     typeof window === "undefined" || !window.matchMedia ? true : window.matchMedia("(min-width: 1024px)").matches;
@@ -591,7 +659,6 @@ export default function CompleteModalDesktop({ open, onClose, data, confirmLabel
   const isDesktop = useIsDesktop();
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  // 디버그: 콘솔에서 전체 Receipt 접근 가능(요청)
   try {
     (window as any).__ORKA_RECEIPT_DEBUG__ = { ...(window as any).__ORKA_RECEIPT_DEBUG__, data };
     (window as any).__LAST_RECEIPT_DATA__ = data;
