@@ -74,6 +74,61 @@ function maskEmail(email?: string | null) {
   return `${shown}${masked}@${domain}`;
 }
 
+/** 얕은 객체 여러 개에서 첫 번째 일치 값 반환 */
+function pickFirstString(objs: any[], keys: string[]): string | undefined {
+  for (const obj of objs) {
+    if (!obj || typeof obj !== "object") continue;
+    for (const k of keys) {
+      const v = obj?.[k];
+      if (v != null && String(v).trim() !== "") return String(v);
+    }
+  }
+  return undefined;
+}
+
+/** email처럼 보이는 값을 다양한 키에서 찾아 반환 */
+function pickEmailLike(...objs: any[]): string | undefined {
+  // 1) 일반적인 키 우선
+  const byKey = pickFirstString(objs, [
+    "email",
+    "eMail",
+    "Email",
+    "contactEmail",
+    "contact_email",
+    "managerEmail",
+    "manager_email",
+  ]);
+  if (byKey && byKey.includes("@")) return byKey;
+
+  // 2) 모든 키를 훑어서 값에 @ 포함되면 채택(안전 장치)
+  for (const obj of objs) {
+    if (!obj || typeof obj !== "object") continue;
+    for (const k of Object.keys(obj)) {
+      const v = obj[k];
+      if (typeof v === "string" && v.includes("@")) return v;
+    }
+  }
+  return undefined;
+}
+
+/** 문의내용으로 보이는 문자열을 폭넓게 탐색 */
+function pickInquiryText(...objs: any[]): string | undefined {
+  const keys = ["request", "message", "memo", "note", "content", "inquiry", "description", "request_text", "body"];
+  // 1) 1차: 지정 키 탐색
+  const v1 = pickFirstString(objs, keys);
+  if (v1) return v1;
+
+  // 2) 2차: values 하위(예: form.values.note)
+  for (const o of objs) {
+    const values = o?.values;
+    if (values && typeof values === "object") {
+      const v2 = pickFirstString([values], keys);
+      if (v2) return v2;
+    }
+  }
+  return undefined;
+}
+
 function useBodyScrollLock(locked: boolean) {
   useEffect(() => {
     if (!locked) return;
@@ -174,18 +229,41 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
   const c: any = (data as any).customer || {};
   const form: any = (data as any).form || {};
   const summary: any = (data as any).summary || {};
+  const meta: any = (data as any).meta || {};
 
-  const emailMasked = maskEmail(c.email ?? form.email ?? null) || (c.emailDomain ? `**${String(c.emailDomain)}` : "-");
-  const campaignType = form.campaignType ?? form.campaign_type ?? summary.campaignType ?? summary.campaign_type ?? "-";
+  // 이메일
+  const emailRaw = pickEmailLike(c, form, summary, meta) ?? pickEmailLike(form?.values) ?? undefined;
+  const emailMasked = maskEmail(emailRaw) || (c.emailDomain ? `**${String(c.emailDomain)}` : "-");
 
+  // 캠페인 유형
+  const campaignType =
+    pickFirstString(
+      [form, summary, c, meta],
+      [
+        "campaignType",
+        "campaign_type",
+        "campaign",
+        "campaign_kind",
+        "campaignTypeLabel",
+        "campaign_type_label",
+        "campaignLabel",
+        "campaign_label",
+      ],
+    ) ||
+    pickFirstString([form?.values], ["campaignType", "campaign_type", "campaign", "campaign_kind"]) ||
+    "-";
+
+  // 희망일
   const preferredRaw =
     form.desiredDate ??
     form.hopeDate ??
     summary.desiredDate ??
     summary.hopeDate ??
-    (data as any)?.meta?.desiredDate ??
-    (data as any)?.meta?.startDate ??
-    (data as any)?.meta?.start_date;
+    meta.desiredDate ??
+    meta.startDate ??
+    meta.start_date ??
+    form?.values?.desiredDate ??
+    form?.values?.hopeDate;
 
   const desiredValue =
     toYMD(preferredRaw) ??
@@ -197,22 +275,12 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
     (typeof summary.months === "number" ? `${summary.months}개월` : undefined) ??
     "-";
 
+  // 프로모션 코드
   const promoCode =
-    form.promotionCode ??
-    form.promoCode ??
-    form.promotion_code ??
-    form.promo_code ??
-    summary.promotionCode ??
-    summary.promoCode ??
-    summary.promotion_code ??
-    summary.promo_code ??
-    (data as any)?.meta?.promotionCode ??
-    (data as any)?.meta?.promoCode ??
-    (data as any)?.meta?.promo_code ??
-    "-";
+    pickFirstString([form, summary, meta], ["promotionCode", "promoCode", "promotion_code", "promo_code"]) || "-";
 
-  const inquiryText: string =
-    form.request ?? form.message ?? form.memo ?? form.note ?? (data as any)?.meta?.note ?? "-";
+  // 문의내용 (길면 전체가 보이도록, 스크롤 제거)
+  const inquiryText: string = pickInquiryText(form, summary, meta, c) ?? ("-" as string);
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white">
@@ -233,7 +301,7 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
       <div className="mt-2 border-t border-gray-100 px-4 py-3">
         <div className="mb-2 text-xs text-gray-500">문의내용</div>
         <div
-          className="max-h-[40vh] min-h-[140px] overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-gray-50 px-3 py-3 text-sm"
+          className="min-h-[140px] whitespace-pre-wrap break-words rounded-lg bg-gray-50 px-3 py-3 text-sm"
           data-capture-scroll
         >
           {inquiryText}
@@ -396,10 +464,10 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white">
-      {/* 제목 */}
-      <div className="px-4 pt-3 text-sm font-semibold">문의 내역</div>
+      {/* 제목 + 여백 1행 */}
+      <div className="px-4 pt-3 mb-3 text-sm font-semibold">문의 내역</div>
 
-      {/* 테이블 (카운터 바 제거) */}
+      {/* 테이블 */}
       <div className="border-t border-gray-100 overflow-x-auto" data-capture-scroll>
         <table className="min-w-[920px] text-[13px]">
           <thead className="bg-gray-50 text-gray-600">
