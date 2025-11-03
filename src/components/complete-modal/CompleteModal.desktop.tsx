@@ -301,7 +301,7 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
         <RowLine label="상호명" value={c.company ?? form.company} />
         <RowLine label="담당자" value={c.name ?? form.manager ?? form.contactName} />
         <RowLine label="연락처" value={c.phoneMasked ?? form.phoneMasked ?? form.phone} />
-        <RowLine label="이메일" value={emailMasked} />
+        <RowLine label="이메일" value={emailShown} />
         <RowLine label="캠페인 유형" value={campaignType} />
         <RowLine label="광고 송출 예정(희망)일" value={desiredValue} />
         <RowLine label="프로모션코드" value={promoCode} />
