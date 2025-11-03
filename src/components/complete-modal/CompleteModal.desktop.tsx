@@ -65,15 +65,15 @@ function parseMonths(value: any): number {
 /** 이메일을 **ster@domain 형태로 마스킹 */
 function maskEmail(email?: string | null) {
   if (!email) return "-";
-  const str = String(email).trim();
-  const at = str.indexOf("@");
-  if (at <= 0) return "**";
-  const local = str.slice(0, at);
-  const domain = str
+  const s = String(email).trim();
+  const at = s.indexOf("@");
+  if (at <= 0) return "**"; // 로컬파트가 없으면 보호
+  const local = s.slice(0, at);
+  const domain = s
     .slice(at + 1)
     .replace(/\s+/g, "")
     .toLowerCase();
-  const maskedLocal = local.length <= 2 ? "**" : `**${local.slice(2)}`;
+  const maskedLocal = local.length <= 2 ? "**" : `**${local.slice(2)}`; // ← 앞 2글자만 **
   return `${maskedLocal}@${domain.replace(/^@/, "")}`;
 }
 
@@ -91,7 +91,6 @@ function pickFirstString(objs: any[], keys: string[]): string | undefined {
 
 /** email처럼 보이는 값을 다양한 키에서 찾아 반환 */
 function pickEmailLike(...objs: any[]): string | undefined {
-  // 1) 일반적인 키 우선
   const byKey = pickFirstString(objs, [
     "email",
     "eMail",
@@ -101,14 +100,14 @@ function pickEmailLike(...objs: any[]): string | undefined {
     "managerEmail",
     "manager_email",
   ]);
-  if (byKey && byKey.includes("@")) return byKey;
+  const looksEmail = (v: string) => /\S+@\S+\.\S+/.test(v); // 간단 유효성
+  if (byKey && looksEmail(byKey)) return byKey;
 
-  // 2) 모든 키를 훑어서 값에 @ 포함되면 채택(안전 장치)
   for (const obj of objs) {
     if (!obj || typeof obj !== "object") continue;
     for (const k of Object.keys(obj)) {
       const v = obj[k];
-      if (typeof v === "string" && v.includes("@")) return v;
+      if (typeof v === "string" && looksEmail(v)) return v;
     }
   }
   return undefined;
