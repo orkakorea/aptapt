@@ -1,4 +1,3 @@
-// src/components/complete-modal/CompleteModal.desktop.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
@@ -7,17 +6,20 @@ import { ClipboardList, ExternalLink, FileSignature, Mail, X, CheckCircle2 } fro
 import type { CompleteModalProps, ReceiptData, ReceiptSeat } from "./types";
 import { isSeatReceipt } from "./types";
 
+// 저장(전체 캡처)
 import { saveFullContentAsPNG, saveFullContentAsPDF } from "@/core/utils/capture";
+// 할인율 보정용 정책 계산(최후 폴백)
 import { calcMonthlyWithPolicy, normPolicyKey } from "@/core/pricing";
 
-/* =======================================================================
+/* =========================================================================
  * 공통 상수/유틸
- * ======================================================================= */
+ * ========================================================================= */
 const BRAND = "#6F4BF2";
 const BRAND_LIGHT = "#EEE8FF";
 
-const formatKRW = (n?: number | null) =>
-  n == null || !isFinite(Number(n)) ? "₩0" : "₩" + Number(n).toLocaleString("ko-KR");
+/** 숫자를 '1,234원' 형태로 */
+const formatWon = (n?: number | null) =>
+  n == null || !isFinite(Number(n)) ? "0원" : `${Number(n).toLocaleString("ko-KR")}원`;
 
 function formatKST(iso: string) {
   try {
@@ -83,21 +85,9 @@ function useBodyScrollLock(locked: boolean) {
   }, [locked]);
 }
 
-/* 숫자 파서(문자열 "12,345" → 12345) */
-function num(v: any): number {
-  if (typeof v === "number" && isFinite(v)) return v;
-  if (typeof v === "string") {
-    const s = v.replace(/[^\d.-]/g, "");
-    const n = Number(s);
-    return isFinite(n) ? n : 0;
-  }
-  return 0;
-}
-const clamp01 = (n: number) => (n < 0 ? 0 : n > 1 ? 1 : n);
-
-/* =======================================================================
+/* =========================================================================
  * 헤더(성공)
- * ======================================================================= */
+ * ========================================================================= */
 function HeaderSuccess({ ticketCode, createdAtISO }: { ticketCode: string; createdAtISO: string }) {
   const kst = useMemo(() => formatKST(createdAtISO), [createdAtISO]);
   return (
@@ -121,9 +111,9 @@ function HeaderSuccess({ ticketCode, createdAtISO }: { ticketCode: string; creat
   );
 }
 
-/* =======================================================================
+/* =========================================================================
  * 오른쪽: 다음 절차 카드
- * ======================================================================= */
+ * ========================================================================= */
 function NextSteps() {
   return (
     <div className="rounded-xl border border-gray-100 p-4">
@@ -137,7 +127,8 @@ function NextSteps() {
             <ClipboardList size={16} color={BRAND} />
           </span>
           <div className="text-sm leading-6">
-            <b>구좌(T.O) 확인 (1~2일 소요)</b>
+            <b>구좌(T.O) 확인</b>
+            <span> (1~2일 소요)</span>
           </div>
         </li>
         <li className="grid grid-cols-[28px_1fr] items-start gap-3">
@@ -167,9 +158,9 @@ function NextSteps() {
   );
 }
 
-/* =======================================================================
- * 좌: 고객 문의(항상 펼침)
- * ======================================================================= */
+/* =========================================================================
+ * 좌: 고객 정보(항상 펼침)
+ * ========================================================================= */
 function RowLine({ label, value }: { label: string; value?: string }) {
   return (
     <div className="grid grid-cols-3 items-start gap-3 py-2">
@@ -226,7 +217,7 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
   return (
     <div className="rounded-xl border border-gray-100 bg-white">
       <div className="flex w-full items-center justify-between px-4 py-3 text-left">
-        <span className="text-sm font-semibold">고객 문의</span>
+        <span className="text-sm font-semibold">고객 정보</span>
       </div>
 
       <div className="px-4">
@@ -252,25 +243,15 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
   );
 }
 
-/* =======================================================================
- * 좌: SEAT 문의 내역 (카운터 극단 보강 + ELEVATOR TV 곱연산)
- * ======================================================================= */
+/* =========================================================================
+ * 좌: SEAT 문의 내역(카운터 제거)
+ *  - 월가(표시): 기준 월가(FMK=4주)
+ *  - 할인율: 스냅샷/총액 역산 → 정책 폴백(calcMonthlyWithPolicy)
+ * ========================================================================= */
 function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
-  const form: any = (data as any)?.form || {};
   const detailsItems: any[] = (data as any)?.details?.items ?? [];
-  const snapshotItems: any[] = form?.cart_snapshot?.items ?? (data as any)?.cart_snapshot?.items ?? [];
+  const snapshotItems: any[] = (data as any)?.form?.cart_snapshot?.items ?? (data as any)?.cart_snapshot?.items ?? [];
   const length = Math.max(detailsItems.length, snapshotItems.length);
-
-  // 콘솔 디버깅 변수
-  try {
-    (window as any).__LAST_RECEIPT_DATA__ = data;
-    (window as any).__ORKA_RECEIPT_DEBUG__ = {
-      ...(window as any).__ORKA_RECEIPT_DEBUG__,
-      source: "SeatInquiryTable",
-      snapshotItems,
-      detailsItems,
-    };
-  } catch {}
 
   const getVal = (obj: any, keys: string[], fallback?: any) => {
     for (const k of keys) {
@@ -285,10 +266,10 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
       ? String((data as any).summary.topAptLabel).replace(/\s*외.*$/, "")
       : "-";
 
-  // 같은 상품군 개수(정책 계산 보조)
+  // 정책용: 같은 상품군 개수(사전보상 할인 추정)
   const productKeyCounts = (() => {
     const m = new Map<string, number>();
-    const src = snapshotItems.length ? snapshotItems : detailsItems;
+    const src = Array.isArray(snapshotItems) && snapshotItems.length ? snapshotItems : detailsItems;
     src.forEach((raw) => {
       const p = raw?.product_name ?? raw?.productName ?? raw?.product_code ?? raw?.mediaName ?? "";
       const key = normPolicyKey(p);
@@ -298,123 +279,6 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
     return m;
   })();
 
-  /* -------------------- 카운터: 아이템 합산 -------------------- */
-  type Cnt = { households: number; residents: number; monthlyImpressions: number; monitors: number };
-
-  const sumCountersFromItems = (arr: any[]): Cnt =>
-    (arr ?? []).reduce<Cnt>(
-      (acc, it) => {
-        acc.households += num(it?.households ?? it?.household ?? it?.hh ?? it?.house ?? it?.house_cnt);
-        acc.residents += num(it?.residents ?? it?.population ?? it?.resident ?? it?.people);
-        acc.monthlyImpressions += num(
-          it?.monthlyImpressions ??
-            it?.monthly_impressions ??
-            it?.impressions ??
-            it?.plays ??
-            it?.exposures ??
-            it?.exposure_count,
-        );
-        acc.monitors += num(
-          it?.monitors ??
-            it?.monitorCount ??
-            it?.monitor_count ??
-            it?.screens ??
-            it?.screenCount ??
-            it?.screen_count ??
-            it?.display_count,
-        );
-        return acc;
-      },
-      { households: 0, residents: 0, monthlyImpressions: 0, monitors: 0 },
-    );
-
-  const snapItemCnt = sumCountersFromItems(snapshotItems);
-  const detItemCnt = sumCountersFromItems(detailsItems);
-
-  /* -------------------- 카운터: 집계 필드 탐색(스냅샷/디테일/요약/메타) -------------------- */
-  type Bag = Record<string, any> | undefined | null;
-
-  const pickAgg = (bags: Bag[], aliases: string[]): number => {
-    const paths = ["", "totals", "counts", "counters", "summary", "meta"]; // 얕은 경로
-    for (const b of bags) {
-      if (!b || typeof b !== "object") continue;
-      for (const p of paths) {
-        const obj = p === "" ? (b as any) : (b as any)?.[p];
-        if (!obj || typeof obj !== "object") continue;
-        for (const a of aliases) {
-          const v = obj[a];
-          const n = num(v);
-          if (n > 0) return n;
-        }
-        // 1단계 더: 객체 값들 중에 {households: ...} 같은 게 들어있을 수 있음
-        for (const child of Object.values(obj)) {
-          if (!child || typeof child !== "object" || Array.isArray(child)) continue;
-          for (const a of aliases) {
-            const v = (child as any)[a];
-            const n = num(v);
-            if (n > 0) return n;
-          }
-        }
-      }
-    }
-    return 0;
-  };
-
-  const bags: Bag[] = [
-    form,
-    form?.cart_snapshot,
-    (data as any)?.details,
-    (data as any)?.summary,
-    (data as any)?.meta,
-    data as any,
-  ];
-
-  const aggCnt: Cnt = {
-    households: pickAgg(bags, ["households", "households_total", "total_households", "house_total", "house_cnt"]),
-    residents: pickAgg(bags, ["residents", "population", "residents_total", "total_residents", "people"]),
-    monthlyImpressions: pickAgg(bags, [
-      "monthlyImpressions",
-      "monthly_impressions",
-      "impressions",
-      "impressions_total",
-      "total_impressions",
-      "plays",
-      "plays_total",
-      "exposures",
-      "exposure_count",
-    ]),
-    monitors: pickAgg(bags, [
-      "monitors",
-      "monitorCount",
-      "monitor_count",
-      "screens",
-      "screenCount",
-      "screen_count",
-      "display_count",
-      "monitors_total",
-      "total_monitors",
-      "screens_total",
-      "total_screens",
-    ]),
-  };
-
-  const isZero = (c: Cnt) => c.households + c.residents + c.monthlyImpressions + c.monitors === 0;
-
-  // 우선순위: 아이템(스냅샷) → 아이템(디테일) → 집계필드 → 스냅샷+디테일 합
-  const counters: Cnt = !isZero(snapItemCnt)
-    ? snapItemCnt
-    : !isZero(detItemCnt)
-      ? detItemCnt
-      : !isZero(aggCnt)
-        ? aggCnt
-        : {
-            households: snapItemCnt.households + detItemCnt.households,
-            residents: snapItemCnt.residents + detItemCnt.residents,
-            monthlyImpressions: snapItemCnt.monthlyImpressions + detItemCnt.monthlyImpressions,
-            monitors: snapItemCnt.monitors + detItemCnt.monitors,
-          };
-
-  /* -------------------- 테이블 행 구성 -------------------- */
   const rows = Array.from({ length }).map((_, i) => {
     const primary = detailsItems[i] ?? {};
     const shadow = snapshotItems[i] ?? {};
@@ -433,23 +297,41 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
       getVal(shadow, ["productName", "product_name", "mediaName", "product_code"]) ??
       "-";
 
-    // 기준 월가/총액
+    // 기준 월가/기준 총액
     const baseMonthlyRaw = Number(
       getVal(primary, ["baseMonthly", "priceMonthly"], getVal(shadow, ["baseMonthly", "priceMonthly"], NaN)),
     );
     const baseTotalRaw =
       Number(getVal(primary, ["baseTotal"], NaN)) ||
       (isFinite(baseMonthlyRaw) && months ? baseMonthlyRaw * months : NaN);
-    let baseTotal = isFinite(baseTotalRaw) ? baseTotalRaw : NaN;
+    const baseTotal = isFinite(baseTotalRaw) ? baseTotalRaw : 0;
 
-    // 스냅샷 참고값
-    const snapLineTotal = Number(
+    // 총광고료
+    let lineTotal = Number(
       getVal(
         primary,
         ["lineTotal", "item_total_won", "total_won"],
         getVal(shadow, ["lineTotal", "item_total_won", "total_won"], NaN),
       ),
     );
+    if (!isFinite(lineTotal)) {
+      const monthlyAfterFallback = Number(
+        getVal(
+          primary,
+          ["monthlyAfter", "monthly_after", "priceMonthlyAfter", "discountedMonthly", "discounted_monthly"],
+          getVal(
+            shadow,
+            ["monthlyAfter", "monthly_after", "priceMonthlyAfter", "discountedMonthly", "discounted_monthly"],
+            NaN,
+          ),
+        ),
+      );
+      if (isFinite(monthlyAfterFallback) && months) lineTotal = Math.round(monthlyAfterFallback * months);
+      else if (isFinite(baseMonthlyRaw) && months) lineTotal = Math.round(baseMonthlyRaw * months);
+      else lineTotal = 0;
+    }
+
+    // 할인율 계산(역산 → 총액 역산 → 정책 폴백)
     const monthlyAfterRaw = Number(
       getVal(
         primary,
@@ -462,121 +344,63 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
       ),
     );
 
-    /* ===== ELEVATOR TV : 곱연산 규칙 강제 ===== */
-    const policyKey = normPolicyKey(String(productName));
-    if (policyKey === "ELEVATOR TV") {
-      if (!isFinite(baseTotal) && isFinite(baseMonthlyRaw) && months > 0) baseTotal = baseMonthlyRaw * months;
-      if (!isFinite(baseTotal) && months > 0) {
-        if (isFinite(monthlyAfterRaw)) baseTotal = monthlyAfterRaw * months;
-        else if (isFinite(snapLineTotal)) baseTotal = snapLineTotal;
-      }
-      if (!isFinite(baseTotal)) baseTotal = 0;
-
-      const precompRate = months < 3 ? 0.03 : 0.05;
-      const periodRate = months < 3 ? 0.1 : months < 6 ? 0.15 : 0.2;
-
-      const totalFactor = (1 - precompRate) * (1 - periodRate);
-      const lineTotal = Math.round((baseTotal > 0 ? baseTotal : 0) * totalFactor);
-      const baseMonthlyEff =
-        baseTotal && months ? Math.round(baseTotal / months) : isFinite(baseMonthlyRaw) ? baseMonthlyRaw : 0;
-      const discountPct = Math.round((1 - clamp01(totalFactor)) * 100) + "%";
-
-      return {
-        aptName,
-        productName,
-        monthlyFee: baseMonthlyEff,
-        periodLabel,
-        baseTotal: baseTotal || 0,
-        discountPct,
-        lineTotal,
-      };
-    }
-
-    /* ===== 타 상품: 기존 로직 유지(역산→정책 폴백) ===== */
-    const policyRate = (() => {
-      const key = policyKey;
-      const sameCount = key && key !== "_NONE" ? (productKeyCounts.get(key) ?? 1) : 1;
-      return calcMonthlyWithPolicy(String(productName), months || 1, 100, undefined, sameCount).rate;
-    })();
-
-    if (!isFinite(baseTotal) && isFinite(baseMonthlyRaw) && months > 0) baseTotal = baseMonthlyRaw * months;
-    if (!isFinite(baseTotal) && months > 0 && policyRate > 0) {
-      if (isFinite(monthlyAfterRaw)) baseTotal = Math.round((monthlyAfterRaw * months) / (1 - policyRate));
-      else if (isFinite(snapLineTotal)) baseTotal = Math.round(snapLineTotal / (1 - policyRate));
-    }
-    if (!isFinite(baseTotal)) baseTotal = 0;
-
-    const baseMonthlyEff =
-      baseTotal && months ? Math.round(baseTotal / months) : isFinite(baseMonthlyRaw) ? baseMonthlyRaw : 0;
     const monthlyAfterEff = isFinite(monthlyAfterRaw)
       ? monthlyAfterRaw
-      : isFinite(snapLineTotal) && months
-        ? Math.round(snapLineTotal / months)
+      : isFinite(lineTotal) && months
+        ? Math.round(lineTotal / months)
         : NaN;
 
-    let rate01 = NaN;
-    if (baseMonthlyEff > 0 && isFinite(monthlyAfterEff)) {
-      const r = 1 - monthlyAfterEff / baseMonthlyEff;
-      if (r > 0.005) rate01 = r;
-    }
-    if (!(rate01 > 0.005) && baseTotal > 0 && isFinite(snapLineTotal) && snapLineTotal > 0) {
-      const r = 1 - snapLineTotal / baseTotal;
-      if (r > 0.005) rate01 = r;
-    }
-    if (!(rate01 > 0.005)) rate01 = policyRate;
+    const baseMonthlyEff =
+      (isFinite(baseMonthlyRaw) && baseMonthlyRaw > 0 ? baseMonthlyRaw : NaN) ||
+      (isFinite(baseTotal) && months ? Math.round(baseTotal / months) : NaN);
 
-    const lineTotal =
-      baseTotal > 0 ? Math.round(baseTotal * (1 - clamp01(rate01))) : isFinite(snapLineTotal) ? snapLineTotal : 0;
+    const clamp01 = (n: number) => (n < 0 ? 0 : n > 1 ? 1 : n);
+
+    let discountPct = "-";
+    if (isFinite(baseMonthlyEff) && baseMonthlyEff > 0 && isFinite(monthlyAfterEff)) {
+      const rate = clamp01(1 - monthlyAfterEff / baseMonthlyEff);
+      discountPct = `${Math.round(rate * 100)}%`;
+    } else if (isFinite(baseTotal) && baseTotal > 0 && isFinite(lineTotal)) {
+      const rate = clamp01(1 - lineTotal / baseTotal);
+      discountPct = `${Math.round(rate * 100)}%`;
+    }
+
+    // 최후 폴백(정책)
+    const pctNum = Number(discountPct.replace("%", ""));
+    const looksZero = !isFinite(pctNum) || Math.abs(pctNum) < 1;
+    if (looksZero && isFinite(baseMonthlyEff) && baseMonthlyEff > 0 && months > 0) {
+      const key = normPolicyKey(String(productName));
+      const sameCount = key && key !== "_NONE" ? (productKeyCounts.get(key) ?? 1) : 1;
+      const { monthly } = calcMonthlyWithPolicy(String(productName), months, baseMonthlyEff, undefined, sameCount);
+      if (monthly > 0 && monthly <= baseMonthlyEff) {
+        const r = clamp01(1 - monthly / baseMonthlyEff);
+        discountPct = `${Math.round(r * 100)}%`;
+        lineTotal = Math.round(monthly * months);
+      }
+    }
 
     return {
       aptName,
       productName,
-      monthlyFee: baseMonthlyEff,
+      monthlyFee: isFinite(baseMonthlyEff) ? baseMonthlyEff : 0, // 표시는 기준 월가(FMK=4주)
       periodLabel,
-      baseTotal,
-      discountPct: `${Math.round(clamp01(rate01) * 100)}%`,
+      baseTotal: isFinite(baseTotal) ? baseTotal : 0,
+      discountPct,
       lineTotal,
     };
   });
 
-  // 합계: 라인 합계 재집계
-  const periodTotal = rows.reduce((sum, r) => sum + (isFinite(r.lineTotal) ? r.lineTotal : 0), 0);
-
-  // 단지 수: 고유 단지명 개수
-  const aptCount = useMemo(() => new Set(rows.map((r) => r.aptName)).size, [rows]);
-
-  // 디버그: counters도 노출
-  try {
-    (window as any).__ORKA_RECEIPT_DEBUG__ = {
-      ...(window as any).__ORKA_RECEIPT_DEBUG__,
-      counters,
-    };
-    (window as any).__LAST_RECEIPT_DATA__ = data;
-  } catch {}
+  // 합계
+  const periodTotal =
+    (data as any)?.details?.periodTotalKRW ??
+    rows.reduce((sum, r) => sum + (isFinite(r.lineTotal) ? r.lineTotal : 0), 0);
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white">
       {/* 제목 */}
       <div className="px-4 pt-3 text-sm font-semibold">문의 내역</div>
 
-      {/* 카운터 바 */}
-      <div className="px-4 pb-2 text-sm text-[#4B5563] flex flex-wrap gap-x-4 gap-y-1">
-        <span className="font-semibold">{`총 ${aptCount}개 단지`}</span>
-        <span>
-          · 세대수 <b>{counters.households.toLocaleString()}</b> 세대
-        </span>
-        <span>
-          · 거주인원 <b>{counters.residents.toLocaleString()}</b> 명
-        </span>
-        <span>
-          · 송출횟수 <b>{counters.monthlyImpressions.toLocaleString()}</b> 회
-        </span>
-        <span>
-          · 모니터수량 <b>{counters.monitors.toLocaleString()}</b> 대
-        </span>
-      </div>
-
-      {/* 테이블 */}
+      {/* 테이블 (카운터 바 제거됨) */}
       <div className="border-t border-gray-100 overflow-x-auto" data-capture-scroll>
         <table className="min-w-[920px] text-[13px]">
           <thead className="bg-gray-50 text-gray-600">
@@ -596,11 +420,11 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
                 <tr key={i} className="border-t border-gray-100">
                   <td className="font-medium text-gray-900">{r.aptName}</td>
                   <td className="truncate">{r.productName}</td>
-                  <td className="text-right">{formatKRW(r.monthlyFee)}</td>
+                  <td className="text-right">{formatWon(r.monthlyFee)}</td>
                   <td className="text-right">{r.periodLabel}</td>
-                  <td className="text-right">{formatKRW(r.baseTotal)}</td>
+                  <td className="text-right">{formatWon(r.baseTotal)}</td>
                   <td className="text-right">{r.discountPct}</td>
-                  <td className="text-right font-semibold text-[#6C2DFF]">{formatKRW(r.lineTotal)}</td>
+                  <td className="text-right font-semibold text-[#6C2DFF]">{formatWon(r.lineTotal)}</td>
                 </tr>
               ))
             ) : (
@@ -614,21 +438,21 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
         </table>
       </div>
 
-      {/* 합계 카드 */}
+      {/* 합계 카드 (라벨/통화 표기 수정) */}
       <div className="px-4 py-4">
         <div className="rounded-xl border border-[#E5E7EB] bg-[#F7F5FF]">
           <div className="flex items-center justify-between px-4 py-3">
-            <span className="text-sm text-gray-600">총 광고료 합계(TOTAL)</span>
-            <span className="text-sm font-bold text-[#6C2DFF]">{formatKRW(periodTotal)}</span>
+            <span className="text-sm text-gray-600">TOTAL</span>
+            <span className="text-sm font-bold text-[#6C2DFF]">{formatWon(periodTotal)}</span>
           </div>
           <div className="flex items-center justify-between border-t border-[#E5E7EB] px-4 py-3">
-            <span className="text-sm text-gray-600">부가세(VAT 10%)</span>
-            <span className="text-sm font-bold text-red-500">{formatKRW(Math.round(periodTotal * 0.1))}</span>
+            <span className="text-sm text-gray-600">부가세</span>
+            <span className="text-sm font-bold text-red-500">{formatWon(Math.round(periodTotal * 0.1))}</span>
           </div>
           <div className="flex items-center justify-between border-t border-[#E5E7EB] px-4 py-4">
             <span className="text-[15px] font-semibold text-[#6C2DFF]">최종 광고료 (VAT 포함)</span>
             <span className="text-[20px] font-extrabold text-[#6C2DFF]">
-              {formatKRW(Math.round(periodTotal * 1.1))}
+              {formatWon(Math.round(periodTotal * 1.1))}
             </span>
           </div>
         </div>
@@ -637,9 +461,9 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
   );
 }
 
-/* =======================================================================
+/* =========================================================================
  * 메인 모달
- * ======================================================================= */
+ * ========================================================================= */
 function useIsDesktop() {
   const get = () =>
     typeof window === "undefined" || !window.matchMedia ? true : window.matchMedia("(min-width: 1024px)").matches;
@@ -658,11 +482,6 @@ export default function CompleteModalDesktop({ open, onClose, data, confirmLabel
   useBodyScrollLock(open);
   const isDesktop = useIsDesktop();
   const [pickerOpen, setPickerOpen] = useState(false);
-
-  try {
-    (window as any).__ORKA_RECEIPT_DEBUG__ = { ...(window as any).__ORKA_RECEIPT_DEBUG__, data };
-    (window as any).__LAST_RECEIPT_DATA__ = data;
-  } catch {}
 
   const openExternal = (url?: string) => {
     if (url) window.open(url, "_blank", "noopener,noreferrer");
@@ -739,6 +558,8 @@ export default function CompleteModalDesktop({ open, onClose, data, confirmLabel
                   >
                     문의 내용 저장
                   </button>
+                  {/* 붉은 안내 문구 */}
+                  <p className="mt-2 text-xs text-red-500">정확한 상담을 위해 문의 내용을 반드시 저장 해두세요</p>
 
                   <div className="rounded-xl border border-gray-100 p-4">
                     <div className="text-sm font-semibold">더 많은 정보</div>
