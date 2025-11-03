@@ -233,6 +233,23 @@ export default function MapMobilePageV2() {
   /** =========================
    * 카트 조작
    * ========================= */
+  // ✅ 마지막으로 선택한 광고기간 기억(1~12개월)
+  const readLastMonths = () => {
+    try {
+      const n = Number(localStorage.getItem("m:lastMonths"));
+      if (Number.isFinite(n)) return Math.min(12, Math.max(1, n));
+    } catch {}
+    return 1;
+  };
+  const [lastMonths, setLastMonths] = useState<number>(() => readLastMonths());
+  const writeLastMonths = useCallback((m: number) => {
+    const mm = Math.min(12, Math.max(1, Number(m) || 1));
+    setLastMonths(mm);
+    try {
+      localStorage.setItem("m:lastMonths", String(mm));
+    } catch {}
+  }, []);
+
   const isInCart = useCallback((rowKey?: string | null) => !!rowKey && cart.some((c) => c.rowKey === rowKey), [cart]);
 
   // 담기 시 항상 1개월 기본 (시트 닫지 않음)
@@ -242,7 +259,7 @@ export default function MapMobilePageV2() {
       rowKey: selected.rowKey,
       aptName: selected.name,
       productName: selected.productName ?? "기본상품",
-      months: 1,
+      months: lastMonths, // ✅ 마지막 선택 개월 사용
       baseMonthly: selected.monthlyFee ?? 0,
       monthlyFeeY1: selected.monthlyFeeY1 ?? undefined,
     };
@@ -257,12 +274,14 @@ export default function MapMobilePageV2() {
 
   const updateMonths = useCallback(
     (rowKey: string, months: number) => {
+      // ✅ 사용자가 바꾼 개월을 항상 기억
+      writeLastMonths(months);
       setCart((prev) => {
         if (applyAll) return prev.map((c) => ({ ...c, months }));
         return prev.map((c) => (c.rowKey === rowKey ? { ...c, months } : c));
       });
     },
-    [applyAll],
+    [applyAll, writeLastMonths],
   );
 
   /** =========================
