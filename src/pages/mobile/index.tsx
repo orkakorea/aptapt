@@ -5,9 +5,9 @@ import BottomSheet from "@/components/mobile/BottomSheet";
 import DetailPanel from "@/components/mobile/DetailPanel";
 import CartPanel from "@/components/mobile/CartPanel";
 import QuotePanel from "@/components/mobile/QuotePanel";
-// ✅ 타입만 재사용(컴포넌트는 공용 InquiryModal 사용)
-import { type Prefill, type InquiryKind } from "@/components/mobile/MobileInquirySheet";
-import InquiryModal from "@/components/InquiryModal";
+
+// ✅ 모바일 전용 2-스텝 하프 시트 모달 사용 (타입도 함께 재사용)
+import MobileInquirySheet, { type Prefill, type InquiryKind } from "@/components/mobile/MobileInquirySheet";
 
 import { useKakaoLoader } from "@/hooks/useKakaoLoader";
 import { useKakaoMap } from "@/hooks/useKakaoMap";
@@ -73,15 +73,12 @@ export default function MapMobilePageV2() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const selectedRowKeys = useMemo(() => cart.map((c) => c.rowKey), [cart]);
 
-  /** ✅ 선택된 단지의 카운터/월가 메모 저장 */
-  type MetaCounters = {
-    households?: number;
-    residents?: number;
-    monthlyImpressions?: number;
-    monitors?: number;
-    baseMonthly?: number;
-  };
-  const [metaByRowKey, setMetaByRowKey] = useState<Record<string, MetaCounters>>({});
+  /** ✅ 마지막에 선택한 개월 수를 기억 (새로 담을 때 기본값으로) */
+  const lastMonthsRef = useRef<number>(1);
+
+  /** ✅ rowKey → 최신 상세(카운터/주소/월송출 등) 매핑 저장
+   *  useMarkers 가 onSelect로 넘겨주는 SelectedApt(기본 → 상세보강 순차)를 그대로 저장 */
+  const detailByRowKeyRef = useRef<Map<string, Partial<SelectedApt>>>(new Map());
 
   /** =========================
    * 문의 시트
@@ -123,32 +120,13 @@ export default function MapMobilePageV2() {
     map,
     clusterer,
     onSelect: (apt) => {
+      // 기본 선택
       setSelected(apt);
       setActiveTab("detail");
       setSheetOpen(true);
       recalcSheetMax();
-
-      // ✅ 상세/기본 어떤 순간에도 들어오는 카운터/월가를 rowKey 메모에 병합
-      setMetaByRowKey((prev) => {
-        const cur = prev[apt.rowKey] ?? {};
-        const next: MetaCounters = { ...cur };
-        if (apt.households != null) next.households = apt.households;
-        if (apt.residents != null) next.residents = apt.residents;
-        if (apt.monthlyImpressions != null) next.monthlyImpressions = apt.monthlyImpressions;
-        if (apt.monitors != null) next.monitors = apt.monitors;
-        if (apt.monthlyFee != null) next.baseMonthly = apt.monthlyFee;
-        // 변화 없으면 객체 재생성 안 함
-        if (
-          cur.households === next.households &&
-          cur.residents === next.residents &&
-          cur.monthlyImpressions === next.monthlyImpressions &&
-          cur.monitors === next.monitors &&
-          cur.baseMonthly === next.baseMonthly
-        ) {
-          return prev;
-        }
-        return { ...prev, [apt.rowKey]: next };
-      });
+      // ✅ 카운터 등 최신 상세를 rowKey 맵에 캐시
+      if (apt?.rowKey) detailByRowKeyRef.current.set(apt.rowKey, apt);
     },
     externalSelectedRowKeys: selectedRowKeys,
   });
@@ -233,33 +211,17 @@ export default function MapMobilePageV2() {
   /** =========================
    * 카트 조작
    * ========================= */
-  // ✅ 마지막으로 선택한 광고기간 기억(1~12개월)
-  const readLastMonths = () => {
-    try {
-      const n = Number(localStorage.getItem("m:lastMonths"));
-      if (Number.isFinite(n)) return Math.min(12, Math.max(1, n));
-    } catch {}
-    return 1;
-  };
-  const [lastMonths, setLastMonths] = useState<number>(() => readLastMonths());
-  const writeLastMonths = useCallback((m: number) => {
-    const mm = Math.min(12, Math.max(1, Number(m) || 1));
-    setLastMonths(mm);
-    try {
-      localStorage.setItem("m:lastMonths", String(mm));
-    } catch {}
-  }, []);
-
   const isInCart = useCallback((rowKey?: string | null) => !!rowKey && cart.some((c) => c.rowKey === rowKey), [cart]);
 
-  // 담기 시 항상 1개월 기본 (시트 닫지 않음)
+  // ✅ 담기 시 "마지막 개월수"로 기본 설정 (없으면 1개월)
   const addSelectedToCart = useCallback(() => {
     if (!selected) return;
+    const monthsDefault = Math.max(1, Number(lastMonthsRef.current || 1));
     const next: CartItem = {
       rowKey: selected.rowKey,
       aptName: selected.name,
       productName: selected.productName ?? "기본상품",
-      months: lastMonths, // ✅ 마지막 선택 개월 사용
+      months: monthsDefault,
       baseMonthly: selected.monthlyFee ?? 0,
       monthlyFeeY1: selected.monthlyFeeY1 ?? undefined,
     };
@@ -274,18 +236,20 @@ export default function MapMobilePageV2() {
 
   const updateMonths = useCallback(
     (rowKey: string, months: number) => {
-      // ✅ 사용자가 바꾼 개월을 항상 기억
-      writeLastMonths(months);
+      // ✅ 최근 개월수 기억
+      if (Number.isFinite(months) && months > 0) {
+        lastMonthsRef.current = months;
+      }
       setCart((prev) => {
         if (applyAll) return prev.map((c) => ({ ...c, months }));
         return prev.map((c) => (c.rowKey === rowKey ? { ...c, months } : c));
       });
     },
-    [applyAll, writeLastMonths],
+    [applyAll],
   );
 
   /** =========================
-   * 할인/총액 계산
+   * 할인/총액 계산 (+ 카운터 보강)
    * ========================= */
   type ComputedItem = Omit<CartItem, "productName" | "baseMonthly"> & {
     productName: string;
@@ -295,7 +259,8 @@ export default function MapMobilePageV2() {
     _total: number;
     discPeriodRate?: number;
     discPrecompRate?: number;
-    /** ✅ 카운터들 (견적상세 표시에 사용) */
+
+    // 🔹 견적상세/요약용 카운터들(최신 상세에서 보강)
     households?: number;
     residents?: number;
     monthlyImpressions?: number;
@@ -313,10 +278,8 @@ export default function MapMobilePageV2() {
       const key = normPolicyKey(c.productName);
       const same = cnt.get(key) ?? 1;
 
-      // ✅ 선택/상세에서 모아둔 메타 병합
-      const meta = metaByRowKey[c.rowKey] || {};
       const name = c.productName ?? "기본상품";
-      const base = c.baseMonthly ?? meta.baseMonthly ?? 0;
+      const base = c.baseMonthly ?? 0;
 
       // 총 할인 적용 월가/율
       const { monthly, rate } = calcMonthlyWithPolicy(name, c.months, base, c.monthlyFeeY1, same);
@@ -325,6 +288,13 @@ export default function MapMobilePageV2() {
       const rules: any = (DEFAULT_POLICY as any)[key as any];
       const discPeriodRate = rateFromRanges(rules?.period, c.months);
       const discPrecompRate = rateFromRanges(rules?.precomp, same);
+
+      // 🔹 최신 상세에서 카운터 보강
+      const detail = detailByRowKeyRef.current.get(c.rowKey) || {};
+      const households = Number(detail.households ?? NaN);
+      const residents = Number(detail.residents ?? NaN);
+      const monthlyImpressions = Number(detail.monthlyImpressions ?? NaN);
+      const monitors = Number(detail.monitors ?? NaN);
 
       return {
         ...c,
@@ -335,14 +305,13 @@ export default function MapMobilePageV2() {
         _total: monthly * c.months,
         discPeriodRate,
         discPrecompRate,
-        // ✅ 카운터 전달
-        households: meta.households,
-        residents: meta.residents,
-        monthlyImpressions: meta.monthlyImpressions,
-        monitors: meta.monitors,
+        households: Number.isFinite(households) ? households : undefined,
+        residents: Number.isFinite(residents) ? residents : undefined,
+        monthlyImpressions: Number.isFinite(monthlyImpressions) ? monthlyImpressions : undefined,
+        monitors: Number.isFinite(monitors) ? monitors : undefined,
       };
     });
-  }, [cart, metaByRowKey]);
+  }, [cart]);
 
   const totalCost = useMemo(() => computedCart.reduce((s, c) => s + c._total, 0), [computedCart]);
 
@@ -629,8 +598,8 @@ export default function MapMobilePageV2() {
         />
       )}
 
-      {/* ✅ 모바일 문의: 공용 InquiryModal 사용 (UI 변경 없음) */}
-      <InquiryModal
+      {/* ✅ 모바일 문의: 하프 시트 2-스텝 모달 사용 */}
+      <MobileInquirySheet
         open={inqOpen}
         mode={inqMode}
         prefill={inqPrefill}
