@@ -106,11 +106,10 @@ export default function QuotePanel({
     <div className="space-y-4">
       {/* ===========================================================
        * 요약 + 테이블을 하나의 가로 스크롤 컨테이너로 묶기
-       *  - 요약은 테두리 제거, 1행 고정(줄바꿈 없음), 200% 확대
        * =========================================================== */}
       <div className="overflow-x-auto">
         <div className="min-w-[1200px]">
-          {/* 상단 요약 (테두리 X, 같은 스크롤) */}
+          {/* 상단 요약 */}
           <div className="px-3 py-2">
             <div className="text-[12px] font-extrabold text-gray-800 whitespace-nowrap leading-tight">
               총 {summary.count}개 단지 · 세대수 {withUnit(summary.households, "세대")} · 거주인원{" "}
@@ -119,7 +118,7 @@ export default function QuotePanel({
             </div>
           </div>
 
-          {/* 상세 테이블 (이 컨테이너만 테두리 유지) */}
+          {/* 상세 테이블 */}
           <div className="rounded-2xl border overflow-hidden">
             <table className="min-w-[1200px] w-full text-[12px]">
               <thead className="bg-gray-50 sticky top-0 z-10">
@@ -142,7 +141,9 @@ export default function QuotePanel({
                 {items.map((it) => {
                   const monthly = it._monthly ?? it.baseMonthly ?? 0;
                   const subtotal = it._total ?? monthly * (it.months ?? 1);
-                  const listPrice = typeof it.listPrice === "number" ? it.listPrice : (it.baseMonthly ?? undefined);
+
+                  // ✅ 기준금액 = 월광고료 × 광고기간
+                  const listPrice = (it.baseMonthly ?? 0) * (it.months ?? 1);
 
                   return (
                     <tr key={it.rowKey} className="bg-white">
@@ -167,7 +168,7 @@ export default function QuotePanel({
                       <Td className="text-right">{withUnit(it.monthlyImpressions, "회")}</Td>
                       <Td className="text-right">{withUnit(it.monitors, "대")}</Td>
                       <Td className="text-right">{fmtWon(it.baseMonthly ?? 0)}</Td>
-                      <Td className="text-right">{typeof listPrice === "number" ? fmtWon(listPrice) : dash}</Td>
+                      <Td className="text-right">{fmtWon(listPrice)}</Td>
                       <Td className="text-right">{fmtRate(it.discPeriodRate)}</Td>
                       <Td className="text-right">{fmtRate(it.discPrecompRate)}</Td>
                       <Td className="text-right font-semibold" style={{ color: brandColor }}>
@@ -199,16 +200,19 @@ export default function QuotePanel({
           <div className="text-[13px] font-semibold text-gray-900">{fmtWon(vat)}</div>
         </div>
 
+        {/* ✅ 라벨/금액 분리: 금액 오른쪽 정렬, 라벨 크기=부가세 라벨 크기 */}
         <div className="px-4 py-3">
-          <div className="text-[12px] text-gray-500 mb-1">최종광고료</div>
-          <div className="text-[22px] font-extrabold" style={{ color: brandColor }}>
-            {fmtWon(grand)} <span className="text-[12px] text-gray-500 font-normal">(VAT 포함)</span>
+          <div className="flex items-baseline justify-between">
+            <div className="text-[13px] text-gray-700">최종 광고료(VAT 포함)</div>
+            <div className="text-[22px] font-extrabold text-right" style={{ color: brandColor }}>
+              {fmtWon(grand)}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* 안내문구 (문구 교체) */}
-      <div className="text-[11px] text-gray-500 leading-relaxed">
+      {/* 안내문구 → 오른쪽 정렬 */}
+      <div className="text-[11px] text-gray-500 leading-relaxed text-right">
         ※ 계약 시점의 운영사 정책에 따라 단가가 변경 될 수 있습니다.
       </div>
 
@@ -231,7 +235,6 @@ export default function QuotePanel({
 
 /* =========================================================================
  * 소형 테이블 셀/헤더 컴포넌트
- *  - style 프롭 허용(오류 원인 해결)
  * ========================================================================= */
 function Th({
   className = "",
