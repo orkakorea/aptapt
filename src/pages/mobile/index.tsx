@@ -91,10 +91,10 @@ export default function MapMobilePageV2() {
   const [inqPrefill, setInqPrefill] = useState<Prefill | undefined>(undefined);
 
   /** =========================
-   * 완료 모달 상태 (신규)
+   * 완료 모달 상태
    * ========================= */
   const [doneOpen, setDoneOpen] = useState(false);
-  const [receipt, setReceipt] = useState<any | null>(null);
+  const [receipt, setReceipt] = useState<any | null>(null); // ⚠️ 보안: 화면 표시용 메모리 객체. 콘솔/스토리지/URL로 내보내지 않음!
 
   /** =========================
    * 바텀시트 상태
@@ -364,7 +364,7 @@ export default function MapMobilePageV2() {
   }, []);
 
   /** =========================
-   * ✅ 문의 완료 영수증 빌더 (신규)
+   * ✅ 문의 완료 영수증 빌더
    * ========================= */
   const buildReceiptFrom = useCallback(
     (items: typeof computedCart, total: number, id?: string | null, mode?: InquiryKind) => {
@@ -394,12 +394,65 @@ export default function MapMobilePageV2() {
         summary: { topAptLabel: topApt },
         form: { cart_snapshot: snapshot },
         details: { items: detailsItems },
-        customer: {}, // 고객입력은 보안/선택사항이라 비워둬도 컴포넌트가 안전하게 처리됨
+        customer: {}, // 고객입력은 보안/선택사항이라 비워둠(아래 merge에서 필요한 것만 화이트리스트 반영)
         meta: { step_ui: "mobile-2step" },
       };
     },
     [buildCartSnapshot],
   );
+
+  /** =========================
+   * 🔒 표시용 스냅샷 병합(화이트리스트)
+   * ========================= */
+  function mergeReceiptSafe(base: any, snap?: any) {
+    if (!snap || typeof snap !== "object") return base;
+
+    const merged = { ...base };
+
+    // summary
+    if (snap.summary && typeof snap.summary === "object") {
+      merged.summary = { ...(merged.summary || {}) };
+      if (typeof snap.summary.topAptLabel === "string") {
+        merged.summary.topAptLabel = snap.summary.topAptLabel;
+      }
+    }
+
+    // customer (표시용 최소 필드만)
+    if (snap.customer && typeof snap.customer === "object") {
+      const src = snap.customer;
+      merged.customer = { ...(merged.customer || {}) };
+      const allow = ["company", "name", "phoneMasked", "email", "phone"]; // phoneMasked 우선 사용
+      allow.forEach((k) => {
+        if (src[k] != null && String(src[k]).trim() !== "") merged.customer[k] = src[k];
+      });
+    }
+
+    // form.values (표시용)
+    if (snap.form && typeof snap.form === "object") {
+      const f = snap.form;
+      merged.form = { ...(merged.form || {}) };
+      // values
+      if (f.values && typeof f.values === "object") {
+        const srcv = f.values;
+        const allowVals = ["campaign_type", "months", "desiredDate", "promoCode", "request_text"];
+        merged.form.values = { ...(merged.form.values || {}) };
+        allowVals.forEach((k) => {
+          if (srcv[k] != null && String(srcv[k]).trim?.() !== "") merged.form.values[k] = srcv[k];
+        });
+      }
+      // cart_snapshot
+      if (f.cart_snapshot && typeof f.cart_snapshot === "object") {
+        merged.form.cart_snapshot = f.cart_snapshot; // 금액/항목만 포함(이미 프론트 계산 결과)
+      }
+    }
+
+    // meta
+    if (snap.meta && typeof snap.meta === "object") {
+      merged.meta = { ...(merged.meta || {}), step_ui: snap.meta.step_ui ?? merged.meta?.step_ui };
+    }
+
+    return merged;
+  }
 
   /** =========================
    * 렌더
@@ -655,12 +708,17 @@ export default function MapMobilePageV2() {
         prefill={inqPrefill}
         sourcePage="/mobile"
         onClose={() => setInqOpen(false)}
-        onSubmitted={(newId) => {
-          // 1) 문의 시트 닫기
+        onSubmitted={(newId, snap) => {
+          // 🔒 보안: 제출 후 민감정보는 화면 표시용 객체에만 유지. 콘솔/스토리지 기록 금지.
           setInqOpen(false);
-          // 2) 영수증 데이터 만들고 완료 모달(모바일) 열기
-          const rec = buildReceiptFrom(computedCart, totalCost, newId, inqMode);
-          setReceipt(rec);
+
+          // 기본 영수증 생성(카트/금액/항목)
+          const base = buildReceiptFrom(computedCart, totalCost, newId, inqMode);
+
+          // 표시용 스냅샷(snap)과 화이트리스트 병합 → 고객/문의정보가 완료모달에 즉시 표시
+          const merged = mergeReceiptSafe(base, snap);
+
+          setReceipt(merged);
           setDoneOpen(true);
         }}
       />
