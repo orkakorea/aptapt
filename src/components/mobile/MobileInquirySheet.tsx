@@ -1,3 +1,4 @@
+// src/components/mobile/MobileInquirySheet.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -30,11 +31,13 @@ export default function MobileInquirySheet({
   sourcePage?: string;
   onSubmitted?: (id: string) => void;
 }) {
-  // ===== 진행선 컬러 =====
+  /* ================= UI 색상/스타일 ================= */
   const PROGRESS_BG = "#E9E1FF";
   const PROGRESS_FG = "#7C3AED";
 
   type CampaignType = "기업" | "공공" | "병원" | "소상공인" | "광고대행사" | "기타";
+
+  /* ================= 스텝 (하프 스타일: 2단계) ================= */
   const [step, setStep] = useState<1 | 2>(1);
 
   // 1단계
@@ -54,6 +57,7 @@ export default function MobileInquirySheet({
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // 열림/닫힘 시 초기화
   useEffect(() => {
     if (!open) {
       setStep(1);
@@ -72,10 +76,11 @@ export default function MobileInquirySheet({
     }
   }, [open]);
 
+  /* ================= 유틸 ================= */
   const page = useMemo(() => {
     if (sourcePage) return sourcePage;
     if (typeof window !== "undefined") return window.location.pathname;
-    return "/";
+    return "/mobile";
   }, [sourcePage]);
 
   function getUTM() {
@@ -125,6 +130,7 @@ export default function MobileInquirySheet({
     return null;
   }
 
+  // 상단 요약(구좌 전용)
   const seatSummary = useMemo(() => {
     if (mode !== "SEAT") return null;
     const snap: any = prefill?.cart_snapshot || null;
@@ -163,9 +169,11 @@ export default function MobileInquirySheet({
     return { aptName, productLabel, monthsLabel, totalWon };
   }, [mode, prefill]);
 
-  const canNext = !!(brand.trim() && campaignType && managerName.trim() && phone.trim().length >= 8);
+  // 스텝1 버튼 활성화: 전화번호는 9~12자리(현재 DB 제약과 동일)
+  const canNext = !!(brand.trim() && campaignType && managerName.trim() && phone.replace(/\D/g, "").length >= 9);
   const submitDisabled = submitting || !agreePrivacy;
 
+  /* ================= 제출(RPC) ================= */
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (submitDisabled) return;
@@ -173,6 +181,14 @@ export default function MobileInquirySheet({
 
     try {
       setSubmitting(true);
+
+      // 전화번호 숫자만 / 길이 검사(테이블 제약: ^[0-9]{9,12}$ )
+      const digits = (phone || "").replace(/\D/g, "");
+      if (digits.length < 9 || digits.length > 12) {
+        setErrorMsg("연락처는 숫자 9~12자리로 입력해주세요.");
+        setSubmitting(false);
+        return;
+      }
 
       const utm = getUTM();
       const extra = {
@@ -188,9 +204,8 @@ export default function MobileInquirySheet({
 
       const payload: any = {
         inquiry_kind: mode, // "SEAT" | "PACKAGE"
-        // status는 정책상 기본 'new'로 처리되므로 보낼 필요 없음
         customer_name: managerName || null,
-        phone: phone || null,
+        phone: digits, // 숫자만
         company: brand || null,
         email: email || null,
         memo: requestText || null,
@@ -206,19 +221,23 @@ export default function MobileInquirySheet({
         extra,
       };
 
-      // ✅ 중요: SELECT를 유발하지 않도록 'returning: minimal'
-      const { error } = await (supabase as any).from("inquiries").insert(payload, { returning: "minimal" });
+      // ✅ 테이블 직접 INSERT 금지. 반드시 RPC 사용!
+      const { error } = await (supabase as any).rpc("submit_inquiry", { p_payload: payload });
 
       if (error) throw error;
 
-      onSubmitted?.("ok"); // id를 굳이 읽지 않음(보안정책상 SELECT 차단)
+      onSubmitted?.("ok"); // id는 보안상 읽지 않음
     } catch (err: any) {
-      setErrorMsg(err?.message || "제출 중 오류가 발생했습니다.");
+      // 의미 있는 메시지 우선 사용
+      const msg: string =
+        err?.message || err?.error_description || "제출 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.";
+      setErrorMsg(msg);
     } finally {
       setSubmitting(false);
     }
   }
 
+  /* ================= 프리셋 스타일 ================= */
   const INPUT =
     "w-full rounded-xl border border-gray-200 px-4 py-3 outline-none focus:ring-2 focus:ring-violet-300 text-sm bg-white";
   const LABEL = "text-[13px] font-semibold text-gray-700 mb-1";
@@ -245,19 +264,15 @@ export default function MobileInquirySheet({
       {/* dimmed */}
       <div className="absolute inset-0 bg-black/40" onClick={() => !submitting && onClose()} />
 
-      {/* === Bottom Sheet Panel (하단 고정, 절반 높이) === */}
-      <div className="absolute inset-x-0 bottom-0 flex justify-center" onClick={() => !submitting && onClose()}>
+      {/* panel (하프 스타일 느낌을 주기 위해 최대 폭/높이 조정) */}
+      <div className="absolute inset-0 overflow-auto flex items-start justify-center">
         <div
-          className="relative w-full max-w-[720px] rounded-t-2xl bg-white shadow-2xl border border-gray-100 h-[62vh] max-h-[70vh] overflow-auto pb-[env(safe-area-inset-bottom)]"
+          className="relative mt-4 mb-10 w-[720px] max-w-[92vw] rounded-2xl bg-white shadow-2xl border border-gray-100"
           onClick={(e) => e.stopPropagation()}
+          style={{ maxHeight: "86vh" }}
         >
-          {/* drag handle */}
-          <div className="sticky top-0 z-[2] flex items-center justify-center pt-2 bg-white rounded-t-2xl">
-            <div className="h-1.5 w-12 rounded-full bg-gray-200" />
-          </div>
-
           {/* header */}
-          <div className="flex items-start justify-between px-4 sm:px-5 py-4 border-b border-gray-100 sticky top-[14px] bg-white/95">
+          <div className="flex items-start justify-between px-5 sm:px-6 py-5 border-b border-gray-100 sticky top-0 bg-white/95 rounded-t-2xl">
             <div>
               <div className="text-[18px] font-extrabold text-gray-900">
                 {mode === "SEAT" ? "구좌(T.O) 문의" : "시·군·구 등 단위 / 패키지문의"}
@@ -275,8 +290,8 @@ export default function MobileInquirySheet({
             </button>
           </div>
 
-          {/* progress */}
-          <div className="px-4 sm:px-5 pt-3">
+          {/* progress (보라색 선) */}
+          <div className="px-5 sm:px-6 pt-3">
             <div className="mx-auto h-1.5 w-full rounded-full" style={{ backgroundColor: PROGRESS_BG }}>
               <div
                 className="h-1.5 rounded-full transition-all duration-300"
@@ -287,8 +302,9 @@ export default function MobileInquirySheet({
           </div>
 
           {/* body */}
-          <div className="px-4 sm:px-5 py-4">
+          <div className="px-5 sm:px-6 py-5">
             {step === 1 ? (
+              // ---------- STEP 1 ----------
               <form
                 onSubmit={(e) => {
                   e.preventDefault();
@@ -296,6 +312,35 @@ export default function MobileInquirySheet({
                 }}
                 className="space-y-5"
               >
+                {mode === "SEAT" && (
+                  <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
+                    <div className="text-sm font-semibold mb-2">문의 요약</div>
+                    <div className="grid grid-cols-2 gap-3 text-[13px]">
+                      <div>
+                        <div className="text-gray-500">단지명</div>
+                        <div className="font-medium">{seatSummary?.aptName ?? "-"}</div>
+                      </div>
+                      <div>
+                        <div className="text-gray-500">상품명</div>
+                        <div className="font-medium">{seatSummary?.productLabel ?? "-"}</div>
+                      </div>
+                      <div>
+                        <div className="text-gray-500">광고기간</div>
+                        <div className="font-medium">{seatSummary?.monthsLabel ?? "-"}</div>
+                      </div>
+                      <div>
+                        <div className="text-gray-500">예상 총광고료</div>
+                        <div className="font-medium">
+                          {typeof seatSummary?.totalWon === "number"
+                            ? `${seatSummary.totalWon.toLocaleString()}원`
+                            : "-"}{" "}
+                          <span className="text-gray-500">(VAT별도)</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <div className={LABEL}>
@@ -380,36 +425,8 @@ export default function MobileInquirySheet({
                 </button>
               </form>
             ) : (
+              // ---------- STEP 2 ----------
               <form onSubmit={handleSubmit} className="space-y-5">
-                {seatSummary && (
-                  <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3">
-                    <div className="text-sm font-semibold mb-2">문의 내용</div>
-                    <div className="grid grid-cols-2 gap-3 text-[13px]">
-                      <div>
-                        <div className="text-gray-500">단지명</div>
-                        <div className="font-medium">{seatSummary.aptName}</div>
-                      </div>
-                      <div>
-                        <div className="text-gray-500">상품명</div>
-                        <div className="font-medium">{seatSummary.productLabel}</div>
-                      </div>
-                      <div>
-                        <div className="text-gray-500">광고기간</div>
-                        <div className="font-medium">{seatSummary.monthsLabel}</div>
-                      </div>
-                      <div>
-                        <div className="text-gray-500">예상 총광고료</div>
-                        <div className="font-medium">
-                          {typeof seatSummary.totalWon === "number"
-                            ? `${seatSummary.totalWon.toLocaleString()}원`
-                            : "-"}{" "}
-                          <span className="text-gray-500">(VAT별도)</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
                 <div>
                   <div className={LABEL}>요청사항</div>
                   <textarea
@@ -454,13 +471,15 @@ export default function MobileInquirySheet({
                   <button
                     type="submit"
                     disabled={submitting || !agreePrivacy}
-                    className={`rounded-xl px-5 py-3 text-white font-semibold ${
+                    className={`rounded-xl px-5 py-3 text-white font-semibold leading-tight ${
                       submitting || !agreePrivacy
                         ? "bg-violet-300 cursor-not-allowed"
                         : "bg-violet-600 hover:bg-violet-700"
                     }`}
+                    style={{ minWidth: 96 }}
                   >
-                    {submitting ? "전송 중..." : "문의 접수"}
+                    <span className="block">문의</span>
+                    <span className="block">접수</span>
                   </button>
                 </div>
 
@@ -481,7 +500,7 @@ export default function MobileInquirySheet({
         </div>
       </div>
 
-      {/* 개인정보 처리방침 모달(오버레이 위로) */}
+      {/* 개인정보 처리방침 모달 */}
       {policyOpen && (
         <div className="fixed inset-0 z-[1100]">
           <div className="absolute inset-0 bg-black/40" onClick={() => setPolicyOpen(false)} />
