@@ -1,3 +1,4 @@
+// src/components/complete-modal/CompleteModal.mobile.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
@@ -220,7 +221,7 @@ function RowLine({ label, value }: { label: string; value?: string }) {
   return (
     <div className="grid grid-cols-3 items-start gap-3 py-2">
       <div className="col-span-1 text-xs text-gray-500">{label}</div>
-      <div className="col-span-2 break-words text-sm text-gray-800">{value || "-"}</div>
+      <div className="col-span-2 break-words whitespace-pre-wrap text-sm text-gray-800">{value || "-"}</div>
     </div>
   );
 }
@@ -231,6 +232,7 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
   const summary: any = (data as any).summary || {};
   const meta: any = (data as any).meta || {};
 
+  // 이메일 선택(여러 위치 탐색) → 마스킹
   const emailRaw = pickEmailLike(c, form, summary, meta) ?? pickEmailLike(form?.values) ?? undefined;
   let emailMasked = "-";
   const chosenEmail = emailRaw ?? c.email ?? form.email;
@@ -240,6 +242,7 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
     emailMasked = `**@${String(c.emailDomain).replace(/^@/, "")}`;
   }
 
+  // 캠페인 유형
   const campaignType =
     pickFirstString(
       [form, summary, c, meta],
@@ -257,6 +260,7 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
     pickFirstString([form?.values], ["campaignType", "campaign_type", "campaign", "campaign_kind"]) ||
     "-";
 
+  // 희망일/기간
   const preferredRaw =
     form.desiredDate ??
     form.hopeDate ??
@@ -278,9 +282,14 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
     (typeof summary.months === "number" ? `${summary.months}개월` : undefined) ??
     "-";
 
+  // 프로모션코드
   const promoCode =
-    pickFirstString([form, summary, meta], ["promotionCode", "promoCode", "promotion_code", "promo_code"]) || "-";
+    pickFirstString(
+      [form, summary, meta, form?.values],
+      ["promotionCode", "promoCode", "promotion_code", "promo_code"],
+    ) || "-";
 
+  // 문의내용(여러 키 후보)
   const inquiryText: string = pickInquiryText(form, summary, meta, c) ?? ("-" as string);
 
   return (
@@ -453,9 +462,9 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
           <tbody className="[&>tr>td]:px-4 [&>tr>td]:py-2">
             {rows.length ? (
               rows.map((r, i) => (
-                <tr key={i} className="border-t border-gray-100 bg-white">
-                  <td className="font-medium text-gray-900">{r.aptName}</td>
-                  <td className="truncate">{r.productName}</td>
+                <tr key={i} className="border-t border-gray-100 bg-white align-top">
+                  <td className="font-medium text-gray-900 whitespace-pre-wrap break-words">{r.aptName}</td>
+                  <td className="whitespace-pre-wrap break-words">{r.productName}</td>
                   <td className="text-right">{formatWon(r.monthlyFee)}</td>
                   <td className="text-right">{r.periodLabel}</td>
                   <td className="text-right">{formatWon(r.baseTotal)}</td>
@@ -501,10 +510,10 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
  * 메인 모달 (모바일)
  * - PC와 동일 데이터/기능
  * - 모바일 크기/여백/배치만 조정
+ * - 🔒 보안: 표시 목적 외의 민감정보(연락처/이메일 등)를 콘솔/스토리지/URL에 남기지 마세요.
  * ========================================================================= */
 export default function CompleteModalMobile({ open, onClose, data, confirmLabel = "확인" }: CompleteModalProps) {
   useBodyScrollLock(open);
-  const [pickerOpen, setPickerOpen] = useState(false);
 
   const openExternal = (url?: string) => {
     if (url) window.open(url, "_blank", "noopener,noreferrer");
@@ -515,6 +524,7 @@ export default function CompleteModalMobile({ open, onClose, data, confirmLabel 
   const handleSave = async (kind: "png" | "pdf") => {
     const root = document.getElementById("receipt-capture-mobile");
     if (!root) return;
+    // 내부 스크롤 영역(세로/가로) 모두 캡처
     const scrollContainers = Array.from(root.querySelectorAll<HTMLElement>("[data-capture-scroll]"));
     if (kind === "png") await saveFullContentAsPNG(root, `${data.ticketCode}_receipt`, scrollContainers);
     else await saveFullContentAsPDF(root, `${data.ticketCode}_receipt`, scrollContainers);
@@ -571,14 +581,19 @@ export default function CompleteModalMobile({ open, onClose, data, confirmLabel 
                 <div className="grid grid-cols-1 gap-4">
                   <NextSteps />
 
+                  {/* ✅ 저장 버튼: 즉시 PNG 캡처 (토글/선택 제거) */}
                   <button
-                    onClick={() => setPickerOpen(true)}
+                    onClick={async () => {
+                      await handleSave("png");
+                    }}
                     className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white"
                     style={{ backgroundColor: BRAND }}
                   >
-                    문의 내용 저장
+                    이미지로 문의 내용 저장하기
                   </button>
-                  <p className="mt-1 text-xs text-red-500">정확한 상담을 위해 문의 내용을 반드시 저장 해두세요</p>
+                  <p className="mt-1 text-xs text-red-500">
+                    저장 시 이 화면 전체가 이미지로 저장됩니다. 문의 내역이 길어도 모두 포함돼요.
+                  </p>
 
                   <div className="rounded-xl border border-gray-100 p-4">
                     <div className="text-sm font-semibold">더 많은 정보</div>
@@ -621,69 +636,6 @@ export default function CompleteModalMobile({ open, onClose, data, confirmLabel 
             </div>
           </motion.div>
         </div>
-
-        {/* 저장 액션시트 (모바일 중앙 카드) */}
-        <AnimatePresence>
-          {pickerOpen && (
-            <>
-              <motion.div
-                key="picker-dim"
-                className="fixed inset-0 z-[1252] bg-black/30"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setPickerOpen(false)}
-              />
-              <motion.div
-                key="picker-card"
-                className="fixed left-1/2 top-1/2 z-[1253] w-[420px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white shadow-2xl"
-                initial={{ scale: 0.96, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                exit={{ scale: 0.96, opacity: 0 }}
-                transition={{ type: "spring", stiffness: 260, damping: 22 }}
-              >
-                <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
-                  <div className="text-sm font-semibold">문의 내용 저장</div>
-                  <button
-                    aria-label="close-picker"
-                    className="rounded-full p-2 hover:bg-gray-50"
-                    onClick={() => setPickerOpen(false)}
-                  >
-                    <X size={18} />
-                  </button>
-                </div>
-                <div className="px-5 py-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    <button
-                      onClick={async () => {
-                        await handleSave("png");
-                        setPickerOpen(false);
-                      }}
-                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
-                    >
-                      이미지(PNG)
-                    </button>
-                    <button
-                      onClick={async () => {
-                        await handleSave("pdf");
-                        setPickerOpen(false);
-                      }}
-                      className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold"
-                    >
-                      PDF(A4)
-                    </button>
-                  </div>
-                  <button
-                    onClick={() => setPickerOpen(false)}
-                    className="mt-4 w-full rounded-xl bg-black px-4 py-3 text-sm font-semibold text-white"
-                  >
-                    닫기
-                  </button>
-                </div>
-              </motion.div>
-            </>
-          )}
-        </AnimatePresence>
       </>
     </AnimatePresence>,
     document.body,
