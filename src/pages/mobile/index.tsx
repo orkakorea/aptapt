@@ -10,7 +10,7 @@ import QuotePanel from "@/components/mobile/QuotePanel";
 import MobileInquirySheet, { type Prefill, type InquiryKind } from "@/components/mobile/MobileInquirySheet";
 
 // ✅ 문의 완료 모달(PC 버전 컴포넌트 재사용)
-import CompleteModalDesktop from "@/components/complete-modal/CompleteModal.desktop";
+import CompleteModalMobile from "@/components/complete-modal/CompleteModal.mobile"; // ✅
 
 import { useKakaoLoader } from "@/hooks/useKakaoLoader";
 import { useKakaoMap } from "@/hooks/useKakaoMap";
