@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Search } from "lucide-react";
-import Footer from "../components/layout/Footer";
+import Footer from "@/components/layout/Footer";
 
 export default function HomePage() {
   const [q, setQ] = useState("");
