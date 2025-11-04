@@ -8,11 +8,11 @@ import { isSeatReceipt } from "./types";
 
 // 저장(전체 캡처)
 import { saveFullContentAsPNG, saveFullContentAsPDF } from "@/core/utils/capture";
-// 정책 유틸
+// 정책 유틸 (PC 버전과 동일 로직)
 import { calcMonthlyWithPolicy, normPolicyKey, DEFAULT_POLICY, rateFromRanges } from "@/core/pricing";
 
 /* =========================================================================
- * 공통 상수/유틸
+ * 공통 상수/유틸 (PC 버전과 동일)
  * ========================================================================= */
 const BRAND = "#6F4BF2";
 const BRAND_LIGHT = "#EEE8FF";
@@ -118,6 +118,7 @@ function pickInquiryText(...objs: any[]): string | undefined {
   const keys = ["request", "message", "memo", "note", "content", "inquiry", "description", "request_text", "body"];
   const v1 = pickFirstString(objs, keys);
   if (v1) return v1;
+
   for (const o of objs) {
     const values = o?.values;
     if (values && typeof values === "object") {
@@ -140,14 +141,14 @@ function useBodyScrollLock(locked: boolean) {
 }
 
 /* =========================================================================
- * 헤더(성공)
+ * 헤더(성공) — 모바일 크기/여백만 다름
  * ========================================================================= */
 function HeaderSuccess({ ticketCode, createdAtISO }: { ticketCode: string; createdAtISO: string }) {
   const kst = useMemo(() => formatKST(createdAtISO), [createdAtISO]);
   return (
     <div className="flex items-center gap-3">
       <motion.div
-        className="flex h-10 w-10 items-center justify-center rounded-full"
+        className="flex h-11 w-11 items-center justify-center rounded-full"
         style={{ backgroundColor: BRAND_LIGHT }}
         initial={{ scale: 0.7, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
@@ -156,7 +157,7 @@ function HeaderSuccess({ ticketCode, createdAtISO }: { ticketCode: string; creat
         <CheckCircle2 size={24} color={BRAND} />
       </motion.div>
       <div>
-        <div className="text-[15px] font-semibold">문의가 접수됐어요!</div>
+        <div className="text-base font-semibold">문의가 접수됐어요!</div>
         <div className="mt-0.5 text-xs text-gray-500">
           접수번호 {ticketCode} · {kst}
         </div>
@@ -166,7 +167,7 @@ function HeaderSuccess({ ticketCode, createdAtISO }: { ticketCode: string; creat
 }
 
 /* =========================================================================
- * 다음 절차 카드(모바일)
+ * 오른쪽: 다음 절차 카드 (모바일 단일 열)
  * ========================================================================= */
 function NextSteps() {
   return (
@@ -181,7 +182,8 @@ function NextSteps() {
             <ClipboardList size={16} color={BRAND} />
           </span>
           <div className="text-sm leading-6">
-            <b>구좌(T.O) 확인</b> (1~2일 소요)
+            <b>구좌(T.O) 확인</b>
+            <span> (1~2일 소요)</span>
           </div>
         </li>
         <li className="grid grid-cols-[28px_1fr] items-start gap-3">
@@ -212,11 +214,11 @@ function NextSteps() {
 }
 
 /* =========================================================================
- * 고객 정보(항상 펼침)
+ * 좌: 고객 정보(항상 펼침) — PC와 동일 데이터, 모바일 레이아웃
  * ========================================================================= */
 function RowLine({ label, value }: { label: string; value?: string }) {
   return (
-    <div className="grid grid-cols-3 items-start gap-3 py-1.5">
+    <div className="grid grid-cols-3 items-start gap-3 py-2">
       <div className="col-span-1 text-xs text-gray-500">{label}</div>
       <div className="col-span-2 break-words text-sm text-gray-800">{value || "-"}</div>
     </div>
@@ -283,7 +285,10 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white">
-      <div className="px-4 py-3 text-sm font-semibold">고객 정보</div>
+      <div className="flex w-full items-center justify-between px-4 py-3 text-left">
+        <span className="text-sm font-semibold">고객 정보</span>
+      </div>
+
       <div className="px-4">
         <RowLine label="상호명" value={c.company ?? form.company} />
         <RowLine label="담당자" value={c.name ?? form.manager ?? form.contactName} />
@@ -308,10 +313,9 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
 }
 
 /* =========================================================================
- * SEAT 문의 내역: 모바일 카드형 리스트
- *  - 계산 로직은 데스크톱 SeatInquiryTable과 동일
+ * 좌: SEAT 문의 내역(테이블) — PC와 동일 계산, 모바일 가로스크롤 테이블
  * ========================================================================= */
-function SeatInquiryCards({ data }: { data: ReceiptSeat }) {
+function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
   const detailsItems: any[] = (data as any)?.details?.items ?? [];
   const snapshotItems: any[] = (data as any)?.form?.cart_snapshot?.items ?? (data as any)?.cart_snapshot?.items ?? [];
   const length = Math.max(detailsItems.length, snapshotItems.length);
@@ -347,6 +351,7 @@ function SeatInquiryCards({ data }: { data: ReceiptSeat }) {
       getVal(shadow, ["productName", "product_name", "mediaName", "product_code"]) ??
       "-";
 
+    // 기준 월가/기준 총액
     const baseMonthlyRaw = Number(
       getVal(primary, ["baseMonthly", "priceMonthly"], getVal(shadow, ["baseMonthly", "priceMonthly"], NaN)),
     );
@@ -355,6 +360,7 @@ function SeatInquiryCards({ data }: { data: ReceiptSeat }) {
       (isFinite(baseMonthlyRaw) && months ? baseMonthlyRaw * months : NaN);
     let baseTotal = isFinite(baseTotalRaw) ? baseTotalRaw : 0;
 
+    // 총광고료(일반 로직)
     let lineTotal = Number(
       getVal(
         primary,
@@ -384,12 +390,13 @@ function SeatInquiryCards({ data }: { data: ReceiptSeat }) {
       (isFinite(baseTotal) && months ? Math.round(baseTotal / months) : NaN);
 
     const clamp01 = (n: number) => (n < 0 ? 0 : n > 1 ? 1 : n);
-    let discountPct = "-";
+    let discountPct: string | number = "-";
     if (isFinite(baseTotal) && baseTotal > 0 && isFinite(lineTotal)) {
       const rate = clamp01(1 - lineTotal / baseTotal);
       discountPct = `${Math.round(rate * 100)}%`;
     }
 
+    // ELEVATOR TV 강제 규칙
     const key = normPolicyKey(String(productName));
     if (key === "ELEVATOR TV" && months > 0) {
       if (!isFinite(baseTotal) || baseTotal <= 0) {
@@ -417,7 +424,7 @@ function SeatInquiryCards({ data }: { data: ReceiptSeat }) {
     return {
       aptName,
       productName,
-      monthlyFee: isFinite(baseMonthlyEff) ? baseMonthlyEff : 0, // 표시는 기준 월가(FMK=4주)
+      monthlyFee: isFinite(baseMonthlyEff) ? baseMonthlyEff : 0,
       periodLabel,
       baseTotal: isFinite(baseTotal) ? baseTotal : 0,
       discountPct,
@@ -429,57 +436,58 @@ function SeatInquiryCards({ data }: { data: ReceiptSeat }) {
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white">
-      <div className="px-4 py-3 text-sm font-semibold">문의 내역</div>
-
-      {/* 카드 리스트 */}
-      <div className="px-4 pb-4 space-y-3" data-capture-scroll>
-        {rows.length ? (
-          rows.map((r, i) => (
-            <div key={i} className="rounded-xl border border-gray-200 p-3">
-              <div className="text-[15px] font-bold text-gray-900">{r.aptName}</div>
-              <div className="mt-1 text-xs text-gray-500">{r.productName}</div>
-
-              <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-                <div className="text-gray-500">월광고료</div>
-                <div className="text-right">{formatWon(r.monthlyFee)}</div>
-
-                <div className="text-gray-500">광고기간</div>
-                <div className="text-right">{r.periodLabel}</div>
-
-                <div className="text-gray-500">기준금액</div>
-                <div className="text-right">{formatWon(r.baseTotal)}</div>
-
-                <div className="text-gray-500">할인율</div>
-                <div className="text-right">{r.discountPct}</div>
-
-                <div className="col-span-2 mt-1 flex items-center justify-between border-t pt-2">
-                  <span className="text-[13px] text-gray-600">총광고료</span>
-                  <span className="text-[16px] font-extrabold" style={{ color: BRAND }}>
-                    {formatWon(r.lineTotal)}
-                  </span>
-                </div>
-              </div>
-            </div>
-          ))
-        ) : (
-          <div className="py-8 text-center text-xs text-gray-500">항목이 없습니다.</div>
-        )}
+      <div className="px-4 pt-3 mb-2 text-sm font-semibold">문의 내역</div>
+      <div className="border-t border-gray-100 overflow-x-auto" data-capture-scroll>
+        <table className="min-w-[880px] text-[12px]">
+          <thead className="bg-gray-50 text-gray-600">
+            <tr className="[&>th]:px-4 [&>th]:py-2">
+              <th className="text-left">단지명</th>
+              <th className="text-left">상품명</th>
+              <th className="text-right">월광고료</th>
+              <th className="text-right">광고기간</th>
+              <th className="text-right">기준금액</th>
+              <th className="text-right">할인율</th>
+              <th className="text-right text-[#6C2DFF]">총광고료</th>
+            </tr>
+          </thead>
+          <tbody className="[&>tr>td]:px-4 [&>tr>td]:py-2">
+            {rows.length ? (
+              rows.map((r, i) => (
+                <tr key={i} className="border-t border-gray-100 bg-white">
+                  <td className="font-medium text-gray-900">{r.aptName}</td>
+                  <td className="truncate">{r.productName}</td>
+                  <td className="text-right">{formatWon(r.monthlyFee)}</td>
+                  <td className="text-right">{r.periodLabel}</td>
+                  <td className="text-right">{formatWon(r.baseTotal)}</td>
+                  <td className="text-right">{r.discountPct}</td>
+                  <td className="text-right font-semibold text-[#6C2DFF]">{formatWon(r.lineTotal)}</td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={7} className="py-8 text-center text-xs text-gray-500">
+                  항목이 없습니다.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
 
-      {/* 합계 카드 */}
-      <div className="px-4 pb-4">
+      {/* 합계 카드 (모바일 폭) */}
+      <div className="px-4 py-3">
         <div className="rounded-xl border border-[#E5E7EB] bg-[#F7F5FF]">
-          <div className="flex items-center justify-between px-4 py-3">
+          <div className="flex items-center justify-between px-4 py-2">
             <span className="text-sm text-gray-600">TOTAL</span>
             <span className="text-sm font-bold text-[#6C2DFF]">{formatWon(periodTotal)}</span>
           </div>
-          <div className="flex items-center justify-between border-t border-[#E5E7EB] px-4 py-3">
+          <div className="flex items-center justify-between border-t border-[#E5E7EB] px-4 py-2">
             <span className="text-sm text-gray-600">부가세</span>
             <span className="text-sm font-bold text-red-500">{formatWon(Math.round(periodTotal * 0.1))}</span>
           </div>
-          <div className="flex items-center justify-between border-t border-[#E5E7EB] px-4 py-4">
-            <span className="text-[15px] font-semibold text-[#6C2DFF]">최종 광고료 (VAT 포함)</span>
-            <span className="text-[20px] font-extrabold text-[#6C2DFF]">
+          <div className="flex items-center justify-between border-t border-[#E5E7EB] px-4 py-3">
+            <span className="text-[14px] font-semibold text-[#6C2DFF]">최종 광고료 (VAT 포함)</span>
+            <span className="text-[18px] font-extrabold text-[#6C2DFF]">
               {formatWon(Math.round(periodTotal * 1.1))}
             </span>
           </div>
@@ -490,7 +498,9 @@ function SeatInquiryCards({ data }: { data: ReceiptSeat }) {
 }
 
 /* =========================================================================
- * 메인: Mobile Complete Modal (바텀시트)
+ * 메인 모달 (모바일)
+ * - PC와 동일 데이터/기능
+ * - 모바일 크기/여백/배치만 조정
  * ========================================================================= */
 export default function CompleteModalMobile({ open, onClose, data, confirmLabel = "확인" }: CompleteModalProps) {
   useBodyScrollLock(open);
@@ -503,7 +513,7 @@ export default function CompleteModalMobile({ open, onClose, data, confirmLabel 
   if (!open) return null;
 
   const handleSave = async (kind: "png" | "pdf") => {
-    const root = document.getElementById("receipt-capture");
+    const root = document.getElementById("receipt-capture-mobile");
     if (!root) return;
     const scrollContainers = Array.from(root.querySelectorAll<HTMLElement>("[data-capture-scroll]"));
     if (kind === "png") await saveFullContentAsPNG(root, `${data.ticketCode}_receipt`, scrollContainers);
@@ -522,93 +532,103 @@ export default function CompleteModalMobile({ open, onClose, data, confirmLabel 
         {/* DIM */}
         <motion.div
           key="dim"
-          className="fixed inset-0 z-[1500] bg-black/40"
+          className="fixed inset-0 z-[1250] bg-black/40"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={onClose}
         />
 
-        {/* SHEET */}
-        <motion.div
-          id="receipt-capture"
-          key="sheet"
-          className="fixed inset-x-0 bottom-0 z-[1501] w-full max-h-[92vh] overflow-hidden rounded-t-2xl bg-white shadow-2xl"
-          role="dialog"
-          aria-modal="true"
-          initial={{ y: "100%", opacity: 1 }}
-          animate={{ y: 0, opacity: 1 }}
-          exit={{ y: "100%", opacity: 1 }}
-          transition={{ type: "spring", stiffness: 260, damping: 26 }}
-        >
-          {/* 헤더 */}
-          <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-4">
-            <HeaderSuccess ticketCode={data.ticketCode} createdAtISO={data.createdAtISO} />
-            <button aria-label="close" className="rounded-full p-2 hover:bg-gray-50" onClick={onClose}>
-              <X size={18} />
-            </button>
-          </div>
-
-          {/* 본문(스크롤) */}
-          <div className="max-h-[calc(92vh-56px-56px)] overflow-y-auto px-5 py-5 space-y-4" data-capture-scroll>
-            {/* 고객 정보 */}
-            <CustomerInquirySection data={data as ReceiptData} />
-
-            {/* 다음 절차 / 저장 / 링크 */}
-            <NextSteps />
-
-            <button
-              onClick={() => setPickerOpen(true)}
-              className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white"
-              style={{ backgroundColor: BRAND }}
-            >
-              문의 내용 저장
-            </button>
-            <p className="text-xs text-red-500">정확한 상담을 위해 문의 내용을 반드시 저장 해두세요</p>
-
-            <div className="grid grid-cols-1 gap-2">
-              <button
-                onClick={() => openExternal(LINK_YT)}
-                className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
-              >
-                <ExternalLink size={16} />
-                광고 소재 채널 바로가기
-              </button>
-              <button
-                onClick={() => openExternal(LINK_GUIDE)}
-                className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
-              >
-                <ExternalLink size={16} />
-                제작 가이드 바로가기
-              </button>
-              <button
-                onClick={() => openExternal(LINK_TEAM)}
-                className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
-              >
-                <ExternalLink size={16} />
-                오르카 구성원 확인하기
+        {/* PANEL */}
+        <div className="fixed inset-0 z-[1251] flex items-center justify-center">
+          <motion.div
+            id="receipt-capture-mobile"
+            key="panel"
+            className="flex w-[720px] max-w-[96vw] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            style={{ maxHeight: "92vh" }}
+            initial={{ y: 24, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 24, opacity: 0 }}
+            transition={{ type: "spring", stiffness: 260, damping: 22 }}
+          >
+            {/* 헤더 */}
+            <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-4">
+              <HeaderSuccess ticketCode={data.ticketCode} createdAtISO={data.createdAtISO} />
+              <button aria-label="close" className="rounded-full p-2 hover:bg-gray-50" onClick={onClose}>
+                <X size={18} />
               </button>
             </div>
 
-            {/* 문의 내역(Seat일 때만) */}
-            {isSeat && <SeatInquiryCards data={data as ReceiptSeat} />}
-          </div>
+            {/* 본문 */}
+            <div className="flex-1 overflow-y-auto px-5 py-5" data-capture-scroll>
+              <div className="space-y-4">
+                {/* 고객 정보 */}
+                <CustomerInquirySection data={data as ReceiptData} />
 
-          {/* 푸터 */}
-          <div className="flex items-center justify-end border-t border-gray-100 px-5 py-3">
-            <button onClick={onClose} className="rounded-xl bg-black px-5 py-3 text-sm font-semibold text-white">
-              {confirmLabel}
-            </button>
-          </div>
-        </motion.div>
+                {/* 다음 절차/저장/링크 */}
+                <div className="grid grid-cols-1 gap-4">
+                  <NextSteps />
 
-        {/* 저장 액션시트 */}
+                  <button
+                    onClick={() => setPickerOpen(true)}
+                    className="w-full rounded-xl px-4 py-3 text-sm font-semibold text-white"
+                    style={{ backgroundColor: BRAND }}
+                  >
+                    문의 내용 저장
+                  </button>
+                  <p className="mt-1 text-xs text-red-500">정확한 상담을 위해 문의 내용을 반드시 저장 해두세요</p>
+
+                  <div className="rounded-xl border border-gray-100 p-4">
+                    <div className="text-sm font-semibold">더 많은 정보</div>
+                    <div className="mt-3 grid grid-cols-1 gap-2">
+                      <button
+                        onClick={() => openExternal(LINK_YT)}
+                        className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
+                      >
+                        <ExternalLink size={16} />
+                        광고 소재 채널 바로가기
+                      </button>
+                      <button
+                        onClick={() => openExternal(LINK_GUIDE)}
+                        className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
+                      >
+                        <ExternalLink size={16} />
+                        제작 가이드 바로가기
+                      </button>
+                      <button
+                        onClick={() => openExternal(LINK_TEAM)}
+                        className="w-full inline-flex items-center justify-start gap-2 rounded-xl border border-gray-200 px-4 py-3 text-sm font-semibold text-left"
+                      >
+                        <ExternalLink size={16} />
+                        오르카 구성원 확인하기
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 문의 내역(테이블+합계) */}
+                {isSeat && <SeatInquiryTable data={data as ReceiptSeat} />}
+              </div>
+            </div>
+
+            {/* 푸터 */}
+            <div className="flex items-center justify-end border-t border-gray-100 px-5 py-3">
+              <button onClick={onClose} className="rounded-xl bg-black px-5 py-3 text-sm font-semibold text-white">
+                {confirmLabel}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+
+        {/* 저장 액션시트 (모바일 중앙 카드) */}
         <AnimatePresence>
           {pickerOpen && (
             <>
               <motion.div
                 key="picker-dim"
-                className="fixed inset-0 z-[1600] bg-black/30"
+                className="fixed inset-0 z-[1252] bg-black/30"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
@@ -616,11 +636,11 @@ export default function CompleteModalMobile({ open, onClose, data, confirmLabel 
               />
               <motion.div
                 key="picker-card"
-                className="fixed left-1/2 bottom-0 z-[1601] w-[520px] max-w-[94vw] -translate-x-1/2 rounded-t-2xl bg-white shadow-2xl"
-                initial={{ y: "100%", opacity: 1 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: "100%", opacity: 1 }}
-                transition={{ type: "spring", stiffness: 260, damping: 26 }}
+                className="fixed left-1/2 top-1/2 z-[1253] w-[420px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-white shadow-2xl"
+                initial={{ scale: 0.96, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.96, opacity: 0 }}
+                transition={{ type: "spring", stiffness: 260, damping: 22 }}
               >
                 <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
                   <div className="text-sm font-semibold">문의 내용 저장</div>
