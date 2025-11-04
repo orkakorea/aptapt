@@ -5,9 +5,12 @@ import BottomSheet from "@/components/mobile/BottomSheet";
 import DetailPanel from "@/components/mobile/DetailPanel";
 import CartPanel from "@/components/mobile/CartPanel";
 import QuotePanel from "@/components/mobile/QuotePanel";
+// ✅ 타입만 재사용(컴포넌트는 공용 InquiryModal 사용)
+import { type Prefill, type InquiryKind } from "@/components/mobile/MobileInquirySheet";
+import InquiryModal from "@/components/InquiryModal";
 
-// ✅ 모바일 전용 2-스텝 하프 시트 모달 사용 (타입도 함께 재사용)
-import MobileInquirySheet, { type Prefill, type InquiryKind } from "@/components/mobile/MobileInquirySheet";
+// ✅ 완료 모달(임시로 데스크톱 버전 사용; 모바일 전용 파일이 있으면 교체 가능)
+import CompleteModalDesktop from "@/components/complete-modal/CompleteModal.desktop";
 
 import { useKakaoLoader } from "@/hooks/useKakaoLoader";
 import { useKakaoMap } from "@/hooks/useKakaoMap";
@@ -73,19 +76,18 @@ export default function MapMobilePageV2() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const selectedRowKeys = useMemo(() => cart.map((c) => c.rowKey), [cart]);
 
-  /** ✅ 마지막에 선택한 개월 수를 기억 (새로 담을 때 기본값으로) */
-  const lastMonthsRef = useRef<number>(1);
-
-  /** ✅ rowKey → 최신 상세(카운터/주소/월송출 등) 매핑 저장
-   *  useMarkers 가 onSelect로 넘겨주는 SelectedApt(기본 → 상세보강 순차)를 그대로 저장 */
-  const detailByRowKeyRef = useRef<Map<string, Partial<SelectedApt>>>(new Map());
-
   /** =========================
    * 문의 시트
    * ========================= */
   const [inqOpen, setInqOpen] = useState(false);
   const [inqMode, setInqMode] = useState<InquiryKind>("SEAT");
   const [inqPrefill, setInqPrefill] = useState<Prefill | undefined>(undefined);
+
+  /** =========================
+   * 완료 모달
+   * ========================= */
+  const [doneOpen, setDoneOpen] = useState(false);
+  const [receipt, setReceipt] = useState<any | null>(null);
 
   /** =========================
    * 바텀시트 상태
@@ -120,13 +122,10 @@ export default function MapMobilePageV2() {
     map,
     clusterer,
     onSelect: (apt) => {
-      // 기본 선택
       setSelected(apt);
       setActiveTab("detail");
       setSheetOpen(true);
       recalcSheetMax();
-      // ✅ 카운터 등 최신 상세를 rowKey 맵에 캐시
-      if (apt?.rowKey) detailByRowKeyRef.current.set(apt.rowKey, apt);
     },
     externalSelectedRowKeys: selectedRowKeys,
   });
@@ -213,15 +212,14 @@ export default function MapMobilePageV2() {
    * ========================= */
   const isInCart = useCallback((rowKey?: string | null) => !!rowKey && cart.some((c) => c.rowKey === rowKey), [cart]);
 
-  // ✅ 담기 시 "마지막 개월수"로 기본 설정 (없으면 1개월)
+  // 담기 시 항상 1개월 기본 (시트 닫지 않음)
   const addSelectedToCart = useCallback(() => {
     if (!selected) return;
-    const monthsDefault = Math.max(1, Number(lastMonthsRef.current || 1));
     const next: CartItem = {
       rowKey: selected.rowKey,
       aptName: selected.name,
       productName: selected.productName ?? "기본상품",
-      months: monthsDefault,
+      months: 1,
       baseMonthly: selected.monthlyFee ?? 0,
       monthlyFeeY1: selected.monthlyFeeY1 ?? undefined,
     };
@@ -236,10 +234,6 @@ export default function MapMobilePageV2() {
 
   const updateMonths = useCallback(
     (rowKey: string, months: number) => {
-      // ✅ 최근 개월수 기억
-      if (Number.isFinite(months) && months > 0) {
-        lastMonthsRef.current = months;
-      }
       setCart((prev) => {
         if (applyAll) return prev.map((c) => ({ ...c, months }));
         return prev.map((c) => (c.rowKey === rowKey ? { ...c, months } : c));
@@ -249,7 +243,7 @@ export default function MapMobilePageV2() {
   );
 
   /** =========================
-   * 할인/총액 계산 (+ 카운터 보강)
+   * 할인/총액 계산
    * ========================= */
   type ComputedItem = Omit<CartItem, "productName" | "baseMonthly"> & {
     productName: string;
@@ -260,7 +254,7 @@ export default function MapMobilePageV2() {
     discPeriodRate?: number;
     discPrecompRate?: number;
 
-    // 🔹 견적상세/요약용 카운터들(최신 상세에서 보강)
+    // (있으면 표시용) 카운터들
     households?: number;
     residents?: number;
     monthlyImpressions?: number;
@@ -289,13 +283,6 @@ export default function MapMobilePageV2() {
       const discPeriodRate = rateFromRanges(rules?.period, c.months);
       const discPrecompRate = rateFromRanges(rules?.precomp, same);
 
-      // 🔹 최신 상세에서 카운터 보강
-      const detail = detailByRowKeyRef.current.get(c.rowKey) || {};
-      const households = Number(detail.households ?? NaN);
-      const residents = Number(detail.residents ?? NaN);
-      const monthlyImpressions = Number(detail.monthlyImpressions ?? NaN);
-      const monitors = Number(detail.monitors ?? NaN);
-
       return {
         ...c,
         productName: name,
@@ -305,10 +292,6 @@ export default function MapMobilePageV2() {
         _total: monthly * c.months,
         discPeriodRate,
         discPrecompRate,
-        households: Number.isFinite(households) ? households : undefined,
-        residents: Number.isFinite(residents) ? residents : undefined,
-        monthlyImpressions: Number.isFinite(monthlyImpressions) ? monthlyImpressions : undefined,
-        monitors: Number.isFinite(monitors) ? monitors : undefined,
       };
     });
   }, [cart]);
@@ -333,7 +316,7 @@ export default function MapMobilePageV2() {
   const kakaoReady = !!(kakao && map);
 
   /** =========================
-   * 카트 → 문의 prefill 스냅샷
+   * 카트 → 문의/영수증 보조 스냅샷
    * ========================= */
   const buildCartSnapshot = useCallback((items: typeof computedCart, total: number) => {
     const monthsMax = items.reduce((m, it) => Math.max(m, Number(it.months || 0)), 0);
@@ -350,6 +333,40 @@ export default function MapMobilePageV2() {
       })),
     };
   }, []);
+
+  /** ✅ 완료 모달용 최소 영수증 오브젝트 생성 */
+  const buildReceiptFrom = useCallback(
+    (items: typeof computedCart, total: number, id?: string | null, mode?: InquiryKind) => {
+      const nowISO = new Date().toISOString();
+      return {
+        ticketCode: id || `TEMP-${Date.now()}`,
+        createdAtISO: nowISO,
+
+        // 고객/폼/요약(최소 구성) — 값이 없으면 컴포넌트에서 "-" 처리
+        customer: {},
+        form: {
+          source: "mobile",
+          mode: mode || "SEAT",
+          cart_snapshot: buildCartSnapshot(items, total),
+        },
+        summary: {
+          topAptLabel: items[0]?.aptName ?? "-",
+        },
+
+        // 좌측 테이블 데이터(PC 영수증과 호환되는 키)
+        details: {
+          items: items.map((it) => ({
+            apt_name: it.aptName,
+            product_name: it.productName,
+            months: it.months,
+            baseMonthly: it.baseMonthly,
+            lineTotal: it._total,
+          })),
+        },
+      };
+    },
+    [buildCartSnapshot],
+  );
 
   /** =========================
    * 렌더
@@ -598,17 +615,32 @@ export default function MapMobilePageV2() {
         />
       )}
 
-      {/* ✅ 모바일 문의: 하프 시트 2-스텝 모달 사용 */}
-      <MobileInquirySheet
+      {/* ✅ 모바일 문의: 공용 InquiryModal 사용 (UI 변경 없음)
+          onSubmitted 에서 완료 모달 열기 & 영수증 생성 */}
+      <InquiryModal
         open={inqOpen}
         mode={inqMode}
         prefill={inqPrefill}
         sourcePage="/mobile"
         onClose={() => setInqOpen(false)}
-        onSubmitted={() => {
+        onSubmitted={(id?: string) => {
           setInqOpen(false);
+          // 완료 모달 데이터 구성 후 오픈
+          const rec = buildReceiptFrom(computedCart, totalCost, id ?? null, inqMode);
+          setReceipt(rec);
+          setDoneOpen(true);
         }}
       />
+
+      {/* ✅ 완료 모달(데스크톱 컴포넌트를 임시 사용) */}
+      {doneOpen && receipt && (
+        <CompleteModalDesktop
+          open={doneOpen}
+          onClose={() => setDoneOpen(false)}
+          data={receipt as any}
+          confirmLabel="확인"
+        />
+      )}
     </div>
   );
 }
