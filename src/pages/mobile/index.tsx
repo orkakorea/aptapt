@@ -6,8 +6,11 @@ import DetailPanel from "@/components/mobile/DetailPanel";
 import CartPanel from "@/components/mobile/CartPanel";
 import QuotePanel from "@/components/mobile/QuotePanel";
 
-// ✅ 모바일 전용 2-스텝 하프 시트 모달 사용 (타입도 함께 재사용)
+// ✅ 모바일 전용 2-스텝 하프 시트 모달
 import MobileInquirySheet, { type Prefill, type InquiryKind } from "@/components/mobile/MobileInquirySheet";
+
+// ✅ 문의 완료 모달(PC 버전 컴포넌트 재사용)
+import CompleteModalDesktop from "@/components/complete-modal/CompleteModal.desktop";
 
 import { useKakaoLoader } from "@/hooks/useKakaoLoader";
 import { useKakaoMap } from "@/hooks/useKakaoMap";
@@ -76,8 +79,7 @@ export default function MapMobilePageV2() {
   /** ✅ 마지막에 선택한 개월 수를 기억 (새로 담을 때 기본값으로) */
   const lastMonthsRef = useRef<number>(1);
 
-  /** ✅ rowKey → 최신 상세(카운터/주소/월송출 등) 매핑 저장
-   *  useMarkers 가 onSelect로 넘겨주는 SelectedApt(기본 → 상세보강 순차)를 그대로 저장 */
+  /** ✅ rowKey → 최신 상세(카운터/주소/월송출 등) 매핑 저장 */
   const detailByRowKeyRef = useRef<Map<string, Partial<SelectedApt>>>(new Map());
 
   /** =========================
@@ -86,6 +88,12 @@ export default function MapMobilePageV2() {
   const [inqOpen, setInqOpen] = useState(false);
   const [inqMode, setInqMode] = useState<InquiryKind>("SEAT");
   const [inqPrefill, setInqPrefill] = useState<Prefill | undefined>(undefined);
+
+  /** =========================
+   * 완료 모달 상태 (신규)
+   * ========================= */
+  const [doneOpen, setDoneOpen] = useState(false);
+  const [receipt, setReceipt] = useState<any | null>(null);
 
   /** =========================
    * 바텀시트 상태
@@ -184,16 +192,19 @@ export default function MapMobilePageV2() {
     };
   }, []);
 
-  /** 시트 외부 클릭 시 검색창 blur */
+  /** ✅ 검색창에만 blur 적용(입력 폼 키보드 유지) */
   useEffect(() => {
     const blurActive = () => {
       const el = document.activeElement as HTMLElement | null;
       if (el && typeof el.blur === "function") el.blur();
     };
     const onPointerDown = (e: PointerEvent) => {
+      // 현재 포커스가 "검색 input"일 때만 외부 탭 시 blur
+      const isSearchActive = document.activeElement === searchInputRef.current;
+      if (!isSearchActive) return;
       const target = e.target as Node;
-      if (searchAreaRef.current?.contains(target)) return;
-      blurActive();
+      if (searchAreaRef.current?.contains(target)) return; // 검색영역 내부는 유지
+      blurActive(); // 검색창만 닫기
     };
     document.addEventListener("pointerdown", onPointerDown, true);
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
@@ -350,6 +361,44 @@ export default function MapMobilePageV2() {
       })),
     };
   }, []);
+
+  /** =========================
+   * ✅ 문의 완료 영수증 빌더 (신규)
+   * ========================= */
+  const buildReceiptFrom = useCallback(
+    (items: typeof computedCart, total: number, id?: string | null, mode?: InquiryKind) => {
+      const ticketCode = `T${Date.now().toString(36).toUpperCase()}`;
+      const createdAtISO = new Date().toISOString();
+
+      const snapshot = buildCartSnapshot(items, total);
+      const topApt = items[0]?.aptName
+        ? `${items[0].aptName}${items.length > 1 ? ` 외 ${items.length - 1}개 단지` : ""}`
+        : "-";
+
+      // SeatInquiryTable 이 참조하는 최소 필드들만 구성
+      const detailsItems = items.map((it) => ({
+        apt_name: it.aptName,
+        product_name: it.productName,
+        months: it.months,
+        baseMonthly: it.baseMonthly, // 월가(기준)
+        baseTotal: Math.round(it.baseMonthly * it.months), // 기준금액
+        lineTotal: Math.round(it._total), // 총광고료
+      }));
+
+      return {
+        id: id ?? null,
+        mode: mode ?? "SEAT",
+        ticketCode,
+        createdAtISO,
+        summary: { topAptLabel: topApt },
+        form: { cart_snapshot: snapshot },
+        details: { items: detailsItems },
+        customer: {}, // 고객입력은 보안/선택사항이라 비워둬도 컴포넌트가 안전하게 처리됨
+        meta: { step_ui: "mobile-2step" },
+      };
+    },
+    [buildCartSnapshot],
+  );
 
   /** =========================
    * 렌더
@@ -598,17 +647,27 @@ export default function MapMobilePageV2() {
         />
       )}
 
-      {/* ✅ 모바일 문의: 하프 시트 2-스텝 모달 사용 */}
+      {/* ✅ 모바일 문의: 하프 시트 2-스텝 모달 */}
       <MobileInquirySheet
         open={inqOpen}
         mode={inqMode}
         prefill={inqPrefill}
         sourcePage="/mobile"
         onClose={() => setInqOpen(false)}
-        onSubmitted={() => {
+        onSubmitted={(newId) => {
+          // 1) 문의 시트 닫기
           setInqOpen(false);
+          // 2) 영수증 데이터 만들고 완료 모달 열기
+          const rec = buildReceiptFrom(computedCart, totalCost, newId, inqMode);
+          setReceipt(rec);
+          setDoneOpen(true);
         }}
       />
+
+      {/* ✅ 문의 완료 모달 */}
+      {doneOpen && receipt && (
+        <CompleteModalDesktop open={doneOpen} data={receipt} onClose={() => setDoneOpen(false)} confirmLabel="확인" />
+      )}
     </div>
   );
 }
