@@ -1,3 +1,4 @@
+// src/components/mobile/MobileInquirySheet.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -28,7 +29,8 @@ export default function MobileInquirySheet({
   onClose: () => void;
   prefill?: InquiryPrefill;
   sourcePage?: string;
-  onSubmitted?: (id: string) => void;
+  /** ✅ (수정) 완료 콜백에 '표시용 영수증 스냅샷'을 함께 전달 */
+  onSubmitted?: (id: string, receiptSnapshot?: any) => void;
 }) {
   /* =========================================================================
    * 스타일 토큰
@@ -176,6 +178,59 @@ export default function MobileInquirySheet({
   const canNext = !!(brand.trim() && campaignType && managerName.trim() && phoneOk);
   const submitDisabled = submitting || !agreePrivacy;
 
+  /* 표시용: 전화 마스크 */
+  function maskPhone(digits: string) {
+    const s = (digits || "").replace(/\D/g, "");
+    if (s.length <= 3) return s;
+    if (s.length <= 7) return `${s.slice(0, 3)}-${s.slice(3)}`;
+    return `${s.slice(0, 3)}-${s.slice(3, 7)}-${s.slice(7)}`;
+  }
+
+  /* ✅ 완료모달에 바로 쓸 "표시용 스냅샷" 생성 */
+  function buildReceiptSnapshot() {
+    const snap = prefill?.cart_snapshot || null;
+    const items: any[] = Array.isArray(snap?.items) ? snap.items : [];
+    const first = items[0];
+
+    const topAptLabel = items.length
+      ? `${first?.apt_name ?? "-"}${items.length > 1 ? ` 외 ${items.length - 1}개 단지` : ""}`
+      : prefill?.apt_name || "-";
+
+    // months: snap.months 또는 items 내 최대 months
+    const monthsSet = new Set<number>();
+    items.forEach((i) => {
+      const n = Number(i?.months ?? 0);
+      if (Number.isFinite(n) && n > 0) monthsSet.add(n);
+    });
+    if (monthsSet.size === 0 && Number.isFinite(Number(snap?.months))) {
+      const m = Number(snap.months);
+      if (m > 0) monthsSet.add(m);
+    }
+    const months = monthsSet.size > 0 ? Array.from(monthsSet).reduce((mx, n) => (n > mx ? n : mx), 0) : undefined;
+
+    return {
+      summary: { topAptLabel },
+      customer: {
+        company: brand || null,
+        name: managerName || null,
+        phoneMasked: phone ? maskPhone(phone) : null,
+        phone: phone || null,
+        email: email || null,
+      },
+      form: {
+        values: {
+          campaign_type: campaignType || null,
+          months: months ?? null,
+          desiredDate: hopeDate || null,
+          promoCode: promoCode || null,
+          request_text: requestText || null,
+        },
+        cart_snapshot: snap || null,
+      },
+      meta: { step_ui: "mobile-2step" },
+    };
+  }
+
   /* =========================================================================
    * 제출: 반드시 RPC 사용 (RLS 우회)
    * ========================================================================= */
@@ -226,8 +281,9 @@ export default function MobileInquirySheet({
 
       if (error) throw error;
 
-      // 성공 → 상위에서 완료 모달을 열 수 있도록 콜백
-      onSubmitted?.("ok");
+      // ✅ 상위로 '표시용 영수증 스냅샷' 함께 전달 (고객/문의 정보가 완료모달에 즉시 표시됨)
+      const snapshot = buildReceiptSnapshot();
+      onSubmitted?.("ok", snapshot);
     } catch (err: any) {
       setErrorMsg(err?.message || "제출 중 오류가 발생했습니다.");
     } finally {
