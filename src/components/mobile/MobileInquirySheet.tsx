@@ -277,7 +277,7 @@ export default function MobileInquirySheet({
               <div className="text-[18px] font-extrabold text-gray-900">
                 {mode === "SEAT" ? "구좌(T.O) 문의" : "시·군·구 등 단위 / 패키지문의"}
               </div>
-              <div className="text-[12px] text-gray-500 mt-1">필수입력*.</div>
+              <div className="text-[12px] text-gray-500 mt-1">*선택하신 단지/상품 정보를 포함해 접수됩니다</div>
             </div>
             <button
               className="rounded-full p-2 hover:bg-gray-50"
