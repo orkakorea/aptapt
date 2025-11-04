@@ -2,7 +2,7 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { Suspense, lazy, PropsWithChildren } from "react";
 import NavBar from "@/components/layout/NavBar";
-import MobileRedirectGuard from "@/components/routing/MobileRedirectGuard";
+import MobileRedirectGuard from "@/components/routing/MobileRedirectGuard"; // ✅ 추가
 
 const HomePage = lazy(() => import("./pages/HomePage"));
 const MapPage = lazy(() => import("./pages/MapPage"));
@@ -11,7 +11,7 @@ const NotFound = lazy(() => import("./pages/NotFound"));
 const SupaDebugPage = lazy(() => import("./pages/SupaDebug"));
 const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
 const DashboardPage = lazy(() => import("./pages/admin/DashboardPage"));
-const MapMobilePageV2 = lazy(() => import("./pages/mobile")); // -> src/pages/mobile/index.tsx
+const MapMobilePageV2 = lazy(() => import("./pages/mobile")); // /mobile
 
 function AppLayout({ children }: PropsWithChildren) {
   const { pathname } = useLocation();
@@ -19,7 +19,7 @@ function AppLayout({ children }: PropsWithChildren) {
 
   return (
     <div className="flex flex-col min-h-screen">
-      <MobileRedirectGuard />
+      <MobileRedirectGuard /> {/* ✅ 여기서 항상 감시 */}
       {showHeader && <NavBar />}
       <main className="flex-1">{children}</main>
     </div>
@@ -32,28 +32,17 @@ export default function App() {
       <Suspense fallback={<div className="p-6">까꿍 !</div>}>
         <AppLayout>
           <Routes>
-            {/* 데스크톱 홈 */}
             <Route path="/" element={<HomePage />} />
-
-            {/* 데스크톱 맵 */}
             <Route path="/map" element={<MapPage />} />
-
-            {/* 모바일 전용 페이지 (src/pages/mobile/index.tsx) */}
             <Route path="/mobile" element={<MapMobilePageV2 />} />
             <Route path="/m2" element={<Navigate to="/mobile" replace />} />
             <Route path="/m" element={<Navigate to="/mobile" replace />} />
-
-            {/* 어드민 */}
             <Route path="/admin" element={<AdminLayout />}>
               <Route index element={<Navigate to="dashboard" replace />} />
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="inquiries" element={<InquiriesPage />} />
             </Route>
-
-            {/* 유틸/디버그 */}
             <Route path="/supa-debug" element={<SupaDebugPage />} />
-
-            {/* 404 */}
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AppLayout>
