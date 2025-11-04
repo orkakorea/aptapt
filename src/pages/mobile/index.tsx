@@ -1,3 +1,4 @@
+// src/pages/mobile/index.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
@@ -9,8 +10,8 @@ import QuotePanel from "@/components/mobile/QuotePanel";
 // ✅ 모바일 전용 2-스텝 하프 시트 모달
 import MobileInquirySheet, { type Prefill, type InquiryKind } from "@/components/mobile/MobileInquirySheet";
 
-// ✅ 문의 완료 모달(PC 버전 컴포넌트 재사용)
-import CompleteModalDesktop from "@/components/complete-modal/CompleteModal.desktop";
+// ✅ 문의 완료 모달(모바일)
+import CompleteModalMobile from "@/components/complete-modal/CompleteModal.mobile";
 
 import { useKakaoLoader } from "@/hooks/useKakaoLoader";
 import { useKakaoMap } from "@/hooks/useKakaoMap";
@@ -657,16 +658,16 @@ export default function MapMobilePageV2() {
         onSubmitted={(newId) => {
           // 1) 문의 시트 닫기
           setInqOpen(false);
-          // 2) 영수증 데이터 만들고 완료 모달 열기
+          // 2) 영수증 데이터 만들고 완료 모달(모바일) 열기
           const rec = buildReceiptFrom(computedCart, totalCost, newId, inqMode);
           setReceipt(rec);
           setDoneOpen(true);
         }}
       />
 
-      {/* ✅ 문의 완료 모달 */}
+      {/* ✅ 문의 완료 모달(모바일) */}
       {doneOpen && receipt && (
-        <CompleteModalDesktop open={doneOpen} data={receipt} onClose={() => setDoneOpen(false)} confirmLabel="확인" />
+        <CompleteModalMobile open={doneOpen} data={receipt} onClose={() => setDoneOpen(false)} confirmLabel="확인" />
       )}
     </div>
   );
