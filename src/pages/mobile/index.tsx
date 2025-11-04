@@ -9,7 +9,8 @@ import QuotePanel from "@/components/mobile/QuotePanel";
 // ✅ 모바일 전용 2-스텝 하프 시트 모달
 import MobileInquirySheet, { type Prefill, type InquiryKind } from "@/components/mobile/MobileInquirySheet";
 
-import CompleteModalMobile from "@/components/complete-modal/CompleteModal.mobile"; // ✅
+// ✅ 문의 완료 모달(PC 버전 컴포넌트 재사용)
+import CompleteModalDesktop from "@/components/complete-modal/CompleteModal.desktop";
 
 import { useKakaoLoader } from "@/hooks/useKakaoLoader";
 import { useKakaoMap } from "@/hooks/useKakaoMap";
@@ -665,7 +666,7 @@ export default function MapMobilePageV2() {
 
       {/* ✅ 문의 완료 모달 */}
       {doneOpen && receipt && (
-        <CompleteModalMobile open={completeOpen} data={completeData} onClose={() => setCompleteOpen(false)} />
+        <CompleteModalDesktop open={doneOpen} data={receipt} onClose={() => setDoneOpen(false)} confirmLabel="확인" />
       )}
     </div>
   );
