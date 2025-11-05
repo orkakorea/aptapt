@@ -48,12 +48,14 @@ type InquiryRow = {
   email?: string | null;
   memo?: string | null;
 
-  /** 최종 확인 스냅샷(다형) */
+  /** 최종 확인 스냅샷(문자열/JSON 둘 다 허용) */
   cart_snapshot?: any;
 
-  /** 추가: 디바이스/메타(없어도 안전) */
+  /** 디바이스 판정 보조 필드(있으면 사용) */
   device?: string | null;
   meta?: any;
+  source_page?: string | null;
+  extra?: any;
 };
 
 const STATUS_OPTIONS: { value: InquiryStatus; label: string }[] = [
@@ -93,9 +95,11 @@ const COL = {
   memo: "memo",
   cartSnapshot: "cart_snapshot",
 
-  /** 추가 (있으면 사용, 없으면 undefined) */
+  /** 추가 (있으면 사용) */
   device: "device",
   meta: "meta",
+  sourcePage: "source_page",
+  extra: "extra",
 } as const;
 
 const TBL = { main: "inquiries", apartments: "inquiry_apartments" } as const;
@@ -224,6 +228,8 @@ const InquiriesPage: React.FC = () => {
           // 추가 필드(있으면 사용)
           device: d[COL.device],
           meta: d[COL.meta],
+          source_page: d[COL.sourcePage],
+          extra: d[COL.extra],
         }));
 
         if (!ignore) {
@@ -513,7 +519,7 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
   const [aptRows, setAptRows] = useState<{ apt_name: string; product_name: string }[]>([]);
   const [aptLoading, setAptLoading] = useState(false);
 
-  // inquiry_apartments 조회
+  // inquiry_apartments 조회 (CSV 내보내기에서만 사용)
   useEffect(() => {
     let ignore = false;
     (async () => {
@@ -534,9 +540,27 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
     };
   }, [row.id]);
 
-  // cart_snapshot 폴백 (표시 전용 단순 리스트)
+  /** cart_snapshot 문자열/JSON 안전 파서 */
+  const parsedSnap = useMemo(() => {
+    const snap = (row as any)?.cart_snapshot;
+    if (!snap) return null;
+    if (typeof snap === "string") {
+      try {
+        // "null" 같은 문자열 방지
+        const trimmed = snap.trim();
+        if (trimmed === "null" || trimmed === "") return null;
+        return JSON.parse(trimmed);
+      } catch {
+        return null;
+      }
+    }
+    if (typeof snap === "object") return snap;
+    return null;
+  }, [row]);
+
+  // cart_snapshot 폴백 (표시 전용 단순 리스트 / CSV용)
   const snapshotSets = useMemo(() => {
-    const items = (row as any)?.cart_snapshot?.items;
+    const items = (parsedSnap as any)?.items;
     if (!Array.isArray(items)) return [];
     return items.map((it: any) => ({
       apt_name: it.apt_name ?? it.name ?? "",
@@ -551,9 +575,9 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
         it.product_code ??
         "",
     }));
-  }, [row]);
+  }, [parsedSnap]);
 
-  // 표시 리스트(단지/개월/상품명)
+  // 표시 리스트(단지/개월/상품명) — 화면 표시는 요구로 삭제했지만 CSV 생성에는 사용
   const listToRender: { apt_name: string; months: number | null; product_name: string }[] = useMemo(() => {
     if (aptRows.length === 0 && snapshotSets.length > 0) return snapshotSets;
 
@@ -574,10 +598,10 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
     return [];
   }, [aptRows, snapshotSets]);
 
-  // ====== (추가) 디바이스 표기 ======
+  // ====== 디바이스 표기 ======
   const deviceLabel = useMemo(() => deriveDeviceLabel(row), [row]);
 
-  // ====== (추가) 최종 확인(금액) 스냅샷 파싱 ======
+  // ====== 최종 확인(금액) 스냅샷 파싱 ======
   type FinalLine = {
     apt_name: string;
     product_name: string;
@@ -626,7 +650,7 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
           it.base_price_monthly,
       );
 
-      const monthlyAfter = toNum(
+      let monthlyAfter = toNum(
         it.monthlyAfter ??
           it.monthly_after ??
           it.priceMonthly ??
@@ -636,12 +660,24 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
           it.final_monthly,
       );
 
-      const lineTotalRaw = toNum(
-        it.lineTotal ?? it.line_total ?? it.total ?? it.totalCost ?? it.line_total_after_discount,
-      );
+      // lineTotal: 다양한 필드 + (item_total_won | total_won) 지원
+      let lineTotal =
+        toNum(
+          it.lineTotal ??
+            it.line_total ??
+            it.total ??
+            it.totalCost ??
+            it.line_total_after_discount ??
+            it.item_total_won ?? // ★ 신규 지원
+            it.total_won, // ★ 신규 지원
+        ) ?? 0;
 
-      // 총액 계산: 기록된 값 우선 → 없으면 월×개월
-      let lineTotal: number = lineTotalRaw ?? 0;
+      // 월가격이 없고 총액/개월이 있으면 월가격을 역산
+      if ((monthlyAfter == null || monthlyAfter === 0) && months > 0 && lineTotal > 0) {
+        monthlyAfter = lineTotal / months;
+      }
+
+      // 총액이 없고 월×개월이 가능하면 계산
       if ((lineTotal == null || lineTotal === 0) && monthlyAfter != null && months > 0) {
         lineTotal = monthlyAfter * months;
       }
@@ -660,7 +696,7 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
     return lines.filter((l) => l.apt_name || l.product_name || l.lineTotal > 0 || l.months > 0);
   }
 
-  const finalLines = useMemo<FinalLine[]>(() => normalizeSnapshotItems((row as any)?.cart_snapshot), [row]);
+  const finalLines = useMemo<FinalLine[]>(() => normalizeSnapshotItems(parsedSnap), [parsedSnap]);
 
   const totals = useMemo(() => {
     const sum = finalLines.reduce(
@@ -745,7 +781,7 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
 
         <div className="p-5 space-y-5 overflow-y-auto h-[calc(100%-56px)]">
           <InfoItem label="문의일시" value={formatDateTime(row.created_at)} />
-          <InfoItem label="캠페인 유형" value={row.campaign_type || "—"} />
+          <InfoItem label="캠페인 유형" value={row.campaign_type || (row.extra?.campaign_type ?? "—")} />
           {/* 추가: 유입경로, 디바이스 */}
           <InfoItem label="유입경로" value={<SourceBadge value={row.inquiry_kind} />} />
           <InfoItem label="디바이스" value={deviceLabel} />
@@ -754,38 +790,9 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
           <InfoItem label="이메일주소" value={row.email || "—"} />
           <InfoItem label="요청사항" value={row.memo || "—"} />
 
-          <div className="border-t border-gray-100 pt-4">
-            <div className="text-sm font-medium mb-2">선택 단지/광고기간/상품</div>
+          {/* ===== [요청] 선택 단지/광고기간/상품 섹션 제거 (제목+내용 전체 삭제) ===== */}
 
-            {aptLoading ? (
-              <div className="text-sm text-gray-500">불러오는 중…</div>
-            ) : listToRender.length === 0 ? (
-              <div className="text-sm text-gray-500">데이터 없음</div>
-            ) : (
-              <div className="max-h-60 overflow-auto rounded-md border">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-3 py-2 text-left">단지명</th>
-                      <th className="px-3 py-2 text-left">광고기간(개월)</th>
-                      <th className="px-3 py-2 text-left">상품명</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {listToRender.map((it, i) => (
-                      <tr key={i} className="border-t">
-                        <td className="px-3 py-2">{it.apt_name || "—"}</td>
-                        <td className="px-3 py-2">{it.months ?? "—"}</td>
-                        <td className="px-3 py-2">{it.product_name || "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          {/* ===== 추가: 광고주 최종 확인(금액) ===== */}
+          {/* ===== 광고주 최종 확인(금액) ===== */}
           <div className="border-t border-gray-100 pt-4">
             <div className="text-sm font-medium mb-2">광고주 최종 확인(금액)</div>
             {finalLines.length === 0 ? (
@@ -938,15 +945,27 @@ function pillClassForValid(v: ValidTri): string {
 
 /* ===== 추가 유틸: 디바이스 표기/포맷 ===== */
 function deriveDeviceLabel(row: InquiryRow): string {
+  // 1) device 필드 우선
   const raw = (row.device ?? "").toString().toLowerCase();
   if (raw) {
     if (/(mobile|mobi|phone)/.test(raw)) return "모바일";
     if (/(pc|desktop)/.test(raw)) return "PC";
   }
-  const m = row.meta || (row as any)?.cart_snapshot?.meta || {};
-  if (typeof m?.isMobile === "boolean") return m.isMobile ? "모바일" : "PC";
-  const ua = String(m?.ua ?? m?.userAgent ?? "");
+  // 2) meta / cart_snapshot.meta
+  const meta = row.meta || (row as any)?.cart_snapshot?.meta || {};
+  if (typeof meta?.isMobile === "boolean") return meta.isMobile ? "모바일" : "PC";
+  const ua = String(meta?.ua ?? meta?.userAgent ?? "");
   if (ua) return /Mobile/i.test(ua) ? "모바일" : "PC";
+
+  // 3) source_page / extra 기반 추론
+  const sp = (row.source_page ?? "").toString().toLowerCase();
+  if (sp.includes("/mobile")) return "모바일";
+  if (sp.includes("/map") || sp.includes("/admin") || sp.includes("/desktop")) return "PC";
+
+  const step = (row.extra?.step_ui ?? "").toString().toLowerCase();
+  if (step.startsWith("mobile")) return "모바일";
+
+  // 4) 알 수 없음
   return "—";
 }
 function fmtWon(n: number | null | undefined): string {
