@@ -16,7 +16,7 @@ const PIN_YELLOW_URL = "/makers/pin-yellow@2x.png"; // 담김(선택)
 const PIN_CLICKED_URL = "/makers/pin-purple@3x.png"; // 클릭 강조(선택 아님일 때만)
 
 const PIN_SIZE = 51;
-the const PIN_OFFSET = { x: PIN_SIZE / 2, y: PIN_SIZE };
+const PIN_OFFSET = { x: PIN_SIZE / 2, y: PIN_SIZE };
 
 const SEARCH_PIN_URL = "/pin.png";
 const SEARCH_PIN_SIZE = 51;
@@ -301,8 +301,8 @@ export default function MapPage() {
         lineHeight: `${sz}px`,
         textAlign: "center",
         borderRadius: "999px",
-        background: "rgba(108, 45, 255, 0.18)`,
-        border: "1px solid rgba(108, 45, 255, 0.35)`,
+        background: "rgba(108, 45, 255, 0.18)",
+        border: "1px solid rgba(108, 45, 255, 0.35)",
         color: "#6C2DFF",
         fontWeight: "700",
         fontSize: "13px",
