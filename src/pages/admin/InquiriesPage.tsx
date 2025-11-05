@@ -1,5 +1,7 @@
+// src/pages/admin/InquiriesPage.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { z } from "zod";
 
 /**
  * InquiriesPage (관리자 전용)
@@ -102,6 +104,24 @@ function addSeen(id: string) {
 }
 
 /* =========================
+ *  Validation (Zod)
+ * ========================= */
+const InquiryStatusSchema = z.enum(["new", "in_progress", "done", "canceled"]);
+const MAX_ASSIGNEE_LEN = 80;
+const AssigneeSchema = z
+  .string()
+  .transform((s) => sanitizeAssignee(s))
+  .refine((s) => s.length <= MAX_ASSIGNEE_LEN, `담당자는 ${MAX_ASSIGNEE_LEN}자 이하여야 합니다.`);
+
+/** 제어문자 제거 + 공백 정리 */
+function sanitizeAssignee(input: string): string {
+  return String(input ?? "")
+    .replace(/[\u0000-\u001F\u007F]/g, "") // control chars
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/* =========================
  *  Page
  * ========================= */
 const InquiriesPage: React.FC = () => {
@@ -132,23 +152,41 @@ const InquiriesPage: React.FC = () => {
     return { fromIdx, toIdx: fromIdx + pageSize - 1 };
   }, [page, pageSize]);
 
-  // ----- 세션/role 확인 (여기서도 한 번 더 가드) -----
+  // ----- 세션/role 확인 (DB RPC 기반 가드) -----
   useEffect(() => {
     let mounted = true;
+
     const run = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      const role = (session?.user as any)?.app_metadata?.role;
-      if (mounted) {
-        setIsAdmin(role === "admin");
-        setSessionReady(true);
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (!session) {
+          if (mounted) {
+            setIsAdmin(false);
+            setSessionReady(true);
+          }
+          return;
+        }
+
+        const { data: ok, error } = await supabase.rpc("is_admin");
+        if (mounted) {
+          setIsAdmin(ok === true && !error);
+          setSessionReady(true);
+        }
+      } catch {
+        if (mounted) {
+          setIsAdmin(false);
+          setSessionReady(true);
+        }
       }
     };
-    run();
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
-      const role = (session?.user as any)?.app_metadata?.role;
-      setIsAdmin(role === "admin");
-      setSessionReady(true);
+    void run();
+
+    const { data: sub } = supabase.auth.onAuthStateChange(() => {
+      void run();
     });
 
     return () => sub?.subscription?.unsubscribe?.();
@@ -165,18 +203,13 @@ const InquiriesPage: React.FC = () => {
       try {
         const sb: any = supabase;
 
-        let q = sb
-          .from(TBL.main)
-          .select("*", { count: "exact" })
-          .order(COL.createdAt, { ascending: false });
+        let q = sb.from(TBL.main).select("*", { count: "exact" }).order(COL.createdAt, { ascending: false });
 
         if (status !== "all") q = q.eq(COL.status, status);
         if (sourceType !== "all") q = q.eq(COL.inquiryKind, sourceType);
         if (query.trim()) {
           const k = query.trim();
-          q = q.or(
-            `${COL.company}.ilike.%${k}%,${COL.campaignType}.ilike.%${k}%,${COL.customerName}.ilike.%${k}%`
-          );
+          q = q.or(`${COL.company}.ilike.%${k}%,${COL.campaignType}.ilike.%${k}%,${COL.customerName}.ilike.%${k}%`);
         }
 
         const { data, error, count } = await q.range(fromIdx, toIdx);
@@ -222,9 +255,7 @@ const InquiriesPage: React.FC = () => {
   if (!sessionReady) {
     return (
       <div className="p-6">
-        <div className="rounded-md border bg-white p-4 text-sm text-gray-500">
-          관리자 세션 확인 중…
-        </div>
+        <div className="rounded-md border bg-white p-4 text-sm text-gray-500">관리자 세션 확인 중…</div>
       </div>
     );
   }
@@ -248,26 +279,39 @@ const InquiriesPage: React.FC = () => {
         <input
           placeholder="브랜드/캠페인/담당자(광고주) 검색"
           value={query}
-          onChange={(e) => { setPage(1); setQuery(e.target.value); }}
+          onChange={(e) => {
+            setPage(1);
+            setQuery(e.target.value);
+          }}
           className="h-9 w-64 px-3 rounded-md border text-sm"
         />
         <select
           value={status}
-          onChange={(e) => { setPage(1); setStatus(e.target.value as any); }}
+          onChange={(e) => {
+            setPage(1);
+            setStatus(e.target.value as any);
+          }}
           className="h-9 px-2 rounded-md border text-sm"
         >
           <option value="all">전체 상태</option>
           {STATUS_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
           ))}
         </select>
         <select
           value={sourceType}
-          onChange={(e) => { setPage(1); setSourceType(e.target.value as any); }}
+          onChange={(e) => {
+            setPage(1);
+            setSourceType(e.target.value as any);
+          }}
           className="h-9 px-2 rounded-md border text-sm"
         >
           {SOURCE_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
           ))}
         </select>
 
@@ -275,27 +319,26 @@ const InquiriesPage: React.FC = () => {
           <label className="text-sm text-gray-500">페이지당</label>
           <select
             value={pageSize}
-            onChange={(e) => { setPage(1); setPageSize(Number(e.target.value) as any); }}
+            onChange={(e) => {
+              setPage(1);
+              setPageSize(Number(e.target.value) as any);
+            }}
             className="h-9 px-2 rounded-md border text-sm"
           >
-            {PAGE_SIZE_OPTIONS.map((n) => <option key={n} value={n}>{n}</option>)}
+            {PAGE_SIZE_OPTIONS.map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
           </select>
-          <button
-            onClick={() => setPage(1)}
-            className="h-9 px-3 rounded-md border text-sm"
-            disabled={loading}
-          >
+          <button onClick={() => setPage(1)} className="h-9 px-3 rounded-md border text-sm" disabled={loading}>
             {loading ? "불러오는 중…" : "새로고침"}
           </button>
         </div>
       </div>
 
       {/* 오류 */}
-      {err && (
-        <div className="rounded-md border border-red-300 bg-red-50 p-3 text-red-700 text-sm">
-          {err}
-        </div>
-      )}
+      {err && <div className="rounded-md border border-red-300 bg-red-50 p-3 text-red-700 text-sm">{err}</div>}
 
       {/* 테이블 */}
       <section className="rounded-2xl bg-white border border-gray-100 shadow-sm overflow-hidden">
@@ -316,7 +359,9 @@ const InquiriesPage: React.FC = () => {
               {rows.map((r) => (
                 <tr key={r.id} className="border-t border-gray-100 hover:bg-gray-50">
                   <Td>{formatDateTime(r.created_at)}</Td>
-                  <Td className="text-center"><SourceBadge value={r.inquiry_kind} /></Td>
+                  <Td className="text-center">
+                    <SourceBadge value={r.inquiry_kind} />
+                  </Td>
 
                   {/* 브랜드명 + NEW 배지 */}
                   <Td>
@@ -339,29 +384,41 @@ const InquiriesPage: React.FC = () => {
 
                   <Td>{r.campaign_type || "—"}</Td>
 
-                  {/* 진행상황 인라인 수정 */}
+                  {/* 진행상황 인라인 수정 (✅ Zod로 허용값 검증) */}
                   <Td>
                     <select
                       value={r.status ?? "new"}
                       onChange={async (e) => {
-                        const next = e.target.value as InquiryStatus;
+                        const raw = e.target.value;
+                        const parsed = InquiryStatusSchema.safeParse(raw);
+                        if (!parsed.success) {
+                          // 잘못된 값이면 UI를 원래 값으로 되돌리고 메시지
+                          e.currentTarget.value = r.status ?? "new";
+                          setErr("허용되지 않는 진행상황입니다.");
+                          return;
+                        }
+                        const next = parsed.data;
+
                         const { error } = await (supabase as any)
                           .from(TBL.main)
                           .update({ [COL.status]: next })
                           .eq(COL.id, r.id);
-                        if (!error) {
-                          setRows((prev) => prev.map((row) =>
-                            row.id === r.id ? { ...row, status: next } : row
-                          ));
+
+                        if (error) {
+                          setErr(error.message ?? "진행상황 변경에 실패했습니다.");
+                          // 서버 거부 시 되돌림
+                          e.currentTarget.value = r.status ?? "new";
+                          return;
                         }
+
+                        setRows((prev) => prev.map((row) => (row.id === r.id ? { ...row, status: next } : row)));
                       }}
-                      className={
-                        "border rounded-full px-2 py-1 text-sm " +
-                        pillClassForStatus(r.status ?? "new")
-                      }
+                      className={"border rounded-full px-2 py-1 text-sm " + pillClassForStatus(r.status ?? "new")}
                     >
                       {STATUS_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
                       ))}
                     </select>
                   </Td>
@@ -372,54 +429,73 @@ const InquiriesPage: React.FC = () => {
                       value={validToTri(r.valid)}
                       onChange={async (e) => {
                         const v = e.target.value as ValidTri;
-                        const payload =
-                          v === "-" ? { [COL.valid]: null } :
-                          v === "valid" ? { [COL.valid]: true } :
-                          { [COL.valid]: false };
-                        const { error } = await (supabase as any)
-                          .from(TBL.main)
-                          .update(payload)
-                          .eq(COL.id, r.id);
-                        if (!error) {
-                          setRows((prev) =>
-                            prev.map((row) =>
-                              row.id === r.id
-                                ? { ...row, valid: v === "-" ? null : v === "valid" }
-                                : row
-                            )
-                          );
+                        if (!["-", "valid", "invalid"].includes(v)) {
+                          setErr("허용되지 않는 유효성 값입니다.");
+                          e.currentTarget.value = validToTri(r.valid);
+                          return;
                         }
+                        const payload =
+                          v === "-"
+                            ? { [COL.valid]: null }
+                            : v === "valid"
+                              ? { [COL.valid]: true }
+                              : { [COL.valid]: false };
+
+                        const { error } = await (supabase as any).from(TBL.main).update(payload).eq(COL.id, r.id);
+
+                        if (error) {
+                          setErr(error.message ?? "유효성 변경에 실패했습니다.");
+                          e.currentTarget.value = validToTri(r.valid);
+                          return;
+                        }
+
+                        setRows((prev) =>
+                          prev.map((row) =>
+                            row.id === r.id ? { ...row, valid: v === "-" ? null : v === "valid" } : row,
+                          ),
+                        );
                       }}
-                      className={
-                        "border rounded-full px-2 py-1 text-sm " +
-                        pillClassForValid(validToTri(r.valid))
-                      }
+                      className={"border rounded-full px-2 py-1 text-sm " + pillClassForValid(validToTri(r.valid))}
                     >
                       {VALIDITY_OPTIONS.map((opt) => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
                       ))}
                     </select>
                   </Td>
 
-                  {/* 담당자 인라인 수정 */}
+                  {/* 담당자 인라인 수정 (✅ Zod + sanitize + 길이 제한) */}
                   <Td>
                     <input
                       type="text"
                       defaultValue={r.assignee || ""}
                       onBlur={async (e) => {
-                        const val = e.target.value;
+                        const raw = e.target.value ?? "";
+                        const result = AssigneeSchema.safeParse(raw);
+                        if (!result.success) {
+                          setErr(result.error.issues?.[0]?.message ?? "담당자 입력값이 올바르지 않습니다.");
+                          // UI 되돌림
+                          e.currentTarget.value = r.assignee || "";
+                          return;
+                        }
+                        const clean = result.data;
+                        const nextVal = clean === "" ? null : clean;
+
                         const { error } = await (supabase as any)
                           .from(TBL.main)
-                          .update({ [COL.assignee]: val || null })
+                          .update({ [COL.assignee]: nextVal })
                           .eq(COL.id, r.id);
-                        if (!error) {
-                          setRows((prev) =>
-                            prev.map((row) =>
-                              row.id === r.id ? { ...row, assignee: val || null } : row
-                            )
-                          );
+
+                        if (error) {
+                          setErr(error.message ?? "담당자 업데이트에 실패했습니다.");
+                          e.currentTarget.value = r.assignee || "";
+                          return;
                         }
+
+                        setRows((prev) => prev.map((row) => (row.id === r.id ? { ...row, assignee: nextVal } : row)));
                       }}
+                      placeholder="담당자 입력(최대 80자)"
                       className="border rounded px-2 py-1 text-sm w-full"
                     />
                   </Td>
@@ -484,7 +560,9 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
         if (!ignore) setAptLoading(false);
       }
     })();
-    return () => { ignore = true; };
+    return () => {
+      ignore = true;
+    };
   }, [row.id]);
 
   // cart_snapshot 폴백
@@ -515,7 +593,7 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
         const found = snapshotSets.find(
           (s) =>
             (s.apt_name || "").trim() === (ap.apt_name || "").trim() &&
-            (s.product_name || "").trim() === (ap.product_name || "").trim()
+            (s.product_name || "").trim() === (ap.product_name || "").trim(),
         );
         return {
           apt_name: ap.apt_name || "",
@@ -540,10 +618,9 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
       ["요청사항", row.memo ?? ""],
     ];
 
-    const metaLines = [
-      ["항목", "값"].join(","),
-      ...metaPairs.map(([k, v]) => [safeCSV(k), safeCSV(v)].join(",")),
-    ].join("\n");
+    const metaLines = [["항목", "값"].join(","), ...metaPairs.map(([k, v]) => [safeCSV(k), safeCSV(v)].join(","))].join(
+      "\n",
+    );
 
     const itemsHeader = ["단지명", "광고기간(개월)", "상품명"].join(",");
     const itemsLines = listToRender
@@ -655,9 +732,7 @@ const Td: React.FC<React.PropsWithChildren<{ className?: string }>> = ({ classNa
 const SourceBadge: React.FC<{ value?: InquiryKind | null }> = ({ value }) => {
   if (!value)
     return (
-      <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-600">
-        —
-      </span>
+      <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-gray-100 text-gray-600">—</span>
     );
   return (
     <span
@@ -699,17 +774,25 @@ function validToTri(v: boolean | null | undefined): ValidTri {
 
 function pillClassForStatus(v: InquiryStatus): string {
   switch (v) {
-    case "new": return "bg-violet-50 text-violet-700";
-    case "in_progress": return "bg-blue-50 text-blue-700";
-    case "done": return "bg-emerald-50 text-emerald-700";
-    case "canceled": return "bg-gray-200 text-gray-700";
-    default: return "bg-gray-100 text-gray-600";
+    case "new":
+      return "bg-violet-50 text-violet-700";
+    case "in_progress":
+      return "bg-blue-50 text-blue-700";
+    case "done":
+      return "bg-emerald-50 text-emerald-700";
+    case "canceled":
+      return "bg-gray-200 text-gray-700";
+    default:
+      return "bg-gray-100 text-gray-600";
   }
 }
 function pillClassForValid(v: ValidTri): string {
   switch (v) {
-    case "valid": return "bg-emerald-50 text-emerald-700";
-    case "invalid": return "bg-rose-50 text-rose-700";
-    default: return "bg-gray-100 text-gray-600";
+    case "valid":
+      return "bg-emerald-50 text-emerald-700";
+    case "invalid":
+      return "bg-rose-50 text-rose-700";
+    default:
+      return "bg-gray-100 text-gray-600";
   }
 }
