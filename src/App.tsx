@@ -1,5 +1,5 @@
 // src/App.tsx
-import { BrowserRouter, HashRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { Suspense, lazy, PropsWithChildren } from "react";
 import NavBar from "@/components/layout/NavBar";
 import MobileRedirectGuard from "@/components/routing/MobileRedirectGuard";
@@ -13,14 +13,10 @@ const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
 const DashboardPage = lazy(() => import("./pages/admin/DashboardPage"));
 const MapMobilePageV2 = lazy(() => import("./pages/mobile")); // -> src/pages/mobile/index.tsx
 
-// ✅ 프로덕션 관리자 노출 플래그
+// ✅ 프로덕션에서 관리자 라우트 노출 제어 (환경변수 플래그)
+// .env.production: VITE_FEATURE_ADMIN=false  → /admin 접근 시 홈으로 리다이렉트
+// .env.local(or development): VITE_FEATURE_ADMIN=true → /admin 라우트 표시
 const ENABLE_ADMIN = String(import.meta.env.VITE_FEATURE_ADMIN ?? "false") === "true";
-
-// ✅ HashRouter 토글 (러버블/프리뷰에서 404 방지)
-//  - .env (개발/프리뷰): VITE_USE_HASH_ROUTER=true  → URL이 /#/... 형태
-//  - .env.production(리라이트 설정된 서버면): false로 두고 BrowserRouter 사용
-const USE_HASH = String(import.meta.env.VITE_USE_HASH_ROUTER ?? "true") === "true";
-const Router = USE_HASH ? HashRouter : BrowserRouter;
 
 function AppLayout({ children }: PropsWithChildren) {
   const { pathname } = useLocation();
@@ -37,7 +33,7 @@ function AppLayout({ children }: PropsWithChildren) {
 
 export default function App() {
   return (
-    <Router>
+    <BrowserRouter>
       <Suspense fallback={<div className="p-6">WELCOME !</div>}>
         <AppLayout>
           <Routes>
@@ -47,7 +43,7 @@ export default function App() {
             {/* 데스크톱 맵 */}
             <Route path="/map" element={<MapPage />} />
 
-            {/* 모바일 전용 페이지 */}
+            {/* 모바일 전용 페이지 (src/pages/mobile/index.tsx) */}
             <Route path="/mobile" element={<MapMobilePageV2 />} />
             <Route path="/m2" element={<Navigate to="/mobile" replace />} />
             <Route path="/m" element={<Navigate to="/mobile" replace />} />
@@ -60,6 +56,7 @@ export default function App() {
                 <Route path="inquiries" element={<InquiriesPage />} />
               </Route>
             ) : (
+              // 플래그 OFF일 때 우회 접근도 홈으로 정리
               <Route path="/admin/*" element={<Navigate to="/" replace />} />
             )}
 
@@ -71,6 +68,6 @@ export default function App() {
           </Routes>
         </AppLayout>
       </Suspense>
-    </Router>
+    </BrowserRouter>
   );
 }
