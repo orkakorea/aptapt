@@ -1,3 +1,4 @@
+// src/App.tsx
 import { BrowserRouter, HashRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { Suspense, lazy, PropsWithChildren } from "react";
 import NavBar from "@/components/layout/NavBar";
@@ -11,6 +12,7 @@ const SupaDebugPage = lazy(() => import("./pages/SupaDebug"));
 const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
 const DashboardPage = lazy(() => import("./pages/admin/DashboardPage"));
 const MapMobilePageV2 = lazy(() => import("./pages/mobile")); // -> src/pages/mobile/index.tsx
+const AdminGeocode = lazy(() => import("./pages/AdminGeocode")); // ✅ NEW: /admin/geocode 페이지
 
 // =============================
 // Router mode switches by .env
@@ -60,6 +62,7 @@ function AppRoutes() {
               <Route index element={<Navigate to="dashboard" replace />} />
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="inquiries" element={<InquiriesPage />} />
+              <Route path="geocode" element={<AdminGeocode />} /> {/* ✅ NEW: 지오코딩 라우트 */}
             </Route>
           ) : (
             // 플래그 OFF일 때 우회 접근도 홈으로 정리
