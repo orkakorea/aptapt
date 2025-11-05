@@ -1,188 +1,206 @@
 // src/lib/quickAdd.ts
 /**
- * Kakao MarkerImage factory for “빠른 아파트 담기”.
+ * Kakao MarkerImage 팩토리 (Quick Add 전용)
+ * - +/- 아이콘을 핀 머리 "정중앙"에 맞춰 그림
+ * - devicePixelRatio 스케일 반영
+ * - 캐싱으로 불필요한 재생성 최소화
  *
- * - 기본 핀(purple/selected-yellow/clicked)을 그대로 쓰되,
- *   퀵모드가 ON일 때는 핀 위에 + / − 뱃지를 합성한 MarkerImage를 반환합니다.
- * - 합성 이미지는 offscreen canvas로 만들어 dataURL → MarkerImage로 캐싱합니다.
- * - 베이스 핀 이미지가 아직 로드되지 않았을 경우에는 합성 없이 기본 핀 이미지를 우선 반환합니다.
- *
- * 사용 예:
+ * 사용법:
  *   const factory = getQuickImageFactory(kakao.maps, { size: 51, offset: {x: 25.5, y: 51} });
- *   const img = factory.get({ quickOn: true, inCart: false }); // 보라핀 + 플러스
+ *   const img = factory.get({ quickOn: true, selected: false, inCart: false, clicked: false });
+ *   new kakao.maps.Marker({ image: img, ... });
  */
 
-type Opts = {
-  size?: number;
-  offset?: { x: number; y: number };
-  /** 필요 시 커스텀 가능 (기본값은 앱에서 쓰는 경로) */
-  purpleUrl?: string;
-  yellowUrl?: string;
-  clickedUrl?: string;
+type KakaoMapsNS = {
+  Size: new (w: number, h: number) => any;
+  Point: new (x: number, y: number) => any;
+  MarkerImage: new (src: string, size: any, opts?: { offset?: any }) => any;
 };
 
-type GetArgs = {
+type GetOpts = {
   quickOn: boolean;
-  selected?: boolean; // (동일 의미) inCart와 둘 중 하나만 써도 됨
-  inCart?: boolean;
-  clicked?: boolean;
+  selected: boolean; // = inCart
+  inCart: boolean;
+  clicked: boolean;
 };
 
-export type QuickImageFactory = {
-  /** 상태에 맞는 kakao.maps.MarkerImage 반환 */
-  get: (args: GetArgs) => any; // kakao.maps.MarkerImage
+type FactoryOptions = {
+  /** 전체 마커 크기(px). 기본 51 */
+  size?: number;
+  /** MarkerImage offset. 보통 {x: size/2, y: size} */
+  offset?: { x: number; y: number };
+  /** 비-퀵모드일 때 사용하는 기본 이미지 URL들(선택) */
+  baseUrls?: {
+    purple?: string; // 기본
+    yellow?: string; // 선택(담김)
+    clicked?: string; // 클릭 강조
+  };
 };
 
-const DEFAULT_PURPLE = "/makers/pin-purple@2x.png";
-const DEFAULT_YELLOW = "/makers/pin-yellow@2x.png";
-const DEFAULT_CLICKED = "/makers/pin-purple@3x.png";
+/* 기본 에셋(프로젝트 public/ 경로 기준). 필요 시 옵션으로 덮어쓸 수 있음 */
+const DEFAULT_BASE = {
+  purple: "/makers/pin-purple@2x.png",
+  yellow: "/makers/pin-yellow@2x.png",
+  clicked: "/makers/pin-purple@3x.png",
+};
 
-/** offscreen canvas에 둥근 배지와 아이콘(+ 또는 -)을 그림 */
-function drawBadgeOn(
-  ctx: CanvasRenderingContext2D,
-  pinSize: number,
-  symbol: "plus" | "minus",
-  theme: { stroke: string; fill: string; icon: string },
-) {
-  // 배지 위치/크기(감각적으로 보기 좋은 위치)
-  const r = Math.max(10, Math.floor(pinSize * 0.18));
-  const cx = pinSize / 2;
-  const cy = pinSize * 0.6;
+/* 디자인 토큰 */
+const COLOR_PURPLE = "#6F4BF2";
+const COLOR_WHITE = "#FFFFFF";
 
-  // 배지 배경 (white) + 외곽선
-  ctx.save();
+/* 중앙 정렬 핵심 파라미터
+   - CX: 가로 중앙
+   - CY: 핀 머리 원의 시각적 중심. size * 0.38~0.40 권장
+   - R : 흰 원 반지름 (아이콘 배경)
+*/
+const CY_RATIO = 0.39;
+const R_RATIO = 0.2;
+
+/**
+ * 캔버스에 보라색 핀 모양을 벡터로 그리고, 중앙에 흰 원 + +/- 아이콘을 그린 후 dataURL 반환
+ * - DPR 스케일 반영
+ */
+function drawQuickCanvas(size: number, mode: "plus" | "minus"): string {
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(size * dpr);
+  canvas.height = Math.round(size * dpr);
+
+  const ctx = canvas.getContext("2d")!;
+  // CSS 좌표계에서 그리도록 스케일
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, size, size);
+
+  // ---- 핀 기본 형태(보라) ----
+  // 머리 원
+  const CX = size / 2;
+  const CY = Math.round(size * CY_RATIO);
+  const HEAD_R = Math.round(size * 0.33);
+
+  ctx.fillStyle = COLOR_PURPLE;
   ctx.beginPath();
-  ctx.arc(cx, cy, r, 0, Math.PI * 2);
-  ctx.fillStyle = theme.fill;
+  ctx.arc(CX, CY, HEAD_R, 0, Math.PI * 2);
   ctx.fill();
-  ctx.lineWidth = Math.max(2, Math.floor(pinSize * 0.035));
-  ctx.strokeStyle = theme.stroke;
-  ctx.stroke();
-  ctx.closePath();
 
-  // 아이콘 (+ or −)
-  ctx.strokeStyle = theme.icon;
-  ctx.lineCap = "round";
-  ctx.lineWidth = Math.max(2, Math.floor(pinSize * 0.08));
-  // horizontal
+  // 하단 꼬리(드롭 핀)
+  // 머리 원 하단에서 뾰족한 삼각형 모양으로 연결
+  const tailTopY = CY + HEAD_R * 0.6;
+  const tailHeight = Math.max(8, Math.round(size * 0.22));
+  const tailWidth = Math.max(10, Math.round(size * 0.18));
+
   ctx.beginPath();
-  ctx.moveTo(cx - r * 0.55, cy);
-  ctx.lineTo(cx + r * 0.55, cy);
+  ctx.moveTo(CX - tailWidth / 2, tailTopY);
+  ctx.lineTo(CX + tailWidth / 2, tailTopY);
+  ctx.lineTo(CX, tailTopY + tailHeight);
+  ctx.closePath();
+  ctx.fillStyle = COLOR_PURPLE;
+  ctx.fill();
+
+  // ---- 중앙 흰 원(배경) ----
+  const R = Math.round(size * R_RATIO);
+  ctx.beginPath();
+  ctx.arc(CX, CY, R, 0, Math.PI * 2);
+  ctx.fillStyle = COLOR_WHITE;
+  ctx.fill();
+
+  // ---- +/- 아이콘 ----
+  ctx.strokeStyle = COLOR_PURPLE;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  // DPR 반영 후 두께가 무겁지 않도록 size 기준으로 산정
+  const bar = Math.max(2, Math.round(size * 0.06)); // 선 두께
+  ctx.lineWidth = bar;
+
+  const half = Math.round(R * 0.65); // 선 길이의 절반
+  // 수평선(마이너스 공통)
+  ctx.beginPath();
+  ctx.moveTo(CX - half, CY);
+  ctx.lineTo(CX + half, CY);
   ctx.stroke();
-  // vertical(plus 전용)
-  if (symbol === "plus") {
+
+  if (mode === "plus") {
+    // 수직선(플러스일 때만)
     ctx.beginPath();
-    ctx.moveTo(cx, cy - r * 0.55);
-    ctx.lineTo(cx, cy + r * 0.55);
+    ctx.moveTo(CX, CY - half);
+    ctx.lineTo(CX, CY + half);
     ctx.stroke();
   }
-  ctx.restore();
+
+  return canvas.toDataURL("image/png");
 }
 
-/** 이미지 로드 (실패해도 resolve) */
-function loadImage(src: string): Promise<HTMLImageElement | null> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    // 같은 도메인 정적자산이면 crossOrigin 불필요하나, CDN 가능성을 대비
-    img.crossOrigin = "anonymous";
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(null);
-    img.src = src;
+/** 비-퀵모드용 기본 MarkerImage 생성기 */
+function makeBaseImage(maps: KakaoMapsNS, url: string, size: number, offset: { x: number; y: number }) {
+  return new maps.MarkerImage(url, new maps.Size(size, size), {
+    offset: new maps.Point(offset.x, offset.y),
   });
 }
 
-/** dataURL → kakao MarkerImage */
-function markerFromDataURL(maps: any, dataUrl: string, size: number, offset: { x: number; y: number }) {
-  const { MarkerImage, Size, Point } = maps;
-  return new MarkerImage(dataUrl, new Size(size, size), { offset: new Point(offset.x, offset.y) });
-}
-
-/** URL → kakao MarkerImage (합성 없이 기본 이미지) */
-function markerFromURL(maps: any, url: string, size: number, offset: { x: number; y: number }) {
-  const { MarkerImage, Size, Point } = maps;
-  return new MarkerImage(url, new Size(size, size), { offset: new Point(offset.x, offset.y) });
-}
-
-export default function getQuickImageFactory(maps: any, opts: Opts = {}): QuickImageFactory {
-  const size = opts.size ?? 51;
-  const offset = opts.offset ?? { x: size / 2, y: size };
-  const purpleUrl = opts.purpleUrl ?? DEFAULT_PURPLE;
-  const yellowUrl = opts.yellowUrl ?? DEFAULT_YELLOW;
-  const clickedUrl = opts.clickedUrl ?? DEFAULT_CLICKED;
-
-  // 기본(합성 없음) 이미지
+/**
+ * 팩토리 본체
+ */
+export default function getQuickImageFactory(maps: KakaoMapsNS, opts?: FactoryOptions) {
+  const size = opts?.size ?? 51;
+  const offset = opts?.offset ?? { x: size / 2, y: size };
   const base = {
-    purple: markerFromURL(maps, purpleUrl, size, offset),
-    yellow: markerFromURL(maps, yellowUrl, size, offset),
-    clicked: markerFromURL(maps, clickedUrl, size, offset),
+    purple: opts?.baseUrls?.purple ?? DEFAULT_BASE.purple,
+    yellow: opts?.baseUrls?.yellow ?? DEFAULT_BASE.yellow,
+    clicked: opts?.baseUrls?.clicked ?? DEFAULT_BASE.clicked,
   };
 
-  // 합성 결과 캐시
-  const cache: {
-    purplePlus?: any; // kakao.maps.MarkerImage
-    yellowMinus?: any;
-  } = {};
+  // 캐시
+  const cache = new Map<string, any>();
 
-  // 사전 로드 & 합성 kick-off (비동기, 실패해도 기본 핀 사용)
-  (async () => {
-    const [pImg, yImg] = await Promise.all([loadImage(purpleUrl), loadImage(yellowUrl)]);
-    const DPR = Math.max(1, Math.floor(window.devicePixelRatio || 1));
+  // 비-퀵모드 기본 이미지 3종(지연 생성)
+  function basePurple() {
+    const k = "base:purple";
+    if (!cache.has(k)) cache.set(k, makeBaseImage(maps, base.purple, size, offset));
+    return cache.get(k);
+  }
+  function baseYellow() {
+    const k = "base:yellow";
+    if (!cache.has(k)) cache.set(k, makeBaseImage(maps, base.yellow, size, offset));
+    return cache.get(k);
+  }
+  function baseClicked() {
+    const k = "base:clicked";
+    if (!cache.has(k)) cache.set(k, makeBaseImage(maps, base.clicked, size, offset));
+    return cache.get(k);
+  }
 
-    if (pImg) {
-      const cvs = document.createElement("canvas");
-      cvs.width = size * DPR;
-      cvs.height = size * DPR;
-      const ctx = cvs.getContext("2d");
-      if (ctx) {
-        ctx.scale(DPR, DPR);
-        ctx.drawImage(pImg, 0, 0, size, size);
-        drawBadgeOn(
-          ctx,
-          size,
-          "plus",
-          { stroke: "#6F4BF2", fill: "#ffffff", icon: "#6F4BF2" }, // 보라 테마(+)
-        );
-        cache.purplePlus = markerFromDataURL(maps, cvs.toDataURL("image/png"), size, offset);
-      }
+  // 퀵모드 이미지 2종(플러스/마이너스) 캐시
+  function quickPlus() {
+    const k = "quick:plus";
+    if (!cache.has(k)) {
+      const dataUrl = drawQuickCanvas(size, "plus");
+      cache.set(k, makeBaseImage(maps, dataUrl, size, offset));
     }
-
-    if (yImg) {
-      const cvs = document.createElement("canvas");
-      cvs.width = size * DPR;
-      cvs.height = size * DPR;
-      const ctx = cvs.getContext("2d");
-      if (ctx) {
-        ctx.scale(DPR, DPR);
-        ctx.drawImage(yImg, 0, 0, size, size);
-        drawBadgeOn(
-          ctx,
-          size,
-          "minus",
-          { stroke: "#222222", fill: "#ffffff", icon: "#222222" }, // 노란핀 위 검정 −
-        );
-        cache.yellowMinus = markerFromDataURL(maps, cvs.toDataURL("image/png"), size, offset);
-      }
+    return cache.get(k);
+  }
+  function quickMinus() {
+    const k = "quick:minus";
+    if (!cache.has(k)) {
+      const dataUrl = drawQuickCanvas(size, "minus");
+      cache.set(k, makeBaseImage(maps, dataUrl, size, offset));
     }
-  })();
+    return cache.get(k);
+  }
 
   return {
-    get({ quickOn, selected, inCart, clicked }) {
-      const selectedNow = Boolean(inCart ?? selected);
-
-      // 퀵 모드가 아닐 때는 기존 로직을 그대로 따름
-      if (!quickOn) {
-        if (selectedNow) return base.yellow;
-        if (clicked) return base.clicked;
-        return base.purple;
+    /**
+     * 상태에 맞는 MarkerImage 반환
+     * - quickOn=true 이면 플러스/마이너스 오버레이 버전(벡터) 사용
+     * - quickOn=false 이면 기본 에셋(purple/yellow/clicked)
+     */
+    get(o: GetOpts) {
+      if (o.quickOn) {
+        // 선택(=담김) 상태면 마이너스, 아니면 플러스
+        return o.selected ? quickMinus() : quickPlus();
       }
-
-      // 퀵 모드 ON → + / − 배지 사용 (합성 준비 전엔 기본 핀으로 폴백)
-      if (selectedNow) return cache.yellowMinus ?? base.yellow;
-      return cache.purplePlus ?? base.purple;
+      // 일반 모드
+      if (o.selected || o.inCart) return baseYellow();
+      if (o.clicked) return baseClicked();
+      return basePurple();
     },
   };
 }
-
-// (선택) 네임드 익스포트도 제공 — import { getQuickImageFactory } 사용을 원할 때
-export { getQuickImageFactory };
-// Empty file - placeholder for quick add functionality
