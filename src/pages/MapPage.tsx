@@ -897,7 +897,7 @@ export default function MapPage() {
     btn.style.height = "22px";
     btn.style.borderRadius = "999px";
     btn.style.background = "#FFFFFF";
-    btn.style.border = "2px solid "#FFD400";
+    btn.style.border = "2px solid #FFD400";
     btn.style.boxShadow = "0 2px 6px rgba(0,0,0,0.15)";
     btn.style.display = "flex";
     btn.style.alignItems = "center";
