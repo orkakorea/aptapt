@@ -591,9 +591,7 @@ export default function CompleteModalMobile({ open, onClose, data, confirmLabel 
                   >
                     이미지로 문의 내용 저장하기
                   </button>
-                  <p className="mt-1 text-xs text-red-500">
-                    저장 시 이 화면 전체가 이미지로 저장됩니다. 문의 내역이 길어도 모두 포함돼요.
-                  </p>
+                  <p className="mt-1 text-xs text-red-500">정확한 상담을 위해 문의 내용을 반드시 저장 해두세요</p>
 
                   <div className="rounded-xl border border-gray-100 p-4">
                     <div className="text-sm font-semibold">더 많은 정보</div>
