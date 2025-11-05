@@ -1,3 +1,4 @@
+// src/components/LoginModal.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -5,20 +6,14 @@ import { supabase } from "@/integrations/supabase/client";
 
 /**
  * LoginModal
- * - 화면 우상단 등에 "로그인" 버튼이 생기고, 클릭 시 중앙 모달 오픈
- * - 이메일/패스워드로 Supabase 로그인
- * - 성공 시:
- *   1) app_metadata.role === 'admin' -> /admin 으로 이동
- *   2) app_metadata.plan === 'pro' (또는 user_metadata.plan === 'pro') -> 유료회원 플래그 저장 및 토스트
- *   3) 그 외 -> 일반 로그인
- *
- * 사용법:
- *   <LoginModal />
- * 를 레이아웃/헤더에 넣어두면 /, /map 어디서든 동일하게 노출됨.
+ * - 이메일/패스워드 로그인 모달
+ * - ✅ 관리자 분기: JWT 메타데이터(role) 사용 금지, DB RPC(is_admin) 결과만 사용
+ * - 유료 플랜(plan)은 메타데이터 참고(표시/UX용), 권한 통제와 무관
  */
 
 type Plan = "free" | "pro";
 
+const ENABLE_ADMIN = String(import.meta.env.VITE_FEATURE_ADMIN ?? "false") === "true";
 const overlayRootId = "modal-root";
 
 function ensureOverlayRoot() {
@@ -41,16 +36,16 @@ const LoginModal: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // 현재 로그인 상태를 UI 상단에서 쉽게 표시하고 싶을 때 사용
+  // 헤더 표시용 상태
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [plan, setPlan] = useState<Plan>("free");
   const [isAdmin, setIsAdmin] = useState(false);
 
-  // 세션 변화를 감지해서 헤더 뱃지 갱신
+  // 세션 변화 감지 → 표시 정보/관리자 여부 동기화
   useEffect(() => {
     let mounted = true;
 
-    (async () => {
+    const syncFromSession = async () => {
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -61,36 +56,31 @@ const LoginModal: React.FC = () => {
         const user = session.user as any;
         const appMeta = (user?.app_metadata ?? {}) as Record<string, any>;
         const userMeta = (user?.user_metadata ?? {}) as Record<string, any>;
-        const is_adm = appMeta?.role === "admin";
-        const planVal =
-          (appMeta?.plan as Plan) || (userMeta?.plan as Plan) || "free";
-        setDisplayName(user.email ?? "로그인됨");
-        setPlan((planVal === "pro" ? "pro" : "free") as Plan);
-        setIsAdmin(!!is_adm);
-      } else {
-        setDisplayName(null);
-        setPlan("free");
-        setIsAdmin(false);
-      }
-    })();
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
-      if (!mounted) return;
-      if (session?.user) {
-        const user = session.user as any;
-        const appMeta = (user?.app_metadata ?? {}) as Record<string, any>;
-        const userMeta = (user?.user_metadata ?? {}) as Record<string, any>;
-        const is_adm = appMeta?.role === "admin";
-        const planVal =
-          (appMeta?.plan as Plan) || (userMeta?.plan as Plan) || "free";
+        const planVal = (appMeta?.plan as Plan) || (userMeta?.plan as Plan) || "free";
         setDisplayName(user.email ?? "로그인됨");
-        setPlan((planVal === "pro" ? "pro" : "free") as Plan);
-        setIsAdmin(!!is_adm);
+        setPlan(planVal === "pro" ? "pro" : "free");
+
+        // ✅ 관리자 여부는 DB 기준
+        try {
+          const { data: ok, error } = await (supabase as any).rpc("is_admin");
+          if (!mounted) return;
+          setIsAdmin(Boolean(ok) && !error);
+        } catch {
+          if (!mounted) return;
+          setIsAdmin(false);
+        }
       } else {
         setDisplayName(null);
         setPlan("free");
         setIsAdmin(false);
       }
+    };
+
+    void syncFromSession();
+
+    const { data: sub } = supabase.auth.onAuthStateChange(() => {
+      void syncFromSession();
     });
 
     return () => {
@@ -110,27 +100,30 @@ const LoginModal: React.FC = () => {
       });
       if (error) throw error;
 
+      // UX용 플랜 로컬 저장
       const user = data.user as any;
       const appMeta = (user?.app_metadata ?? {}) as Record<string, any>;
       const userMeta = (user?.user_metadata ?? {}) as Record<string, any>;
-      const role = appMeta?.role;
-      const planVal =
-        (appMeta?.plan as Plan) || (userMeta?.plan as Plan) || "free";
-
-      // 유료회원 상태를 프론트에서 기억 (간단히 localStorage + 커스텀 이벤트)
+      const planVal: Plan = ((appMeta?.plan as Plan) || (userMeta?.plan as Plan) || "free") as Plan;
       const isPro = planVal === "pro";
       localStorage.setItem("orca.plan", isPro ? "pro" : "free");
-      window.dispatchEvent(
-        new CustomEvent("orca:plan", { detail: { plan: isPro ? "pro" : "free" } })
-      );
+      window.dispatchEvent(new CustomEvent("orca:plan", { detail: { plan: isPro ? "pro" : "free" } }));
 
-      // 관리자면 /admin 으로 직행
-      if (role === "admin") {
+      // ✅ 권한 분기: DB RPC 기반
+      let admin = false;
+      try {
+        const { data: ok } = await (supabase as any).rpc("is_admin");
+        admin = ok === true;
+      } catch {
+        admin = false;
+      }
+
+      setOpen(false); // 성공 시 모달 닫기
+
+      if (admin && ENABLE_ADMIN) {
         navigate("/admin");
       } else {
-        // 현재 페이지가 / 또는 /map 이면 그대로 두고, 필요 시 토스트
-        // 원하면 성공 후 모달 닫기
-        setOpen(false);
+        // /, /map 등은 그대로; 필요시 리다이렉트 없음
       }
     } catch (e: any) {
       setErr(e?.message ?? "로그인에 실패했어요.");
@@ -139,50 +132,43 @@ const LoginModal: React.FC = () => {
     }
   };
 
-const handleLogout = async () => {
-  setErr(null);
-  try {
-    // 1) 우선 글로벌 로그아웃 시도
-    const { error } = await supabase.auth.signOut(); // default: global
-    if (error) {
-      // 2) 임베드/샌드박스 등에서 global이 403 날 수 있으므로 로컬 폴백
-      await supabase.auth.signOut({ scope: 'local' });
-    }
-  } catch (_) {
-    // 3) 최후 수단: 토큰 수동 제거(도메인별로 저장소가 다름!)
+  const handleLogout = async () => {
+    setErr(null);
     try {
-      const key = Object.keys(localStorage).find(
-        k => k.includes('auth-token') && k.includes('qislrfbqilfqzkvkuknn')
-      );
-      if (key) localStorage.removeItem(key);
-    } catch {}
-  } finally {
-    // 4) UI/상태 정리 + 라우팅
-    setDisplayName(null);
-    setPlan('free');
-    setIsAdmin(false);
-    localStorage.setItem('orca.plan', 'free');
-    window.dispatchEvent(new CustomEvent('orca:plan', { detail: { plan: 'free' } }));
-    if (location.pathname.startsWith('/admin')) {
-      navigate('/');
+      const { error } = await supabase.auth.signOut(); // global
+      if (error) {
+        await supabase.auth.signOut({ scope: "local" }); // 폴백
+      }
+    } catch {
+      try {
+        const key = Object.keys(localStorage).find(
+          (k) => k.includes("auth-token") && k.includes("qislrfbqilfqzkvkuknn"),
+        );
+        if (key) localStorage.removeItem(key);
+      } catch {}
+    } finally {
+      setDisplayName(null);
+      setPlan("free");
+      setIsAdmin(false);
+      localStorage.setItem("orca.plan", "free");
+      window.dispatchEvent(new CustomEvent("orca:plan", { detail: { plan: "free" } }));
+      if (location.pathname.startsWith("/admin")) {
+        navigate("/");
+      }
     }
-  }
-};
+  };
 
-  // 유저 상태 라벨
   const badge = useMemo(() => {
     if (isAdmin) return "관리자";
     if (plan === "pro") return "유료회원";
     return "게스트";
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAdmin, plan, displayName]);
+  }, [isAdmin, plan]);
 
-  // 모달 루트 보장
   ensureOverlayRoot();
 
   return (
     <>
-      {/* 우상단 로그인/프로필 버튼 (원하는 위치에 배치되는 버튼) */}
+      {/* 우상단 로그인/프로필 버튼 */}
       <div className="flex items-center gap-2 justify-end ml-auto">
         {displayName ? (
           <>
@@ -212,23 +198,14 @@ const handleLogout = async () => {
       {/* 포털 모달 */}
       {open &&
         createPortal(
-          <div
-            className="fixed inset-0 z-[1000] flex items-center justify-center"
-            aria-modal="true"
-            role="dialog"
-          >
+          <div className="fixed inset-0 z-[1000] flex items-center justify-center" aria-modal="true" role="dialog">
             {/* Dim */}
-            <div
-              className="absolute inset-0 bg-black/40"
-              onClick={() => setOpen(false)}
-            />
+            <div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
             {/* Panel */}
             <div className="relative z-10 w-full max-w-[420px] rounded-2xl bg-white shadow-xl p-6">
               <div className="mb-4">
                 <h2 className="text-lg font-bold">로그인</h2>
-                <p className="text-sm text-gray-500 mt-1">
-                  이메일과 비밀번호로 로그인하세요.
-                </p>
+                <p className="text-sm text-gray-500 mt-1">이메일과 비밀번호로 로그인하세요.</p>
               </div>
 
               <form onSubmit={handleLogin} className="space-y-4">
@@ -256,11 +233,7 @@ const handleLogout = async () => {
                   />
                 </div>
 
-                {err && (
-                  <div className="text-sm text-red-600">
-                    {err}
-                  </div>
-                )}
+                {err && <div className="text-sm text-red-600">{err}</div>}
 
                 <div className="flex items-center justify-between pt-2">
                   <button
@@ -282,12 +255,12 @@ const handleLogout = async () => {
               </form>
 
               <div className="mt-4 text-xs text-gray-500">
-                <p>• 관리자 로그인: 로그인 즉시 관리자 페이지로 이동해요.</p>
+                <p>• 관리자 로그인: 권한 확인 후 관리자 페이지로 이동해요.</p>
                 <p>• 유료회원 로그인: 프론트에서 추가 기능이 활성화돼요.</p>
               </div>
             </div>
           </div>,
-          document.getElementById(overlayRootId)!
+          document.getElementById(overlayRootId)!,
         )}
     </>
   );
