@@ -442,8 +442,8 @@ const InquiriesPage: React.FC = () => {
                           v === "-"
                             ? { [COL.valid]: null }
                             : v === "valid"
-                            ? { [COL.valid]: true }
-                            : { [COL.valid]: false };
+                              ? { [COL.valid]: true }
+                              : { [COL.valid]: false };
 
                         const { error } = await (supabase as any).from(TBL.main).update(payload).eq(COL.id, r.id);
                         if (!error) {
@@ -581,7 +581,7 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
     if (!Array.isArray(items)) return [];
     return items.map((it: any) => ({
       apt_name: it.apt_name ?? it.name ?? "",
-      months: Number(it.months ?? it.Months ?? 0) || null,
+      months: toNumSmart(it.months ?? it.Months ?? 0) ?? null,
       product_name:
         it.product_name ??
         it.productName ??
@@ -628,8 +628,35 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
     lineTotal: number;
   };
 
+  /** 숫자 정규화: "40,000원" / "₩192,000" / "192 000" 등을 안전하게 숫자로 */
+  function toNumSmart(v: any): number | null {
+    if (v == null) return null;
+    if (typeof v === "number") return Number.isFinite(v) ? v : null;
+    const s = String(v).trim();
+    if (!s) return null;
+    // 소수점/마이너스/숫자만 남기고 제거(통화, 쉼표, 공백, 한글단위 등 제거)
+    const cleaned = s.replace(/[^0-9.-]/g, "");
+    if (!cleaned || cleaned === "-" || cleaned === "." || cleaned === "-.") return null;
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : null;
+  }
+
   function normalizeSnapshotItems(snap: any): FinalLine[] {
     if (!snap) return [];
+
+    const rootMonths = toNumSmart(snap?.months);
+    // 루트 합계 후보들
+    const rootTotal =
+      toNumSmart(snap?.cartTotal) ??
+      toNumSmart(snap?.cart_total) ??
+      toNumSmart(snap?.cartTotalWon) ??
+      toNumSmart(snap?.cart_total_won) ??
+      toNumSmart(snap?.grandTotal) ??
+      toNumSmart(snap?.grand_total) ??
+      toNumSmart(snap?.totalWon) ??
+      toNumSmart(snap?.total_won) ??
+      toNumSmart(snap?.total);
+
     // 다양한 위치 지원
     const candidates: any[] =
       (Array.isArray(snap?.items) && snap.items) ||
@@ -638,11 +665,6 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
       [];
 
     if (!Array.isArray(candidates) || candidates.length === 0) return [];
-
-    const toNum = (v: any): number | null => {
-      const n = Number(v);
-      return isFinite(n) && !isNaN(n) ? n : null;
-    };
 
     const lines: FinalLine[] = candidates.map((it: any) => {
       const apt = it.apt_name ?? it.name ?? it.aptName ?? it.apt?.name ?? "";
@@ -656,43 +678,54 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
         it.product_code ??
         "";
 
-      const months = toNum(it.months ?? it.Months ?? it.period ?? it.duration) ?? 0;
+      // 기간
+      let months = toNumSmart(it.months ?? it.Months ?? it.period ?? it.duration) ?? rootMonths ?? 0; // 항목에 없으면 루트 months 사용
 
+      // 기준금액(월가 기준)
       const baseMonthly =
-        toNum(
+        toNumSmart(
           it.baseMonthly ??
             it.base_monthly ??
             it.monthlyBefore ??
             it.monthly_base ??
             it.basePriceMonthly ??
-            it.base_price_monthly
-        );
+            it.base_price_monthly,
+        ) ?? null;
 
+      // 할인 후 월가
       let monthlyAfter =
-        toNum(
+        toNumSmart(
           it.monthlyAfter ??
             it.monthly_after ??
             it.priceMonthly ??
             it.computedMonthly ??
             it.monthly_after_discount ??
+            it.unit_after ??
             it.finalMonthly ??
-            it.final_monthly
-        );
+            it.final_monthly,
+        ) ?? null;
 
-      // lineTotal: 다양한 필드 + (item_total_won | total_won) 지원
+      // 총액
       let lineTotal =
-        toNum(
+        toNumSmart(
           it.lineTotal ??
             it.line_total ??
             it.total ??
             it.totalCost ??
             it.line_total_after_discount ??
+            it.item_total ??
+            it.itemTotal ??
             it.item_total_won ??
-            it.total_won
-        ) ?? 0;
+            it.total_won,
+        ) ?? null;
 
-      // 월가격이 없고 총액/개월이 있으면 월가격을 역산
-      if ((monthlyAfter == null || monthlyAfter === 0) && months > 0 && lineTotal > 0) {
+      // 단일 항목 + 루트 합계가 있고 항목 총액이 없으면 루트 합계로 보정
+      if ((lineTotal == null || lineTotal === 0) && candidates.length === 1 && rootTotal != null) {
+        lineTotal = rootTotal;
+      }
+
+      // 월가가 없고 총액/개월이 있으면 역산
+      if ((monthlyAfter == null || monthlyAfter === 0) && months > 0 && lineTotal != null && lineTotal > 0) {
         monthlyAfter = lineTotal / months;
       }
 
@@ -701,16 +734,20 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
         lineTotal = monthlyAfter * months;
       }
 
+      // months 보정(음수/NaN 방지)
+      months = Math.max(0, Number.isFinite(months) ? Number(months) : 0);
+
       return {
         apt_name: String(apt || ""),
         product_name: String(product || ""),
-        months: Math.max(0, months || 0),
-        baseMonthly: baseMonthly ?? null,
-        monthlyAfter: monthlyAfter ?? null,
-        lineTotal: Math.max(0, lineTotal || 0),
+        months,
+        baseMonthly,
+        monthlyAfter,
+        lineTotal: Math.max(0, Number(lineTotal ?? 0)),
       };
     });
 
+    // 유의미한 라인만 남김
     return lines.filter((l) => l.apt_name || l.product_name || l.lineTotal > 0 || l.months > 0);
   }
 
