@@ -22,6 +22,11 @@ const SEARCH_PIN_URL = "/pin.png";
 const SEARCH_PIN_SIZE = 51;
 const SEARCH_PIN_OFFSET = { x: SEARCH_PIN_SIZE / 2, y: SEARCH_PIN_SIZE };
 
+// Kakao 이미지 생성자 존재 여부
+function hasImgCtors(maps: any) {
+  return Boolean(maps?.MarkerImage && maps?.Size && maps?.Point);
+}
+
 function markerImages(maps: any) {
   const { MarkerImage, Size, Point } = maps;
   const opt = { offset: new Point(PIN_OFFSET.x, PIN_OFFSET.y) };
@@ -36,6 +41,11 @@ function buildSearchMarkerImage(maps: any) {
   return new MarkerImage(SEARCH_PIN_URL, new Size(SEARCH_PIN_SIZE, SEARCH_PIN_SIZE), {
     offset: new Point(SEARCH_PIN_OFFSET.x, SEARCH_PIN_OFFSET.y),
   });
+}
+function safeSetImage(marker: any, image: any) {
+  try {
+    if (image) marker.setImage(image);
+  } catch {}
 }
 
 /* =========================================================================
@@ -146,8 +156,12 @@ const buildRowKeyFromRow = (row: PlaceRow) => {
    ⑤ ‘정적 분리(항상 나란히)’ 레이아웃
    ------------------------------------------------------------------------- */
 function layoutMarkersSideBySide(map: any, group: KMarker[]) {
-  if (!group || group.length <= 1) return;
-  const proj = map.getProjection();
+  const kakao = (window as any).kakao;
+  if (!map || !group || group.length <= 1) return;
+  if (!kakao?.maps || typeof kakao.maps.Point !== "function") return; // 가드
+  const proj = map.getProjection?.();
+  if (!proj?.containerPointFromCoords || !proj?.coordsFromContainerPoint) return;
+
   const center = group[0].__basePos;
   const cpt = proj.containerPointFromCoords(center);
   const N = group.length,
@@ -156,7 +170,7 @@ function layoutMarkersSideBySide(map: any, group: KMarker[]) {
     startX = cpt.x - totalW / 2,
     y = cpt.y;
   for (let i = 0; i < N; i++) {
-    const pt = new (window as any).kakao.maps.Point(startX + i * GAP, y);
+    const pt = new kakao.maps.Point(startX + i * GAP, y);
     const pos = proj.coordsFromContainerPoint(pt);
     group[i].setPosition(pos);
   }
@@ -186,12 +200,12 @@ export default function MapPage() {
 
   const lastClickedRef = useRef<KMarker | null>(null);
 
-  // ✅ 퀵담기(공통 팩토리) & 상태
+  // 퀵담기(공통 팩토리) & 상태
   const quickFactoryRef = useRef<ReturnType<typeof getQuickImageFactory> | null>(null);
   const quickAddRef = useRef(false);
   const [quickAdd, setQuickAdd] = useState(false);
 
-  // ✅ 내 위치 오버레이용 ref/state
+  // 내 위치 오버레이
   const userOverlayRef = useRef<any>(null);
   const userOverlayElRef = useRef<HTMLDivElement | null>(null);
   const [geoError, setGeoError] = useState<string | null>(null);
@@ -211,6 +225,8 @@ export default function MapPage() {
   const reimageAllMarkers = useCallback(() => {
     const maps = (window as KakaoNS).kakao?.maps;
     if (!maps) return;
+    if (!hasImgCtors(maps)) return; // 생성자 없으면 스킵(충돌 회피)
+
     const imgs = markerImages(maps);
     markerCacheRef.current.forEach((mk) => {
       const row = mk.__row as PlaceRow;
@@ -225,11 +241,11 @@ export default function MapPage() {
             clicked,
           })
         : inCart
-        ? imgs.yellow
-        : clicked
-        ? imgs.clicked
-        : imgs.purple;
-      mk.setImage(image);
+          ? imgs.yellow
+          : clicked
+            ? imgs.clicked
+            : imgs.purple;
+      safeSetImage(mk, image);
     });
     applyStaticSeparationAll();
   }, [applyStaticSeparationAll]);
@@ -289,13 +305,6 @@ export default function MapPage() {
     cleanupKakaoScripts();
     loadKakao()
       .then((kakao) => {
-        // ✅ SDK 가드: 반쪽 로드/도메인 미허용 시 조기 종료(크래시 방지)
-        if (!kakao?.maps || typeof kakao.maps.LatLng !== "function") {
-          console.error("[KakaoMap] SDK loaded but maps is unavailable (domain or network)");
-          setKakaoError("Kakao SDK 초기화 실패: 도메인 허용 여부를 확인해주세요.");
-          return;
-        }
-
         setKakaoError(null);
         if (!mapRef.current) return;
         mapRef.current.style.minHeight = "300px";
@@ -308,8 +317,12 @@ export default function MapPage() {
 
         placesRef.current = new kakao.maps.services.Places();
 
-        // ✅ 퀵담기 이미지 팩토리 준비
-        quickFactoryRef.current = getQuickImageFactory(kakao.maps, { size: PIN_SIZE, offset: PIN_OFFSET });
+        // 퀵담기 이미지 팩토리 준비(생성자 있을 때만)
+        if (hasImgCtors(kakao.maps)) {
+          quickFactoryRef.current = getQuickImageFactory(kakao.maps, { size: PIN_SIZE, offset: PIN_OFFSET });
+        } else {
+          quickFactoryRef.current = null;
+        }
 
         const SIZES = [34, 44, 54];
         const clusterStyles = SIZES.map((sz) => ({
@@ -324,22 +337,14 @@ export default function MapPage() {
           fontWeight: "700",
           fontSize: "13px",
         }));
-
-        // ✅ 클러스터러 가드(없으면 null로 두고 이후 폴백)
-        let clusterer: any = null;
-        if (kakao.maps && kakao.maps.MarkerClusterer) {
-          clusterer = new kakao.maps.MarkerClusterer({
-            map,
-            averageCenter: true,
-            minLevel: 6,
-            disableClickZoom: true,
-            gridSize: 80,
-            styles: clusterStyles,
-          });
-        } else {
-          console.warn("[Kakao] clusterer library not available. Check 'libraries=clusterer' and domain allowlist.");
-        }
-        clustererRef.current = clusterer;
+        clustererRef.current = new kakao.maps.MarkerClusterer({
+          map,
+          averageCenter: true,
+          minLevel: 6,
+          disableClickZoom: true,
+          gridSize: 80,
+          styles: clusterStyles,
+        });
 
         kakao.maps.event.addListener(map, "zoom_changed", applyStaticSeparationAll);
         kakao.maps.event.addListener(map, "idle", async () => {
@@ -405,7 +410,9 @@ export default function MapPage() {
       if (!rowKey) return;
       const maps = (window as KakaoNS).kakao?.maps;
       if (!maps) return;
-      const imgs = markerImages(maps);
+
+      const canImg = hasImgCtors(maps);
+      const imgs = canImg ? markerImages(maps) : null;
       if (state === "selected") selectedRowKeySetRef.current.add(rowKey);
       else selectedRowKeySetRef.current.delete(rowKey);
 
@@ -413,17 +420,18 @@ export default function MapPage() {
       if (list?.length) {
         list.forEach((mk) => {
           const inCart = state === "selected" || selectedRowKeySetRef.current.has(rowKey);
-          const image = quickFactoryRef.current
-            ? quickFactoryRef.current.get({
-                quickOn: quickAddRef.current,
-                selected: inCart,
-                inCart,
-                clicked: false,
-              })
-            : inCart
-            ? imgs.yellow
-            : imgs.purple;
-          mk.setImage(image);
+          const image =
+            quickFactoryRef.current && canImg
+              ? quickFactoryRef.current.get({
+                  quickOn: quickAddRef.current,
+                  selected: inCart,
+                  inCart,
+                  clicked: false,
+                })
+              : inCart
+                ? imgs?.yellow
+                : imgs?.purple;
+          safeSetImage(mk, image);
           if (forceYellowNow && inCart) lastClickedRef.current = null;
         });
         setSelected((prev) =>
@@ -527,8 +535,7 @@ export default function MapPage() {
     const maps = kakao?.maps;
     const map = mapObjRef.current;
     const clusterer = clustererRef.current;
-    // ❗️클러스터러가 없어도 렌더는 진행해야 하므로 maps/map만 검사
-    if (!maps || !map) return;
+    if (!maps || !map || !clusterer) return;
 
     const bounds = map.getBounds();
     if (!bounds) return;
@@ -555,7 +562,8 @@ export default function MapPage() {
     }
 
     const rows = (data ?? []) as PlaceRow[];
-    const imgs = markerImages(maps);
+    const canImg = hasImgCtors(maps);
+    const imgs = canImg ? markerImages(maps) : null;
 
     const nowKeys = new Set<string>();
     const groups = new Map<string, KMarker[]>();
@@ -589,40 +597,48 @@ export default function MapPage() {
       if (!mk) {
         const inCart = selectedRowKeySetRef.current.has(rowKey);
         const clicked = false;
-        const img = quickFactoryRef.current
-          ? quickFactoryRef.current.get({
-              quickOn: quickAddRef.current,
-              selected: inCart,
-              inCart,
-              clicked,
-            })
-          : inCart
-          ? imgs.yellow
-          : imgs.purple;
 
-        mk = new maps.Marker({ position: pos, title: nameText, image: img });
+        const image =
+          quickFactoryRef.current && canImg
+            ? quickFactoryRef.current.get({
+                quickOn: quickAddRef.current,
+                selected: inCart,
+                inCart,
+                clicked,
+              })
+            : inCart
+              ? imgs?.yellow
+              : imgs?.purple;
+
+        const markerOpts: any = { position: pos, title: nameText };
+        if (image) markerOpts.image = image;
+
+        mk = new maps.Marker(markerOpts);
         mk.__key = key;
         mk.__basePos = pos;
         mk.__row = row;
 
         maps.event.addListener(mk, "click", () => {
-          // ✅ 퀵모드: 패널 열지 않고 담기/취소만
+          // 퀵모드: 패널 열지 않고 담기/취소만
           if (quickAddRef.current) {
             const was = selectedRowKeySetRef.current.has(rowKey);
             if (was) removeFromCartByRowKey(rowKey);
             else addToCartByRowKey(rowKey);
             const nowSel = selectedRowKeySetRef.current.has(rowKey);
-            const newImg = quickFactoryRef.current
-              ? quickFactoryRef.current.get({
-                  quickOn: true,
-                  selected: nowSel,
-                  inCart: nowSel,
-                  clicked: false,
-                })
-              : nowSel
-              ? imgs.yellow
-              : imgs.purple;
-            mk.setImage(newImg);
+
+            const newImg =
+              quickFactoryRef.current && canImg
+                ? quickFactoryRef.current.get({
+                    quickOn: true,
+                    selected: nowSel,
+                    inCart: nowSel,
+                    clicked: false,
+                  })
+                : nowSel
+                  ? imgs?.yellow
+                  : imgs?.purple;
+
+            safeSetImage(mk, newImg);
             lastClickedRef.current = null;
             applyStaticSeparationAll();
             return;
@@ -684,7 +700,7 @@ export default function MapPage() {
           };
           setSelected(sel);
 
-          // ✅ 상세 보강 RPC
+          // 상세 보강 RPC
           (() => {
             const pid = rowIdOf(row);
             if (!pid) return;
@@ -722,30 +738,32 @@ export default function MapPage() {
 
           const isAlreadySelected = selectedRowKeySetRef.current.has(rowKey);
           if (isAlreadySelected) {
-            const newImg = quickFactoryRef.current
-              ? quickFactoryRef.current.get({
-                  quickOn: quickAddRef.current,
-                  selected: true,
-                  inCart: true,
-                  clicked: false,
-                })
-              : imgs.yellow;
-            mk.setImage(newImg);
+            const newImg =
+              quickFactoryRef.current && canImg
+                ? quickFactoryRef.current.get({
+                    quickOn: quickAddRef.current,
+                    selected: true,
+                    inCart: true,
+                    clicked: false,
+                  })
+                : imgs?.yellow;
+            safeSetImage(mk, newImg);
             if (lastClickedRef.current && lastClickedRef.current !== mk) {
               const prev = lastClickedRef.current;
               const prevRowKey = buildRowKeyFromRow(prev.__row as PlaceRow);
               const prevInCart = selectedRowKeySetRef.current.has(prevRowKey);
-              const prevImg = quickFactoryRef.current
-                ? quickFactoryRef.current.get({
-                    quickOn: quickAddRef.current,
-                    selected: prevInCart,
-                    inCart: prevInCart,
-                    clicked: false,
-                  })
-                : prevInCart
-                ? imgs.yellow
-                : imgs.purple;
-              prev.setImage(prevImg);
+              const prevImg =
+                quickFactoryRef.current && canImg
+                  ? quickFactoryRef.current.get({
+                      quickOn: quickAddRef.current,
+                      selected: prevInCart,
+                      inCart: prevInCart,
+                      clicked: false,
+                    })
+                  : prevInCart
+                    ? imgs?.yellow
+                    : imgs?.purple;
+              safeSetImage(prev, prevImg);
             }
             lastClickedRef.current = null;
           } else {
@@ -753,27 +771,29 @@ export default function MapPage() {
               const prev = lastClickedRef.current;
               const prevRowKey = buildRowKeyFromRow(prev.__row as PlaceRow);
               const prevInCart = selectedRowKeySetRef.current.has(prevRowKey);
-              const prevImg = quickFactoryRef.current
+              const prevImg =
+                quickFactoryRef.current && canImg
+                  ? quickFactoryRef.current.get({
+                      quickOn: quickAddRef.current,
+                      selected: prevInCart,
+                      inCart: prevInCart,
+                      clicked: false,
+                    })
+                  : prevInCart
+                    ? imgs?.yellow
+                    : imgs?.purple;
+              safeSetImage(prev, prevImg);
+            }
+            const newImg =
+              quickFactoryRef.current && canImg
                 ? quickFactoryRef.current.get({
                     quickOn: quickAddRef.current,
-                    selected: prevInCart,
-                    inCart: prevInCart,
-                    clicked: false,
+                    selected: false,
+                    inCart: false,
+                    clicked: true,
                   })
-                : prevInCart
-                ? imgs.yellow
-                : imgs.purple;
-              prev.setImage(prevImg);
-            }
-            const newImg = quickFactoryRef.current
-              ? quickFactoryRef.current.get({
-                  quickOn: quickAddRef.current,
-                  selected: false,
-                  inCart: false,
-                  clicked: true,
-                })
-              : imgs.clicked;
-            mk.setImage(newImg);
+                : imgs?.clicked;
+            safeSetImage(mk, newImg);
             lastClickedRef.current = mk;
           }
           applyStaticSeparationAll();
@@ -786,19 +806,20 @@ export default function MapPage() {
         if (mk.getTitle?.() !== nameText) mk.setTitle?.(nameText);
         const inCart = selectedRowKeySetRef.current.has(rowKey);
         const isClicked = !inCart && lastClickedRef.current && lastClickedRef.current.__key === key;
-        const imgToUse = quickFactoryRef.current
-          ? quickFactoryRef.current.get({
-              quickOn: quickAddRef.current,
-              selected: inCart,
-              inCart,
-              clicked: Boolean(isClicked),
-            })
-          : inCart
-          ? imgs.yellow
-          : isClicked
-          ? imgs.clicked
-          : imgs.purple;
-        mk.setImage(imgToUse);
+        const imgToUse =
+          quickFactoryRef.current && canImg
+            ? quickFactoryRef.current.get({
+                quickOn: quickAddRef.current,
+                selected: inCart,
+                inCart,
+                clicked: Boolean(isClicked),
+              })
+            : inCart
+              ? imgs?.yellow
+              : isClicked
+                ? imgs?.clicked
+                : imgs?.purple;
+        safeSetImage(mk, imgToUse);
       }
 
       if (!keyIndexRef.current[rowKey]) keyIndexRef.current[rowKey] = [];
@@ -811,11 +832,7 @@ export default function MapPage() {
       newMarkers.push(mk);
     });
 
-    // ✅ 클러스터러가 없으면 setMap 폴백
-    if (toAdd.length) {
-      if (clusterer) clusterer.addMarkers(toAdd);
-      else toAdd.forEach((m) => m.setMap(map));
-    }
+    if (toAdd.length) clustererRef.current.addMarkers(toAdd);
 
     const toRemove: KMarker[] = [];
     markerCacheRef.current.forEach((mk, key) => {
@@ -824,16 +841,13 @@ export default function MapPage() {
         markerCacheRef.current.delete(key);
       }
     });
-    if (toRemove.length) {
-      if (clusterer) clusterer.removeMarkers(toRemove);
-      else toRemove.forEach((m) => m.setMap(null));
-    }
+    if (toRemove.length) clustererRef.current.removeMarkers(toRemove);
     if (lastClickedRef.current && toRemove.includes(lastClickedRef.current)) lastClickedRef.current = null;
 
     applyGroupPrioritiesMap(groups);
     groupsRef.current = groups;
 
-    // 확장 조회
+    // 확장 조회(주변에 아무 것도 없을 때)
     if (!newMarkers.length) {
       const pad = expandBounds(bounds, 0.12);
       const { data: data2, error: err2 } = await (supabase as any).rpc("get_public_map_places", {
@@ -847,250 +861,257 @@ export default function MapPage() {
 
       if (err2) {
         console.warn("[MapPage] expanded select error:", err2.message);
-        return;
-      }
-      if (reqId !== lastReqIdRef.current) return;
+      } else if (reqId === lastReqIdRef.current) {
+        const rows2 = (data2 ?? []) as PlaceRow[];
+        rows2.forEach((row) => {
+          if (row.lat == null || row.lng == null) return;
+          const key = `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(7)}|${
+            rowIdOf(row) != null ? String(rowIdOf(row)) : ""
+          }|${String(getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "")}|${String(getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "")}`;
+          if (markerCacheRef.current.has(key)) return;
 
-      const rows2 = (data2 ?? []) as PlaceRow[];
-      rows2.forEach((row) => {
-        if (row.lat == null || row.lng == null) return;
-        const key = `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(
-          7,
-        )}|${rowIdOf(row) != null ? String(rowIdOf(row)) : ""}|${String(
-          getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "",
-        )}|${String(getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "")}`;
-        if (markerCacheRef.current.has(key)) return;
+          const lat = Number(row.lat),
+            lng = Number(row.lng);
+          const pos = new maps.LatLng(lat, lng);
+          const nameText = String(getField(row, ["단지명", "name", "아파트명"]) || "");
+          const rowKey = buildRowKeyFromRow(row);
+          const inCart2 = selectedRowKeySetRef.current.has(rowKey);
 
-        const lat = Number(row.lat),
-          lng = Number(row.lng);
-        const pos = new maps.LatLng(lat, lng);
-        const nameText = String(getField(row, ["단지명", "name", "아파트명"]) || "");
-        const rowKey = buildRowKeyFromRow(row);
-        const inCart2 = selectedRowKeySetRef.current.has(rowKey);
-
-        const img2 = quickFactoryRef.current
-          ? quickFactoryRef.current.get({
-              quickOn: quickAddRef.current,
-              selected: inCart2,
-              inCart: inCart2,
-              clicked: false,
-            })
-          : inCart2
-          ? imgs.yellow
-          : imgs.purple;
-
-        const mk: KMarker = new maps.Marker({
-          position: pos,
-          title: nameText,
-          image: img2,
-        });
-        mk.__key = key;
-        mk.__basePos = pos;
-        mk.__row = row;
-
-        maps.event.addListener(mk, "click", () => {
-          // ✅ 퀵모드: 패널 열지 않고 담기/취소
-          if (quickAddRef.current) {
-            const was = selectedRowKeySetRef.current.has(rowKey);
-            if (was) removeFromCartByRowKey(rowKey);
-            else addToCartByRowKey(rowKey);
-            const nowSel = selectedRowKeySetRef.current.has(rowKey);
-            const newImg = quickFactoryRef.current
+          const img2 =
+            quickFactoryRef.current && canImg
               ? quickFactoryRef.current.get({
-                  quickOn: true,
-                  selected: nowSel,
-                  inCart: nowSel,
+                  quickOn: quickAddRef.current,
+                  selected: inCart2,
+                  inCart: inCart2,
                   clicked: false,
                 })
-              : nowSel
-              ? imgs.yellow
-              : imgs.purple;
-            mk.setImage(newImg);
-            lastClickedRef.current = null;
-            applyStaticSeparationAll();
-            return;
-          }
+              : inCart2
+                ? imgs?.yellow
+                : imgs?.purple;
 
-          const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
-          const address = getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
-          const productName =
-            getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "";
-          const installLocation = getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "";
-          const households = toNumLoose(
-            getField(row, ["세대수", "세대 수", "세대", "가구수", "가구 수", "세대수(가구)", "households"]),
-          );
-          const residents = toNumLoose(
-            getField(row, ["거주인원", "거주 인원", "인구수", "총인구", "입주민수", "거주자수", "residents"]),
-          );
-          const monitors = toNumLoose(
-            getField(row, ["모니터수량", "모니터 수량", "모니터대수", "엘리베이터TV수", "monitors"]),
-          );
-          const monthlyImpressions = toNumLoose(
-            getField(row, ["월송출횟수", "월 송출횟수", "월 송출 횟수", "월송출", "노출수(월)", "monthlyImpressions"]),
-          );
-          const monthlyFee = toNumLoose(
-            getField(row, ["월광고료", "월 광고료", "월 광고비", "월비용", "월요금", "month_fee", "monthlyFee"]),
-          );
-          const monthlyFeeY1 = toNumLoose(
-            getField(row, [
-              "1년 계약 시 월 광고료",
-              "1년계약시월광고료",
-              "연간월광고료",
-              "할인 월 광고료",
-              "연간_월광고료",
-              "monthlyFeeY1",
-            ]),
-          );
-          const costPerPlay = toNumLoose(getField(row, ["1회당 송출비용", "송출 1회당 비용", "costPerPlay"]));
-          const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
-          const imageUrl = getField(row, ["imageUrl", "image_url", "이미지", "썸네일", "thumbnail"]) || undefined;
+          const mk: KMarker = new maps.Marker({
+            position: pos,
+            title: nameText,
+            image: img2 || undefined,
+          });
+          mk.__key = key;
+          mk.__basePos = pos;
+          mk.__row = row;
 
-          const sel: SelectedAptX = {
-            rowKey,
-            rowId: rowIdOf(row) != null ? String(rowIdOf(row)) : undefined,
-            name,
-            address,
-            productName,
-            installLocation,
-            households,
-            residents,
-            monitors,
-            monthlyImpressions,
-            costPerPlay,
-            hours,
-            monthlyFee,
-            monthlyFeeY1,
-            imageUrl,
-            lat,
-            lng,
-            selectedInCart: selectedRowKeySetRef.current.has(rowKey),
-          };
-          setSelected(sel);
+          maps.event.addListener(mk, "click", () => {
+            if (quickAddRef.current) {
+              const was = selectedRowKeySetRef.current.has(rowKey);
+              if (was) removeFromCartByRowKey(rowKey);
+              else addToCartByRowKey(rowKey);
+              const nowSel = selectedRowKeySetRef.current.has(rowKey);
+              const newImg =
+                quickFactoryRef.current && canImg
+                  ? quickFactoryRef.current.get({
+                      quickOn: true,
+                      selected: nowSel,
+                      inCart: nowSel,
+                      clicked: false,
+                    })
+                  : nowSel
+                    ? imgs?.yellow
+                    : imgs?.purple;
+              safeSetImage(mk, newImg);
+              lastClickedRef.current = null;
+              applyStaticSeparationAll();
+              return;
+            }
 
-          // ✅ 상세 보강 RPC
-          (() => {
-            const pid = rowIdOf(row);
-            if (!pid) return;
-            (async () => {
-              const { data: detail, error: dErr } = await (supabase as any).rpc("get_public_place_detail", {
-                p_place_id: pid,
-              });
-              if (!dErr && detail?.length) {
-                const d = detail[0];
-                setSelected((prev) =>
-                  prev && prev.rowKey === rowKey
-                    ? {
-                        ...prev,
-                        households: d.households ?? prev.households,
-                        residents: d.residents ?? prev.residents,
-                        monitors: d.monitors ?? prev.monitors,
-                        monthlyImpressions: d.monthly_impressions ?? prev.monthlyImpressions,
-                        costPerPlay: d.cost_per_play ?? prev.costPerPlay,
-                        hours: d.hours ?? prev.hours,
-                        address: d.address ?? prev.address,
-                        installLocation: d.install_location ?? d.installLocation ?? prev.installLocation,
-                        monthlyFee: d.monthly_fee ?? prev.monthlyFee,
-                        monthlyFeeY1: d.monthly_fee_y1 ?? prev.monthlyFeeY1,
-                        lat: d.lat ?? prev.lat,
-                        lng: d.lng ?? prev.lng,
-                        imageUrl: d.image_url ?? prev.imageUrl,
-                      }
-                    : prev,
-                );
-              } else if (dErr) {
-                console.warn("[RPC] get_public_place_detail error:", dErr.message);
-              }
+            const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
+            const address = getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
+            const productName =
+              getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "";
+            const installLocation =
+              getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "";
+            const households = toNumLoose(
+              getField(row, ["세대수", "세대 수", "세대", "가구수", "가구 수", "세대수(가구)", "households"]),
+            );
+            const residents = toNumLoose(
+              getField(row, ["거주인원", "거주 인원", "인구수", "총인구", "입주민수", "거주자수", "residents"]),
+            );
+            const monitors = toNumLoose(
+              getField(row, ["모니터수량", "모니터 수량", "모니터대수", "엘리베이터TV수", "monitors"]),
+            );
+            const monthlyImpressions = toNumLoose(
+              getField(row, [
+                "월송출횟수",
+                "월 송출횟수",
+                "월 송출 횟수",
+                "월송출",
+                "노출수(월)",
+                "monthlyImpressions",
+              ]),
+            );
+            const monthlyFee = toNumLoose(
+              getField(row, ["월광고료", "월 광고료", "월 광고비", "월비용", "월요금", "month_fee", "monthlyFee"]),
+            );
+            const monthlyFeeY1 = toNumLoose(
+              getField(row, [
+                "1년 계약 시 월 광고료",
+                "1년계약시월광고료",
+                "연간월광고료",
+                "할인 월 광고료",
+                "연간_월광고료",
+                "monthlyFeeY1",
+              ]),
+            );
+            const costPerPlay = toNumLoose(getField(row, ["1회당 송출비용", "송출 1회당 비용", "costPerPlay"]));
+            const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
+            const imageUrl = getField(row, ["imageUrl", "image_url", "이미지", "썸네일", "thumbnail"]) || undefined;
+
+            const sel: SelectedAptX = {
+              rowKey,
+              rowId: rowIdOf(row) != null ? String(rowIdOf(row)) : undefined,
+              name,
+              address,
+              productName,
+              installLocation,
+              households,
+              residents,
+              monitors,
+              monthlyImpressions,
+              costPerPlay,
+              hours,
+              monthlyFee,
+              monthlyFeeY1,
+              imageUrl,
+              lat,
+              lng,
+              selectedInCart: selectedRowKeySetRef.current.has(rowKey),
+            };
+            setSelected(sel);
+
+            // 상세 보강 RPC
+            (() => {
+              const pid = rowIdOf(row);
+              if (!pid) return;
+              (async () => {
+                const { data: detail, error: dErr } = await (supabase as any).rpc("get_public_place_detail", {
+                  p_place_id: pid,
+                });
+                if (!dErr && detail?.length) {
+                  const d = detail[0];
+                  setSelected((prev) =>
+                    prev && prev.rowKey === rowKey
+                      ? {
+                          ...prev,
+                          households: d.households ?? prev.households,
+                          residents: d.residents ?? prev.residents,
+                          monitors: d.monitors ?? prev.monitors,
+                          monthlyImpressions: d.monthly_impressions ?? prev.monthlyImpressions,
+                          costPerPlay: d.cost_per_play ?? prev.costPerPlay,
+                          hours: d.hours ?? prev.hours,
+                          address: d.address ?? prev.address,
+                          installLocation: d.install_location ?? d.installLocation ?? prev.installLocation,
+                          monthlyFee: d.monthly_fee ?? prev.monthlyFee,
+                          monthlyFeeY1: d.monthly_fee_y1 ?? prev.monthlyFeeY1,
+                          lat: d.lat ?? prev.lat,
+                          lng: d.lng ?? prev.lng,
+                          imageUrl: d.image_url ?? prev.imageUrl,
+                        }
+                      : prev,
+                  );
+                } else if (dErr) {
+                  console.warn("[RPC] get_public_place_detail error:", dErr.message);
+                }
+              })();
             })();
-          })();
 
-          const isAlreadySelected = selectedRowKeySetRef.current.has(rowKey);
-          if (isAlreadySelected) {
-            const newImg = quickFactoryRef.current
+            const isAlreadySelected = selectedRowKeySetRef.current.has(rowKey);
+            if (isAlreadySelected) {
+              const newImg =
+                quickFactoryRef.current && canImg
+                  ? quickFactoryRef.current.get({
+                      quickOn: quickAddRef.current,
+                      selected: true,
+                      inCart: true,
+                      clicked: false,
+                    })
+                  : imgs?.yellow;
+              safeSetImage(mk, newImg);
+              if (lastClickedRef.current && lastClickedRef.current !== mk) {
+                const prevRowKey = buildRowKeyFromRow(lastClickedRef.current.__row as PlaceRow);
+                const prevInCart = selectedRowKeySetRef.current.has(prevRowKey);
+                const prevImg =
+                  quickFactoryRef.current && canImg
+                    ? quickFactoryRef.current.get({
+                        quickOn: quickAddRef.current,
+                        selected: prevInCart,
+                        inCart: prevInCart,
+                        clicked: false,
+                      })
+                    : prevInCart
+                      ? imgs?.yellow
+                      : imgs?.purple;
+                safeSetImage(lastClickedRef.current, prevImg);
+              }
+              lastClickedRef.current = null;
+            } else {
+              if (lastClickedRef.current && lastClickedRef.current !== mk) {
+                const prevRowKey = buildRowKeyFromRow(lastClickedRef.current.__row as PlaceRow);
+                const prevInCart = selectedRowKeySetRef.current.has(prevRowKey);
+                const prevImg =
+                  quickFactoryRef.current && canImg
+                    ? quickFactoryRef.current.get({
+                        quickOn: quickAddRef.current,
+                        selected: prevInCart,
+                        inCart: prevInCart,
+                        clicked: false,
+                      })
+                    : prevInCart
+                      ? imgs?.yellow
+                      : imgs?.purple;
+                safeSetImage(lastClickedRef.current, prevImg);
+              }
+              const newImg =
+                quickFactoryRef.current && canImg
+                  ? quickFactoryRef.current.get({
+                      quickOn: quickAddRef.current,
+                      selected: false,
+                      inCart: false,
+                      clicked: true,
+                    })
+                  : imgs?.clicked;
+              safeSetImage(mk, newImg);
+              lastClickedRef.current = mk;
+            }
+            applyStaticSeparationAll();
+          });
+
+          markerCacheRef.current.set(key, mk);
+
+          const imgToUse =
+            quickFactoryRef.current && canImg
               ? quickFactoryRef.current.get({
                   quickOn: quickAddRef.current,
-                  selected: true,
-                  inCart: true,
+                  selected: inCart2,
+                  inCart: inCart2,
                   clicked: false,
                 })
-              : imgs.yellow;
-            mk.setImage(newImg);
-            if (lastClickedRef.current && lastClickedRef.current !== mk) {
-              const prevRowKey = buildRowKeyFromRow(lastClickedRef.current.__row as PlaceRow);
-              const prevInCart = selectedRowKeySetRef.current.has(prevRowKey);
-              const prevImg = quickFactoryRef.current
-                ? quickFactoryRef.current.get({
-                    quickOn: quickAddRef.current,
-                    selected: prevInCart,
-                    inCart: prevInCart,
-                    clicked: false,
-                  })
-                : prevInCart
-                ? imgs.yellow
-                : imgs.purple;
-              lastClickedRef.current.setImage(prevImg);
-            }
-            lastClickedRef.current = null;
-          } else {
-            if (lastClickedRef.current && lastClickedRef.current !== mk) {
-              const prevRowKey = buildRowKeyFromRow(lastClickedRef.current.__row as PlaceRow);
-              const prevInCart = selectedRowKeySetRef.current.has(prevRowKey);
-              const prevImg = quickFactoryRef.current
-                ? quickFactoryRef.current.get({
-                    quickOn: quickAddRef.current,
-                    selected: prevInCart,
-                    inCart: prevInCart,
-                    clicked: false,
-                  })
-                : prevInCart
-                ? imgs.yellow
-                : imgs.purple;
-              lastClickedRef.current.setImage(prevImg);
-            }
-            const newImg = quickFactoryRef.current
-              ? quickFactoryRef.current.get({
-                  quickOn: quickAddRef.current,
-                  selected: false,
-                  inCart: false,
-                  clicked: true,
-                })
-              : imgs.clicked;
-            mk.setImage(newImg);
-            lastClickedRef.current = mk;
-          }
-          applyStaticSeparationAll();
+              : inCart2
+                ? imgs?.yellow
+                : imgs?.purple;
+          safeSetImage(mk, imgToUse);
+
+          if (!keyIndexRef.current[rowKey]) keyIndexRef.current[rowKey] = [];
+          keyIndexRef.current[rowKey].push(mk);
+          clustererRef.current.addMarker(mk);
         });
 
-        markerCacheRef.current.set(key, mk);
-
-        const imgToUse = quickFactoryRef.current
-          ? quickFactoryRef.current.get({
-              quickOn: quickAddRef.current,
-              selected: inCart2,
-              inCart: inCart2,
-              clicked: false,
-            })
-          : inCart2
-          ? imgs.yellow
-          : imgs.purple;
-        mk.setImage(imgToUse);
-
-        if (!keyIndexRef.current[rowKey]) keyIndexRef.current[rowKey] = [];
-        keyIndexRef.current[rowKey].push(mk);
-
-        // ✅ 클러스터러 없으면 setMap 폴백
-        if (clusterer) clusterer.addMarker(mk);
-        else mk.setMap(map);
-      });
-
-      const groups2 = new Map<string, KMarker[]>();
-      markerCacheRef.current.forEach((m) => {
-        const r = m.__row as PlaceRow;
-        const gk = groupKeyFromRow(r);
-        if (!groups2.has(gk)) groups2.set(gk, []);
-        groups2.get(gk)!.push(m);
-      });
-      applyGroupPrioritiesMap(groups2);
-      groupsRef.current = groups2;
+        const groups2 = new Map<string, KMarker[]>();
+        markerCacheRef.current.forEach((m) => {
+          const r = m.__row as PlaceRow;
+          const gk = groupKeyFromRow(r);
+          if (!groups2.has(gk)) groups2.set(gk, []);
+          groups2.get(gk)!.push(m);
+        });
+        applyGroupPrioritiesMap(groups2);
+        groupsRef.current = groups2;
+      }
     }
 
     applyStaticSeparationAll();
@@ -1202,20 +1223,24 @@ export default function MapPage() {
       radiusLabelRef.current.setZIndex?.(1000000);
       radiusLabelRef.current.setMap(map);
     }
-    const searchImg = buildSearchMarkerImage(kakao.maps);
-    if (!searchPinRef.current) {
-      searchPinRef.current = new kakao.maps.Marker({
-        map,
-        position: latlng,
-        image: searchImg,
-        zIndex: 500000,
-        clickable: false,
-      });
-    } else {
-      searchPinRef.current.setPosition(latlng);
-      searchPinRef.current.setImage(searchImg);
-      searchPinRef.current.setZIndex?.(500000);
-      searchPinRef.current.setMap(map);
+
+    // 검색 핀(생성자 없으면 스킵)
+    if (hasImgCtors(kakao.maps)) {
+      const searchImg = buildSearchMarkerImage(kakao.maps);
+      if (!searchPinRef.current) {
+        searchPinRef.current = new kakao.maps.Marker({
+          map,
+          position: latlng,
+          image: searchImg,
+          zIndex: 500000,
+          clickable: false,
+        });
+      } else {
+        searchPinRef.current.setPosition(latlng);
+        searchPinRef.current.setImage(searchImg);
+        searchPinRef.current.setZIndex?.(500000);
+        searchPinRef.current.setMap(map);
+      }
     }
   }
 
@@ -1316,7 +1341,7 @@ export default function MapPage() {
     <div className="w-screen h-[100dvh] bg-white">
       <div ref={mapRef} className={`fixed top-16 left-0 right-0 bottom-0 z-[10] ${mapLeftClass}`} aria-label="map" />
 
-      {/* ✅ 상단(헤더 아래) 고정 버튼 스택: 퀵담기 → 내위치 */}
+      {/* 상단(헤더 아래) 고정 버튼 스택: 퀵담기 → 내위치 */}
       <div className="fixed right-4 top-[84px] z-[60] flex flex-col items-end gap-2 pointer-events-auto">
         {/* 퀵담기 토글 */}
         <button
@@ -1355,7 +1380,7 @@ export default function MapPage() {
         addToCartByRowKey={addToCartByRowKey}
         removeFromCartByRowKey={removeFromCartByRowKey}
         toggleCartByRowKey={toggleCartByRowKey}
-        /* 🔎 카트에서 단지 클릭 → 지도 이동 + 2탭 오픈 */
+        /* 카트에서 단지 클릭 → 지도 이동 + 2탭 오픈 */
         focusByRowKey={focusByRowKey}
         focusByLatLng={focusByLatLng}
         cartStickyTopPx={64}
