@@ -13,6 +13,11 @@ const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
 const DashboardPage = lazy(() => import("./pages/admin/DashboardPage"));
 const MapMobilePageV2 = lazy(() => import("./pages/mobile")); // -> src/pages/mobile/index.tsx
 
+// ✅ 프로덕션에서 관리자 라우트 노출 제어 (환경변수 플래그)
+// .env.production: VITE_FEATURE_ADMIN=false  → /admin 접근 시 홈으로 리다이렉트
+// .env.local(or development): VITE_FEATURE_ADMIN=true → /admin 라우트 표시
+const ENABLE_ADMIN = String(import.meta.env.VITE_FEATURE_ADMIN ?? "false") === "true";
+
 function AppLayout({ children }: PropsWithChildren) {
   const { pathname } = useLocation();
   const showHeader = pathname === "/" || pathname.startsWith("/map");
@@ -43,12 +48,17 @@ export default function App() {
             <Route path="/m2" element={<Navigate to="/mobile" replace />} />
             <Route path="/m" element={<Navigate to="/mobile" replace />} />
 
-            {/* 어드민 */}
-            <Route path="/admin" element={<AdminLayout />}>
-              <Route index element={<Navigate to="dashboard" replace />} />
-              <Route path="dashboard" element={<DashboardPage />} />
-              <Route path="inquiries" element={<InquiriesPage />} />
-            </Route>
+            {/* 어드민 — 플래그 기반 노출/차단 */}
+            {ENABLE_ADMIN ? (
+              <Route path="/admin" element={<AdminLayout />}>
+                <Route index element={<Navigate to="dashboard" replace />} />
+                <Route path="dashboard" element={<DashboardPage />} />
+                <Route path="inquiries" element={<InquiriesPage />} />
+              </Route>
+            ) : (
+              // 플래그 OFF일 때 우회 접근도 홈으로 정리
+              <Route path="/admin/*" element={<Navigate to="/" replace />} />
+            )}
 
             {/* 유틸/디버그 */}
             <Route path="/supa-debug" element={<SupaDebugPage />} />
