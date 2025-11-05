@@ -642,9 +642,11 @@ export default function MapChrome({
                       {selected.productName || "—"}
                     </span>
                   </Row>
-                  <Row label="설치 위치">
-                    <span className="whitespace-pre-wrap break-words">{selected.installLocation || "—"}</span>
-                  </Row>
+                 <Row label="설치 위치">
+  <span className="whitespace-pre-wrap break-words">
+    {selected.installLocation ?? (selected as any)?.install_location ?? "—"}
+  </span>
+</Row>
                   <Row label="모니터 수량">{fmtNum(selected.monitors, "대")}</Row>
                   <Row label="월 송출횟수">{fmtNum(selected.monthlyImpressions, "회")}</Row>
                   <Row label="송출 1회당 비용">{fmtNum(selected.costPerPlay, "원")}</Row>
