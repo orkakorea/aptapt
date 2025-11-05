@@ -63,7 +63,9 @@ export const supabase: SupabaseClient<Database> =
         return client;
       })();
 
-// 디버깅 편의
-(window as any).supabase = supabase;
+// ✅ 프로덕션 노출 방지: 디버그 전용 window.supabase는 개발 모드에서만
+if (typeof window !== "undefined" && import.meta.env.DEV) {
+  (window as any).supabase = supabase;
+}
 
 export default supabase;
