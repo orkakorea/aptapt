@@ -2,7 +2,8 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import MapChrome, { SelectedApt } from "../components/MapChrome";
-import { LocateFixed } from "lucide-react"; // ✅ PC 내 위치 버튼 아이콘
+import { LocateFixed, Plus } from "lucide-react";
+import getQuickImageFactory from "@/lib/quickAdd";
 
 type KakaoNS = typeof window & { kakao: any };
 const FALLBACK_KAKAO_KEY = "a53075efe7a2256480b8650cec67ebae";
@@ -185,7 +186,12 @@ export default function MapPage() {
 
   const lastClickedRef = useRef<KMarker | null>(null);
 
-  // ✅ 내 위치 오버레이용 ref/state (PC 버튼)
+  // ✅ 퀵담기(공통 팩토리) & 상태
+  const quickFactoryRef = useRef<ReturnType<typeof getQuickImageFactory> | null>(null);
+  const quickAddRef = useRef(false);
+  const [quickAdd, setQuickAdd] = useState(false);
+
+  // ✅ 내 위치 오버레이용 ref/state
   const userOverlayRef = useRef<any>(null);
   const userOverlayElRef = useRef<HTMLDivElement | null>(null);
   const [geoError, setGeoError] = useState<string | null>(null);
@@ -193,6 +199,38 @@ export default function MapPage() {
   const [selected, setSelected] = useState<SelectedAptX | null>(null);
   const [initialQ, setInitialQ] = useState("");
   const [kakaoError, setKakaoError] = useState<string | null>(null);
+
+  /* ---------- 공통: 마커 이미지 재계산 ---------- */
+  const reimageAllMarkers = useCallback(() => {
+    const maps = (window as KakaoNS).kakao?.maps;
+    if (!maps) return;
+    const imgs = markerImages(maps);
+    markerCacheRef.current.forEach((mk) => {
+      const row = mk.__row as PlaceRow;
+      const rowKey = buildRowKeyFromRow(row);
+      const inCart = selectedRowKeySetRef.current.has(rowKey);
+      const clicked = !inCart && lastClickedRef.current === mk;
+      const image = quickFactoryRef.current
+        ? quickFactoryRef.current.get({
+            quickOn: quickAddRef.current,
+            selected: inCart,
+            inCart,
+            clicked,
+          })
+        : inCart
+          ? imgs.yellow
+          : clicked
+            ? imgs.clicked
+            : imgs.purple;
+      mk.setImage(image);
+    });
+    applyStaticSeparationAll();
+  }, [applyStaticSeparationAll]);
+
+  useEffect(() => {
+    quickAddRef.current = quickAdd;
+    reimageAllMarkers();
+  }, [quickAdd, reimageAllMarkers]);
 
   /* ---------- 정렬/우선순위 ---------- */
   const orderAndApplyZIndex = useCallback((arr: KMarker[]) => {
@@ -262,6 +300,9 @@ export default function MapPage() {
 
         placesRef.current = new kakao.maps.services.Places();
 
+        // ✅ 퀵담기 이미지 팩토리 준비
+        quickFactoryRef.current = getQuickImageFactory(kakao.maps, { size: PIN_SIZE, offset: PIN_OFFSET });
+
         const SIZES = [34, 44, 54];
         const clusterStyles = SIZES.map((sz) => ({
           width: `${sz}px`,
@@ -326,7 +367,6 @@ export default function MapPage() {
       try {
         searchPinRef.current?.setMap?.(null);
       } catch {}
-      // ✅ 내 위치 오버레이 정리
       try {
         userOverlayRef.current?.setMap(null);
       } catch {}
@@ -356,11 +396,19 @@ export default function MapPage() {
       const list = keyIndexRef.current[rowKey];
       if (list?.length) {
         list.forEach((mk) => {
-          const shouldBeYellow = state === "selected" || selectedRowKeySetRef.current.has(rowKey);
-          if (forceYellowNow || shouldBeYellow) {
-            mk.setImage(imgs.yellow);
-            if (lastClickedRef.current === mk) lastClickedRef.current = null;
-          } else mk.setImage(imgs.purple);
+          const inCart = state === "selected" || selectedRowKeySetRef.current.has(rowKey);
+          const image = quickFactoryRef.current
+            ? quickFactoryRef.current.get({
+                quickOn: quickAddRef.current,
+                selected: inCart,
+                inCart,
+                clicked: false,
+              })
+            : inCart
+              ? imgs.yellow
+              : imgs.purple;
+          mk.setImage(image);
+          if (forceYellowNow && inCart) lastClickedRef.current = null;
         });
         setSelected((prev) =>
           prev && prev.rowKey === rowKey ? { ...prev, selectedInCart: state === "selected" } : prev,
@@ -522,13 +570,47 @@ export default function MapPage() {
       const nameText = String(getField(row, ["단지명", "name", "아파트명"]) || "");
 
       if (!mk) {
-        const isSelected = selectedRowKeySetRef.current.has(rowKey);
-        mk = new maps.Marker({ position: pos, title: nameText, image: isSelected ? imgs.yellow : imgs.purple });
+        const inCart = selectedRowKeySetRef.current.has(rowKey);
+        const clicked = false;
+        const img = quickFactoryRef.current
+          ? quickFactoryRef.current.get({
+              quickOn: quickAddRef.current,
+              selected: inCart,
+              inCart,
+              clicked,
+            })
+          : inCart
+            ? imgs.yellow
+            : imgs.purple;
+
+        mk = new maps.Marker({ position: pos, title: nameText, image: img });
         mk.__key = key;
         mk.__basePos = pos;
         mk.__row = row;
 
         maps.event.addListener(mk, "click", () => {
+          // ✅ 퀵모드: 패널 열지 않고 담기/취소만
+          if (quickAddRef.current) {
+            const was = selectedRowKeySetRef.current.has(rowKey);
+            if (was) removeFromCartByRowKey(rowKey);
+            else addToCartByRowKey(rowKey);
+            const nowSel = selectedRowKeySetRef.current.has(rowKey);
+            const newImg = quickFactoryRef.current
+              ? quickFactoryRef.current.get({
+                  quickOn: true,
+                  selected: nowSel,
+                  inCart: nowSel,
+                  clicked: false,
+                })
+              : nowSel
+                ? imgs.yellow
+                : imgs.purple;
+            mk.setImage(newImg);
+            lastClickedRef.current = null;
+            applyStaticSeparationAll();
+            return;
+          }
+
           const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
           const address = getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
           const productName =
@@ -623,20 +705,58 @@ export default function MapPage() {
 
           const isAlreadySelected = selectedRowKeySetRef.current.has(rowKey);
           if (isAlreadySelected) {
-            mk.setImage(imgs.yellow);
+            const newImg = quickFactoryRef.current
+              ? quickFactoryRef.current.get({
+                  quickOn: quickAddRef.current,
+                  selected: true,
+                  inCart: true,
+                  clicked: false,
+                })
+              : imgs.yellow;
+            mk.setImage(newImg);
             if (lastClickedRef.current && lastClickedRef.current !== mk) {
               const prev = lastClickedRef.current;
               const prevRowKey = buildRowKeyFromRow(prev.__row as PlaceRow);
-              prev.setImage(selectedRowKeySetRef.current.has(prevRowKey) ? imgs.yellow : imgs.purple);
+              const prevInCart = selectedRowKeySetRef.current.has(prevRowKey);
+              const prevImg = quickFactoryRef.current
+                ? quickFactoryRef.current.get({
+                    quickOn: quickAddRef.current,
+                    selected: prevInCart,
+                    inCart: prevInCart,
+                    clicked: false,
+                  })
+                : prevInCart
+                  ? imgs.yellow
+                  : imgs.purple;
+              prev.setImage(prevImg);
             }
             lastClickedRef.current = null;
           } else {
             if (lastClickedRef.current && lastClickedRef.current !== mk) {
               const prev = lastClickedRef.current;
               const prevRowKey = buildRowKeyFromRow(prev.__row as PlaceRow);
-              prev.setImage(selectedRowKeySetRef.current.has(prevRowKey) ? imgs.yellow : imgs.purple);
+              const prevInCart = selectedRowKeySetRef.current.has(prevRowKey);
+              const prevImg = quickFactoryRef.current
+                ? quickFactoryRef.current.get({
+                    quickOn: quickAddRef.current,
+                    selected: prevInCart,
+                    inCart: prevInCart,
+                    clicked: false,
+                  })
+                : prevInCart
+                  ? imgs.yellow
+                  : imgs.purple;
+              prev.setImage(prevImg);
             }
-            mk.setImage(imgs.clicked);
+            const newImg = quickFactoryRef.current
+              ? quickFactoryRef.current.get({
+                  quickOn: quickAddRef.current,
+                  selected: false,
+                  inCart: false,
+                  clicked: true,
+                })
+              : imgs.clicked;
+            mk.setImage(newImg);
             lastClickedRef.current = mk;
           }
           applyStaticSeparationAll();
@@ -647,9 +767,20 @@ export default function MapPage() {
       } else {
         mk.setPosition(pos);
         if (mk.getTitle?.() !== nameText) mk.setTitle?.(nameText);
-        const isSelected = selectedRowKeySetRef.current.has(rowKey);
-        let imgToUse = isSelected ? imgs.yellow : imgs.purple;
-        if (!isSelected && lastClickedRef.current && lastClickedRef.current.__key === key) imgToUse = imgs.clicked;
+        const inCart = selectedRowKeySetRef.current.has(rowKey);
+        const isClicked = !inCart && lastClickedRef.current && lastClickedRef.current.__key === key;
+        const imgToUse = quickFactoryRef.current
+          ? quickFactoryRef.current.get({
+              quickOn: quickAddRef.current,
+              selected: inCart,
+              inCart,
+              clicked: Boolean(isClicked),
+            })
+          : inCart
+            ? imgs.yellow
+            : isClicked
+              ? imgs.clicked
+              : imgs.purple;
         mk.setImage(imgToUse);
       }
 
@@ -699,7 +830,11 @@ export default function MapPage() {
       const rows2 = (data2 ?? []) as PlaceRow[];
       rows2.forEach((row) => {
         if (row.lat == null || row.lng == null) return;
-        const key = `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(7)}|${rowIdOf(row) != null ? String(rowIdOf(row)) : ""}|${String(getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "")}|${String(getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "")}`;
+        const key = `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(
+          7,
+        )}|${rowIdOf(row) != null ? String(rowIdOf(row)) : ""}|${String(
+          getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "",
+        )}|${String(getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "")}`;
         if (markerCacheRef.current.has(key)) return;
 
         const lat = Number(row.lat),
@@ -707,18 +842,51 @@ export default function MapPage() {
         const pos = new maps.LatLng(lat, lng);
         const nameText = String(getField(row, ["단지명", "name", "아파트명"]) || "");
         const rowKey = buildRowKeyFromRow(row);
-        const isSelected = selectedRowKeySetRef.current.has(rowKey);
+        const inCart2 = selectedRowKeySetRef.current.has(rowKey);
+
+        const img2 = quickFactoryRef.current
+          ? quickFactoryRef.current.get({
+              quickOn: quickAddRef.current,
+              selected: inCart2,
+              inCart: inCart2,
+              clicked: false,
+            })
+          : inCart2
+            ? imgs.yellow
+            : imgs.purple;
 
         const mk: KMarker = new maps.Marker({
           position: pos,
           title: nameText,
-          image: isSelected ? imgs.yellow : imgs.purple,
+          image: img2,
         });
         mk.__key = key;
         mk.__basePos = pos;
         mk.__row = row;
 
         maps.event.addListener(mk, "click", () => {
+          // ✅ 퀵모드: 패널 열지 않고 담기/취소
+          if (quickAddRef.current) {
+            const was = selectedRowKeySetRef.current.has(rowKey);
+            if (was) removeFromCartByRowKey(rowKey);
+            else addToCartByRowKey(rowKey);
+            const nowSel = selectedRowKeySetRef.current.has(rowKey);
+            const newImg = quickFactoryRef.current
+              ? quickFactoryRef.current.get({
+                  quickOn: true,
+                  selected: nowSel,
+                  inCart: nowSel,
+                  clicked: false,
+                })
+              : nowSel
+                ? imgs.yellow
+                : imgs.purple;
+            mk.setImage(newImg);
+            lastClickedRef.current = null;
+            applyStaticSeparationAll();
+            return;
+          }
+
           const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
           const address = getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
           const productName =
@@ -813,18 +981,56 @@ export default function MapPage() {
 
           const isAlreadySelected = selectedRowKeySetRef.current.has(rowKey);
           if (isAlreadySelected) {
-            mk.setImage(imgs.yellow);
+            const newImg = quickFactoryRef.current
+              ? quickFactoryRef.current.get({
+                  quickOn: quickAddRef.current,
+                  selected: true,
+                  inCart: true,
+                  clicked: false,
+                })
+              : imgs.yellow;
+            mk.setImage(newImg);
             if (lastClickedRef.current && lastClickedRef.current !== mk) {
               const prevRowKey = buildRowKeyFromRow(lastClickedRef.current.__row as PlaceRow);
-              lastClickedRef.current.setImage(selectedRowKeySetRef.current.has(prevRowKey) ? imgs.yellow : imgs.purple);
+              const prevInCart = selectedRowKeySetRef.current.has(prevRowKey);
+              const prevImg = quickFactoryRef.current
+                ? quickFactoryRef.current.get({
+                    quickOn: quickAddRef.current,
+                    selected: prevInCart,
+                    inCart: prevInCart,
+                    clicked: false,
+                  })
+                : prevInCart
+                  ? imgs.yellow
+                  : imgs.purple;
+              lastClickedRef.current.setImage(prevImg);
             }
             lastClickedRef.current = null;
           } else {
             if (lastClickedRef.current && lastClickedRef.current !== mk) {
               const prevRowKey = buildRowKeyFromRow(lastClickedRef.current.__row as PlaceRow);
-              lastClickedRef.current.setImage(selectedRowKeySetRef.current.has(prevRowKey) ? imgs.yellow : imgs.purple);
+              const prevInCart = selectedRowKeySetRef.current.has(prevRowKey);
+              const prevImg = quickFactoryRef.current
+                ? quickFactoryRef.current.get({
+                    quickOn: quickAddRef.current,
+                    selected: prevInCart,
+                    inCart: prevInCart,
+                    clicked: false,
+                  })
+                : prevInCart
+                  ? imgs.yellow
+                  : imgs.purple;
+              lastClickedRef.current.setImage(prevImg);
             }
-            mk.setImage(imgs.clicked);
+            const newImg = quickFactoryRef.current
+              ? quickFactoryRef.current.get({
+                  quickOn: quickAddRef.current,
+                  selected: false,
+                  inCart: false,
+                  clicked: true,
+                })
+              : imgs.clicked;
+            mk.setImage(newImg);
             lastClickedRef.current = mk;
           }
           applyStaticSeparationAll();
@@ -832,8 +1038,16 @@ export default function MapPage() {
 
         markerCacheRef.current.set(key, mk);
 
-        let imgToUse = isSelected ? imgs.yellow : imgs.purple;
-        if (!isSelected && lastClickedRef.current && lastClickedRef.current.__key === key) imgToUse = imgs.clicked;
+        const imgToUse = quickFactoryRef.current
+          ? quickFactoryRef.current.get({
+              quickOn: quickAddRef.current,
+              selected: inCart2,
+              inCart: inCart2,
+              clicked: false,
+            })
+          : inCart2
+            ? imgs.yellow
+            : imgs.purple;
         mk.setImage(imgToUse);
 
         if (!keyIndexRef.current[rowKey]) keyIndexRef.current[rowKey] = [];
@@ -897,7 +1111,7 @@ export default function MapPage() {
     btn.style.height = "22px";
     btn.style.borderRadius = "999px";
     btn.style.background = "#FFFFFF";
-    btn.style.border = "2px solid #FFD400"; // ✅ 문자열 수정
+    btn.style.border = "2px solid #FFD400"; // <-- fixed string
     btn.style.boxShadow = "0 2px 6px rgba(0,0,0,0.15)";
     btn.style.display = "flex";
     btn.style.alignItems = "center";
@@ -1004,13 +1218,12 @@ export default function MapPage() {
     setSelected(null);
   }
 
-  /* ---------- ✅ PC: 내 위치 버튼 구현 ---------- */
+  /* ---------- 내 위치(PC) ---------- */
   const ensureUserOverlay = useCallback((lat: number, lng: number) => {
     const kakao = (window as KakaoNS).kakao;
     if (!kakao?.maps || !mapObjRef.current) return;
     const map = mapObjRef.current;
 
-    // 오버레이용 엘리먼트(작은 보라 점)
     if (!userOverlayElRef.current) {
       const el = document.createElement("div");
       el.style.width = "14px";
@@ -1076,8 +1289,24 @@ export default function MapPage() {
     <div className="w-screen h-[100dvh] bg-white">
       <div ref={mapRef} className={`fixed top-16 left-0 right-0 bottom-0 z-[10] ${mapLeftClass}`} aria-label="map" />
 
-      {/* ✅ PC 고정 버튼: 내 위치로 이동 */}
-      <div className="fixed right-4 bottom-6 md:bottom-8 z-[60] flex flex-col items-end gap-2 pointer-events-auto">
+      {/* ✅ 상단(헤더 아래) 고정 버튼 스택: 퀵담기 → 내위치 */}
+      <div className="fixed right-4 top-[84px] z-[60] flex flex-col items-end gap-2 pointer-events-auto">
+        {/* 퀵담기 토글 */}
+        <button
+          type="button"
+          onClick={() => setQuickAdd((v) => !v)}
+          aria-pressed={quickAdd}
+          aria-label="빠른 아파트 담기"
+          title="빠른 아파트 담기"
+          className={
+            "w-12 h-12 rounded-full shadow-lg flex items-center justify-center transition active:scale-95 " +
+            (quickAdd ? "bg-[#FFD400] text-[#222]" : "bg-[#6F4BF2] text-white hover:brightness-110")
+          }
+        >
+          <Plus className="w-6 h-6" />
+        </button>
+
+        {/* 내 위치로 이동 */}
         <button
           type="button"
           onClick={goMyLocation}
