@@ -2,7 +2,17 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
-import { ClipboardList, ExternalLink, FileSignature, Mail, X, CheckCircle2 } from "lucide-react";
+import {
+  ClipboardList,
+  ExternalLink,
+  FileSignature,
+  Mail,
+  X,
+  CheckCircle2,
+  Download,
+  Copy,
+  Link as LinkIcon,
+} from "lucide-react";
 
 import type { CompleteModalProps, ReceiptData, ReceiptSeat } from "./types";
 import { isSeatReceipt } from "./types";
@@ -11,9 +21,11 @@ import { isSeatReceipt } from "./types";
 import { saveFullContentAsPNG, saveFullContentAsPDF } from "@/core/utils/capture";
 // 정책 유틸 (PC 버전과 동일 로직)
 import { calcMonthlyWithPolicy, normPolicyKey, DEFAULT_POLICY, rateFromRanges } from "@/core/pricing";
+// Supabase (링크 공유용 Edge Function 호출)
+import { supabase } from "@/integrations/supabase/client";
 
 /* =========================================================================
- * 공통 상수/유틸 (PC 버전과 동일)
+ * 공통 상수/유틸
  * ========================================================================= */
 const BRAND = "#6F4BF2";
 const BRAND_LIGHT = "#EEE8FF";
@@ -63,7 +75,7 @@ function parseMonths(value: any): number {
   return 0;
 }
 
-/** 이메일을 **ster@domain 형태로 마스킹 */
+/** 이메일을 **ster@domain 형태로 마스킹(표시 용도만) */
 function maskEmail(email?: string | null) {
   if (!email) return "-";
   const s = String(email).trim();
@@ -142,189 +154,19 @@ function useBodyScrollLock(locked: boolean) {
 }
 
 /* =========================================================================
- * 헤더(성공) — 모바일 크기/여백만 다름
+ * Seat rows 추출(표/CSV/공유 공통 사용) — PII 없음
  * ========================================================================= */
-function HeaderSuccess({ ticketCode, createdAtISO }: { ticketCode: string; createdAtISO: string }) {
-  const kst = useMemo(() => formatKST(createdAtISO), [createdAtISO]);
-  return (
-    <div className="flex items-center gap-3">
-      <motion.div
-        className="flex h-11 w-11 items-center justify-center rounded-full"
-        style={{ backgroundColor: BRAND_LIGHT }}
-        initial={{ scale: 0.7, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ type: "spring", stiffness: 260, damping: 18 }}
-      >
-        <CheckCircle2 size={24} color={BRAND} />
-      </motion.div>
-      <div>
-        <div className="text-base font-semibold">문의가 접수됐어요!</div>
-        <div className="mt-0.5 text-xs text-gray-500">
-          접수번호 {ticketCode} · {kst}
-        </div>
-      </div>
-    </div>
-  );
-}
+type SeatRow = {
+  aptName: string;
+  productName: string;
+  monthlyFee: number;
+  periodLabel: string;
+  baseTotal: number;
+  discountPct: string | number;
+  lineTotal: number;
+};
 
-/* =========================================================================
- * 오른쪽: 다음 절차 카드 (모바일 단일 열)
- * ========================================================================= */
-function NextSteps() {
-  return (
-    <div className="rounded-xl border border-gray-100 p-4">
-      <div className="mb-2 text-sm font-semibold">다음 절차</div>
-      <ol className="space-y-3">
-        <li className="grid grid-cols-[28px_1fr] items-start gap-3">
-          <span
-            className="inline-flex h-7 w-7 items-center justify-center rounded-full"
-            style={{ backgroundColor: BRAND_LIGHT }}
-          >
-            <ClipboardList size={16} color={BRAND} />
-          </span>
-          <div className="text-sm leading-6">
-            <b>구좌(T.O) 확인</b>
-            <span> (1~2일 소요)</span>
-          </div>
-        </li>
-        <li className="grid grid-cols-[28px_1fr] items-start gap-3">
-          <span
-            className="inline-flex h-7 w-7 items-center justify-center rounded-full"
-            style={{ backgroundColor: BRAND_LIGHT }}
-          >
-            <Mail size={16} color={BRAND} />
-          </span>
-          <div className="text-sm leading-6">
-            <b>맞춤 견적 전달</b> (이메일,전화)
-          </div>
-        </li>
-        <li className="grid grid-cols-[28px_1fr] items-start gap-3">
-          <span
-            className="inline-flex h-7 w-7 items-center justify-center rounded-full"
-            style={{ backgroundColor: BRAND_LIGHT }}
-          >
-            <FileSignature size={16} color={BRAND} />
-          </span>
-          <div className="text-sm leading-6">
-            <b>상담/계약</b> (전자 계약)
-          </div>
-        </li>
-      </ol>
-    </div>
-  );
-}
-
-/* =========================================================================
- * 좌: 고객 정보(항상 펼침) — PC와 동일 데이터, 모바일 레이아웃
- * ========================================================================= */
-function RowLine({ label, value }: { label: string; value?: string }) {
-  return (
-    <div className="grid grid-cols-3 items-start gap-3 py-2">
-      <div className="col-span-1 text-xs text-gray-500">{label}</div>
-      <div className="col-span-2 break-words whitespace-pre-wrap text-sm text-gray-800">{value || "-"}</div>
-    </div>
-  );
-}
-
-function CustomerInquirySection({ data }: { data: ReceiptData }) {
-  const c: any = (data as any).customer || {};
-  const form: any = (data as any).form || {};
-  const summary: any = (data as any).summary || {};
-  const meta: any = (data as any).meta || {};
-
-  // 이메일 선택(여러 위치 탐색) → 마스킹
-  const emailRaw = pickEmailLike(c, form, summary, meta) ?? pickEmailLike(form?.values) ?? undefined;
-  let emailMasked = "-";
-  const chosenEmail = emailRaw ?? c.email ?? form.email;
-  if (chosenEmail) {
-    emailMasked = maskEmail(chosenEmail);
-  } else if (c.emailDomain) {
-    emailMasked = `**@${String(c.emailDomain).replace(/^@/, "")}`;
-  }
-
-  // 캠페인 유형
-  const campaignType =
-    pickFirstString(
-      [form, summary, c, meta],
-      [
-        "campaignType",
-        "campaign_type",
-        "campaign",
-        "campaign_kind",
-        "campaignTypeLabel",
-        "campaign_type_label",
-        "campaignLabel",
-        "campaign_label",
-      ],
-    ) ||
-    pickFirstString([form?.values], ["campaignType", "campaign_type", "campaign", "campaign_kind"]) ||
-    "-";
-
-  // 희망일/기간
-  const preferredRaw =
-    form.desiredDate ??
-    form.hopeDate ??
-    summary.desiredDate ??
-    summary.hopeDate ??
-    meta.desiredDate ??
-    meta.startDate ??
-    meta.start_date ??
-    form?.values?.desiredDate ??
-    form?.values?.hopeDate;
-
-  const desiredValue =
-    toYMD(preferredRaw) ??
-    form.periodLabel ??
-    form.period_label ??
-    (typeof form.months === "number" ? `${form.months}개월` : undefined) ??
-    summary.periodLabel ??
-    summary.period_label ??
-    (typeof summary.months === "number" ? `${summary.months}개월` : undefined) ??
-    "-";
-
-  // 프로모션코드
-  const promoCode =
-    pickFirstString(
-      [form, summary, meta, form?.values],
-      ["promotionCode", "promoCode", "promotion_code", "promo_code"],
-    ) || "-";
-
-  // 문의내용(여러 키 후보)
-  const inquiryText: string = pickInquiryText(form, summary, meta, c) ?? ("-" as string);
-
-  return (
-    <div className="rounded-xl border border-gray-100 bg-white">
-      <div className="flex w-full items-center justify-between px-4 py-3 text-left">
-        <span className="text-sm font-semibold">고객 정보</span>
-      </div>
-
-      <div className="px-4">
-        <RowLine label="상호명" value={c.company ?? form.company} />
-        <RowLine label="담당자" value={c.name ?? form.manager ?? form.contactName} />
-        <RowLine label="연락처" value={c.phoneMasked ?? form.phoneMasked ?? form.phone} />
-        <RowLine label="이메일" value={emailMasked} />
-        <RowLine label="캠페인 유형" value={campaignType} />
-        <RowLine label="광고 송출 예정(희망)일" value={desiredValue} />
-        <RowLine label="프로모션코드" value={promoCode} />
-      </div>
-
-      <div className="mt-2 border-t border-gray-100 px-4 py-3">
-        <div className="mb-2 text-xs text-gray-500">문의내용</div>
-        <div
-          className="min-h-[120px] whitespace-pre-wrap break-words rounded-lg bg-gray-50 px-3 py-3 text-sm"
-          data-capture-scroll
-        >
-          {inquiryText}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* =========================================================================
- * 좌: SEAT 문의 내역(테이블) — PC와 동일 계산, 모바일 가로스크롤 테이블
- * ========================================================================= */
-function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
+function buildSeatRows(data: ReceiptSeat): { rows: SeatRow[]; periodTotal: number } {
   const detailsItems: any[] = (data as any)?.details?.items ?? [];
   const snapshotItems: any[] = (data as any)?.form?.cart_snapshot?.items ?? (data as any)?.cart_snapshot?.items ?? [];
   const length = Math.max(detailsItems.length, snapshotItems.length);
@@ -438,10 +280,247 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
       baseTotal: isFinite(baseTotal) ? baseTotal : 0,
       discountPct,
       lineTotal,
-    };
+    } as SeatRow;
   });
 
   const periodTotal = rows.reduce((sum, r) => sum + (isFinite(r.lineTotal) ? r.lineTotal : 0), 0);
+  return { rows, periodTotal };
+}
+
+/* =========================================================================
+ * CSV/Markdown 생성 (PII 없음)
+ * ========================================================================= */
+function toCSV(rows: SeatRow[]) {
+  const headers = ["단지명", "상품명", "월광고료", "광고기간", "기준금액", "할인율", "총광고료"];
+  const escape = (v: any) => {
+    let s = String(v ?? "");
+    if (s.includes('"') || s.includes(",") || s.includes("\n")) s = '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  };
+  const lines = [
+    headers.join(","),
+    ...rows.map((r) =>
+      [r.aptName, r.productName, r.monthlyFee, r.periodLabel, r.baseTotal, r.discountPct, r.lineTotal]
+        .map(escape)
+        .join(","),
+    ),
+  ];
+  return "\ufeff" + lines.join("\n"); // BOM 포함(엑셀 호환)
+}
+
+function toMarkdown(rows: SeatRow[]) {
+  const head = ["단지명", "상품명", "월광고료", "광고기간", "기준금액", "할인율", "총광고료"];
+  const hdr = `| ${head.join(" | ")} |\n| ${head.map(() => "---").join(" | ")} |`;
+  const body = rows
+    .map(
+      (r) =>
+        `| ${r.aptName} | ${r.productName} | ${formatWon(r.monthlyFee)} | ${r.periodLabel} | ${formatWon(
+          r.baseTotal,
+        )} | ${r.discountPct} | ${formatWon(r.lineTotal)} |`,
+    )
+    .join("\n");
+  return `${hdr}\n${body}`;
+}
+
+async function downloadTextAsFile(text: string, filename: string, mime = "text/plain;charset=utf-8") {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  requestAnimationFrame(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+}
+
+/* =========================================================================
+ * 헤더(성공)
+ * ========================================================================= */
+function HeaderSuccess({ ticketCode, createdAtISO }: { ticketCode: string; createdAtISO: string }) {
+  const kst = useMemo(() => formatKST(createdAtISO), [createdAtISO]);
+  return (
+    <div className="flex items-center gap-3">
+      <motion.div
+        className="flex h-11 w-11 items-center justify-center rounded-full"
+        style={{ backgroundColor: BRAND_LIGHT }}
+        initial={{ scale: 0.7, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        transition={{ type: "spring", stiffness: 260, damping: 18 }}
+      >
+        <CheckCircle2 size={24} color={BRAND} />
+      </motion.div>
+      <div>
+        <div className="text-base font-semibold">문의가 접수됐어요!</div>
+        <div className="mt-0.5 text-xs text-gray-500">
+          접수번호 {ticketCode} · {kst}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================================
+ * 오른쪽: 다음 절차 카드
+ * ========================================================================= */
+function NextSteps() {
+  return (
+    <div className="rounded-xl border border-gray-100 p-4">
+      <div className="mb-2 text-sm font-semibold">다음 절차</div>
+      <ol className="space-y-3">
+        <li className="grid grid-cols-[28px_1fr] items-start gap-3">
+          <span
+            className="inline-flex h-7 w-7 items-center justify-center rounded-full"
+            style={{ backgroundColor: BRAND_LIGHT }}
+          >
+            <ClipboardList size={16} color={BRAND} />
+          </span>
+          <div className="text-sm leading-6">
+            <b>구좌(T.O) 확인</b>
+            <span> (1~2일 소요)</span>
+          </div>
+        </li>
+        <li className="grid grid-cols-[28px_1fr] items-start gap-3">
+          <span
+            className="inline-flex h-7 w-7 items-center justify-center rounded-full"
+            style={{ backgroundColor: BRAND_LIGHT }}
+          >
+            <Mail size={16} color={BRAND} />
+          </span>
+          <div className="text-sm leading-6">
+            <b>맞춤 견적 전달</b> (이메일,전화)
+          </div>
+        </li>
+        <li className="grid grid-cols-[28px_1fr] items-start gap-3">
+          <span
+            className="inline-flex h-7 w-7 items-center justify-center rounded-full"
+            style={{ backgroundColor: BRAND_LIGHT }}
+          >
+            <FileSignature size={16} color={BRAND} />
+          </span>
+          <div className="text-sm leading-6">
+            <b>상담/계약</b> (전자 계약)
+          </div>
+        </li>
+      </ol>
+    </div>
+  );
+}
+
+/* =========================================================================
+ * 고객 정보(표시용, 마스킹 적용)
+ * ========================================================================= */
+function RowLine({ label, value }: { label: string; value?: string }) {
+  return (
+    <div className="grid grid-cols-3 items-start gap-3 py-2">
+      <div className="col-span-1 text-xs text-gray-500">{label}</div>
+      <div className="col-span-2 break-words whitespace-pre-wrap text-sm text-gray-800">{value || "-"}</div>
+    </div>
+  );
+}
+
+function CustomerInquirySection({ data }: { data: ReceiptData }) {
+  const c: any = (data as any).customer || {};
+  const form: any = (data as any).form || {};
+  const summary: any = (data as any).summary || {};
+  const meta: any = (data as any).meta || {};
+
+  // 이메일 선택(여러 위치 탐색) → 마스킹
+  const emailRaw = pickEmailLike(c, form, summary, meta) ?? pickEmailLike(form?.values) ?? undefined;
+  let emailMasked = "-";
+  const chosenEmail = emailRaw ?? c.email ?? form.email;
+  if (chosenEmail) {
+    emailMasked = maskEmail(chosenEmail);
+  } else if (c.emailDomain) {
+    emailMasked = `**@${String(c.emailDomain).replace(/^@/, "")}`;
+  }
+
+  // 캠페인 유형
+  const campaignType =
+    pickFirstString(
+      [form, summary, c, meta],
+      [
+        "campaignType",
+        "campaign_type",
+        "campaign",
+        "campaign_kind",
+        "campaignTypeLabel",
+        "campaign_type_label",
+        "campaignLabel",
+        "campaign_label",
+      ],
+    ) ||
+    pickFirstString([form?.values], ["campaignType", "campaign_type", "campaign", "campaign_kind"]) ||
+    "-";
+
+  // 희망일/기간
+  const preferredRaw =
+    form.desiredDate ??
+    form.hopeDate ??
+    summary.desiredDate ??
+    summary.hopeDate ??
+    meta.desiredDate ??
+    meta.startDate ??
+    meta.start_date ??
+    form?.values?.desiredDate ??
+    form?.values?.hopeDate;
+
+  const desiredValue =
+    toYMD(preferredRaw) ??
+    form.periodLabel ??
+    form.period_label ??
+    (typeof form.months === "number" ? `${form.months}개월` : undefined) ??
+    summary.periodLabel ??
+    summary.period_label ??
+    (typeof summary.months === "number" ? `${summary.months}개월` : undefined) ??
+    "-";
+
+  // 프로모션코드
+  const promoCode =
+    pickFirstString(
+      [form, summary, meta, form?.values],
+      ["promotionCode", "promoCode", "promotion_code", "promo_code"],
+    ) || "-";
+
+  // 문의내용(여러 키 후보)
+  const inquiryText: string = pickInquiryText(form, summary, meta, c) ?? ("-" as string);
+
+  return (
+    <div className="rounded-xl border border-gray-100 bg-white">
+      <div className="flex w-full items-center justify-between px-4 py-3 text-left">
+        <span className="text-sm font-semibold">고객 정보</span>
+      </div>
+
+      <div className="px-4">
+        <RowLine label="상호명" value={c.company ?? form.company} />
+        <RowLine label="담당자" value={c.name ?? form.manager ?? form.contactName} />
+        <RowLine label="연락처" value={c.phoneMasked ?? form.phoneMasked ?? form.phone} />
+        <RowLine label="이메일" value={emailMasked} />
+        <RowLine label="캠페인 유형" value={campaignType} />
+        <RowLine label="광고 송출 예정(희망)일" value={desiredValue} />
+        <RowLine label="프로모션코드" value={promoCode} />
+      </div>
+
+      <div className="mt-2 border-t border-gray-100 px-4 py-3">
+        <div className="mb-2 text-xs text-gray-500">문의내용</div>
+        <div
+          className="min-h-[120px] whitespace-pre-wrap break-words rounded-lg bg-gray-50 px-3 py-3 text-sm"
+          data-capture-scroll
+        >
+          {inquiryText}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =========================================================================
+ * 좌: SEAT 문의 내역(테이블)
+ * ========================================================================= */
+function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
+  const { rows, periodTotal } = buildSeatRows(data);
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white">
@@ -468,7 +547,9 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
                   <td className="text-right">{formatWon(r.monthlyFee)}</td>
                   <td className="text-right">{r.periodLabel}</td>
                   <td className="text-right">{formatWon(r.baseTotal)}</td>
-                  <td className="text-right">{r.discountPct}</td>
+                  <td className="text-right">
+                    {typeof r.discountPct === "number" ? `${r.discountPct}%` : r.discountPct}
+                  </td>
                   <td className="text-right font-semibold text-[#6C2DFF]">{formatWon(r.lineTotal)}</td>
                 </tr>
               ))
@@ -507,10 +588,7 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
 }
 
 /* =========================================================================
- * 메인 모달 (모바일)
- * - PC와 동일 데이터/기능
- * - 모바일 크기/여백/배치만 조정
- * - 🔒 보안: 표시 목적 외의 민감정보(연락처/이메일 등)를 콘솔/스토리지/URL에 남기지 마세요.
+ * 메인 모달 (모바일) + 내보내기/공유
  * ========================================================================= */
 export default function CompleteModalMobile({ open, onClose, data, confirmLabel = "확인" }: CompleteModalProps) {
   useBodyScrollLock(open);
@@ -519,22 +597,114 @@ export default function CompleteModalMobile({ open, onClose, data, confirmLabel 
     if (url) window.open(url, "_blank", "noopener,noreferrer");
   };
 
+  const isSeat = isSeatReceipt(data);
+  const exportDisabled = !isSeat;
+
+  // Export/Share UI 상태
+  const [busy, setBusy] = useState(false);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [exportMsg, setExportMsg] = useState<string | null>(null);
+
   if (!open) return null;
 
   const handleSave = async (kind: "png" | "pdf") => {
     const root = document.getElementById("receipt-capture-mobile");
     if (!root) return;
-    // 내부 스크롤 영역(세로/가로) 모두 캡처
     const scrollContainers = Array.from(root.querySelectorAll<HTMLElement>("[data-capture-scroll]"));
     if (kind === "png") await saveFullContentAsPNG(root, `${data.ticketCode}_receipt`, scrollContainers);
     else await saveFullContentAsPDF(root, `${data.ticketCode}_receipt`, scrollContainers);
   };
 
+  const handleCSV = async () => {
+    if (exportDisabled) return;
+    const { rows } = buildSeatRows(data as ReceiptSeat);
+    const csv = toCSV(rows);
+    const ts = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 12);
+    await downloadTextAsFile(csv, `${data.ticketCode}_inquiry_${ts}.csv`, "text/csv;charset=utf-8");
+    setExportMsg("CSV 파일을 다운로드했어요.");
+  };
+
+  const handleCopyText = async () => {
+    if (exportDisabled) return;
+    const { rows } = buildSeatRows(data as ReceiptSeat);
+    const md = toMarkdown(rows);
+    try {
+      await navigator.clipboard.writeText(md);
+      setExportMsg("표를 클립보드에 복사했어요.");
+    } catch {
+      await downloadTextAsFile(md, `${data.ticketCode}_inquiry.txt`, "text/plain;charset=utf-8");
+      setExportMsg("클립보드 접근이 차단되어 TXT로 저장했어요.");
+    }
+  };
+
+  const handleShareLink = async () => {
+    if (exportDisabled) return;
+    setBusy(true);
+    setExportMsg(null);
+    setShareUrl(null);
+
+    try {
+      const { rows, periodTotal } = buildSeatRows(data as ReceiptSeat);
+
+      // 🔒 PII 없는 스냅샷(표 데이터만)
+      const snapshot = {
+        version: "v1",
+        kind: "SEAT",
+        ticketCode: (data as any).ticketCode,
+        createdAtISO: (data as any).createdAtISO,
+        table: {
+          headers: ["단지명", "상품명", "월광고료", "광고기간", "기준금액", "할인율", "총광고료"],
+          rows: rows.map((r) => [
+            r.aptName,
+            r.productName,
+            r.monthlyFee,
+            r.periodLabel,
+            r.baseTotal,
+            r.discountPct,
+            r.lineTotal,
+          ]),
+          totals: { periodTotal, vat10: Math.round(periodTotal * 0.1), grandTotal: Math.round(periodTotal * 1.1) },
+          currency: "KRW",
+        },
+      };
+
+      // ① Edge Function 우선
+      const { data: fnData, error: fnErr } = await supabase.functions.invoke("publish-inquiry-snapshot", {
+        body: { snapshot, ttl_hours: 24 * 7 }, // 7일 만료 제안
+      });
+
+      if (fnErr) throw fnErr;
+      const url = (fnData && (fnData.url || fnData.signed_url || fnData.short_url)) as string | undefined;
+      if (!url) throw new Error("공유 URL 생성에 실패했습니다.");
+
+      setShareUrl(url);
+
+      // 모바일/지원 브라우저: 시스템 공유 시트
+      if ((navigator as any).share) {
+        try {
+          await (navigator as any).share({
+            title: "오르카 문의내역",
+            text: "문의 내역 표를 확인하세요.",
+            url,
+          });
+          setExportMsg("시스템 공유 시트를 열었어요.");
+        } catch {
+          // 사용자가 취소해도 무시
+        }
+      } else {
+        await navigator.clipboard.writeText(url);
+        setExportMsg("공유 링크를 클립보드에 복사했어요.");
+      }
+    } catch (e: any) {
+      setExportMsg("공유 링크 생성에 실패했습니다. 관리자에게 문의해주세요.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const LINK_YT = "https://www.youtube.com/@ORKA_KOREA";
   const LINK_GUIDE = "https://orka.co.kr/ELAVATOR_CONTENTS";
   const LINK_TEAM = "https://orka.co.kr/orka_members";
-
-  const isSeat = isSeatReceipt(data);
 
   return createPortal(
     <AnimatePresence>
@@ -565,7 +735,7 @@ export default function CompleteModalMobile({ open, onClose, data, confirmLabel 
           >
             {/* 헤더 */}
             <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-4">
-              <HeaderSuccess ticketCode={data.ticketCode} createdAtISO={data.createdAtISO} />
+              <HeaderSuccess ticketCode={(data as any).ticketCode} createdAtISO={(data as any).createdAtISO} />
               <button aria-label="close" className="rounded-full p-2 hover:bg-gray-50" onClick={onClose}>
                 <X size={18} />
               </button>
@@ -581,7 +751,7 @@ export default function CompleteModalMobile({ open, onClose, data, confirmLabel 
                 <div className="grid grid-cols-1 gap-4">
                   <NextSteps />
 
-                  {/* ✅ 저장 버튼: 즉시 PNG 캡처 (토글/선택 제거) */}
+                  {/* ✅ 이미지 저장(전체 캡처) */}
                   <button
                     onClick={async () => {
                       await handleSave("png");
@@ -591,8 +761,83 @@ export default function CompleteModalMobile({ open, onClose, data, confirmLabel 
                   >
                     이미지로 문의 내용 저장하기
                   </button>
-                  <p className="mt-1 text-xs text-red-500">정확한 상담을 위해 문의 내용을 반드시 저장 해두세요</p>
+                  <p className="mt-1 text-xs text-red-500">
+                    저장 시 이 화면 전체가 이미지로 저장됩니다. 문의 내역이 길어도 모두 포함돼요.
+                  </p>
 
+                  {/* ✅ 표 데이터 내보내기/공유 (PII 없음) */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={handleCSV}
+                      disabled={exportDisabled || busy}
+                      className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium ${
+                        exportDisabled || busy ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-50"
+                      }`}
+                      title={exportDisabled ? "SEAT 문의에서만 제공" : "CSV로 다운로드"}
+                    >
+                      <Download size={16} />
+                      CSV 다운로드
+                    </button>
+                    <button
+                      onClick={handleCopyText}
+                      disabled={exportDisabled || busy}
+                      className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium ${
+                        exportDisabled || busy ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-50"
+                      }`}
+                      title={exportDisabled ? "SEAT 문의에서만 제공" : "텍스트로 복사"}
+                    >
+                      <Copy size={16} />
+                      텍스트 복사
+                    </button>
+                    <button
+                      onClick={handleShareLink}
+                      disabled={exportDisabled || busy}
+                      className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold ${
+                        exportDisabled || busy ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-50"
+                      }`}
+                      title={exportDisabled ? "SEAT 문의에서만 제공" : "링크로 공유"}
+                    >
+                      <LinkIcon size={16} />
+                      링크로 공유
+                    </button>
+                  </div>
+
+                  {/* 메시지 / 공유 URL 표시 */}
+                  {(exportMsg || shareUrl) && (
+                    <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                      {exportMsg && <div className="text-[12px] text-gray-700">{exportMsg}</div>}
+                      {shareUrl && (
+                        <div className="mt-2 flex items-center gap-2">
+                          <input
+                            readOnly
+                            value={shareUrl}
+                            className="flex-1 rounded-md border border-gray-300 bg-white px-2 py-1 text-[12px] text-gray-800"
+                          />
+                          <button
+                            onClick={async () => {
+                              try {
+                                await navigator.clipboard.writeText(shareUrl);
+                                setExportMsg("공유 링크를 복사했어요.");
+                              } catch {}
+                            }}
+                            className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[12px] font-medium hover:bg-gray-50"
+                          >
+                            <Copy size={14} />
+                            복사
+                          </button>
+                          <button
+                            onClick={() => openExternal(shareUrl)}
+                            className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[12px] font-medium hover:bg-gray-50"
+                          >
+                            <ExternalLink size={14} />
+                            열기
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* 참고 링크 */}
                   <div className="rounded-xl border border-gray-100 p-4">
                     <div className="text-sm font-semibold">더 많은 정보</div>
                     <div className="mt-3 grid grid-cols-1 gap-2">
