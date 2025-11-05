@@ -2,7 +2,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import MapChrome, { SelectedApt } from "../components/MapChrome";
-import { LocateFixed } from "lucide-react"; // ✅ 내 위치 버튼 아이콘
+import { LocateFixed } from "lucide-react"; // ✅ PC 내 위치 버튼 아이콘
 
 type KakaoNS = typeof window & { kakao: any };
 const FALLBACK_KAKAO_KEY = "a53075efe7a2256480b8650cec67ebae";
@@ -897,7 +897,7 @@ export default function MapPage() {
     btn.style.height = "22px";
     btn.style.borderRadius = "999px";
     btn.style.background = "#FFFFFF";
-    btn.style.border = "2px solid "#FFD400";
+    btn.style.border = "2px solid #FFD400"; // ✅ 문자열 수정
     btn.style.boxShadow = "0 2px 6px rgba(0,0,0,0.15)";
     btn.style.display = "flex";
     btn.style.alignItems = "center";
