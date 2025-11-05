@@ -1,3 +1,4 @@
+// src/pages/admin/AdminLayout.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -5,11 +6,13 @@ import { supabase } from "@/integrations/supabase/client";
 /**
  * AdminLayout
  * - /admin 하위 공통 레이아웃(사이드바 + 메인)
- * - ✅ 관리자 가드: 세션이 준비되고 role=admin 일 때만 children 렌더
+ * - ✅ 관리자 가드: DB RPC(is_admin) 결과가 true일 때만 children 렌더
  * - 초기 진입이 /admin 루트면 기본 경로로 리다이렉트
  *
- * 중요: 가드가 끝나기 전까지 Outlet을 렌더하지 않아야
- *       anon 토큰으로 SELECT가 먼저 나가 401/403이 나는 문제를 막을 수 있음.
+ * 중요:
+ *  - 가드가 끝나기 전까지 Outlet을 렌더하지 않아야
+ *    anon 토큰으로 SELECT가 먼저 나가 401/403이 나는 문제를 막을 수 있음.
+ *  - 화면 표시 가드(app_metadata.role)는 제거하고, DB를 단일 진실원장으로 사용
  */
 const DEFAULT_ADMIN_ENTRY = "/admin/dashboard";
 
@@ -27,8 +30,8 @@ const AdminLayout: React.FC = () => {
   const loc = useLocation();
 
   // 가드 상태
-  const [checking, setChecking] = useState(true);   // 세션/권한 확인 중
-  const [allowed, setAllowed] = useState(false);    // 관리자 통과 여부
+  const [checking, setChecking] = useState(true); // 세션/권한 확인 중
+  const [allowed, setAllowed] = useState(false); // 관리자 통과 여부
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
@@ -40,37 +43,51 @@ const AdminLayout: React.FC = () => {
     let mounted = true;
 
     const run = async () => {
-      setChecking(true);
       try {
-        // 1) 세션 확보
-        const { data: { session } } = await supabase.auth.getSession();
+        setChecking(true);
 
-        // 미로그인 → 접근 불가
-        if (!session) {
+        // 1) 세션 확보
+        const {
+          data: { session },
+          error: sessionErr,
+        } = await supabase.auth.getSession();
+
+        if (sessionErr) {
+          // 세션 조회 오류 시 안전 기본값(미허용)
           if (mounted) {
             setAllowed(false);
-            // 필요 시 로그인 페이지로 유도하거나 홈으로
             nav("/", { replace: true });
           }
           return;
         }
 
-        // 2) 메타데이터 기반 역할 확인 (서버에서 role=admin 을 부여해 둔 상태)
-        const role = (session.user as any)?.app_metadata?.role;
-        const isAdmin = role === "admin";
+        // 미로그인 → 접근 불가
+        if (!session) {
+          if (mounted) {
+            setAllowed(false);
+            nav("/", { replace: true });
+          }
+          return;
+        }
 
-        // 3) 결과 반영
+        // 2) DB 기반 역할 확인 (SSOT: user_roles → SECURITY DEFINER 함수 is_admin())
+        const { data: isAdminRpc, error: rpcError } = await supabase.rpc("is_admin");
+
+        // RPC 오류 혹은 false/null → 비허용
+        const isAdmin = isAdminRpc === true && !rpcError;
+
         if (mounted) {
           setAllowed(isAdmin);
-
-          // 관리자이면서 /admin 루트로 들어오면 기본 페이지로 1회 리다이렉트
-          if (isAdmin && isAdminRoot) {
-            nav(DEFAULT_ADMIN_ENTRY, { replace: true });
-          }
 
           // 관리자가 아니면 홈으로
           if (!isAdmin) {
             nav("/", { replace: true });
+            return;
+          }
+
+          // 관리자이면서 /admin 루트로 들어오면 기본 페이지로 1회 리다이렉트
+          if (isAdmin && isAdminRoot) {
+            nav(DEFAULT_ADMIN_ENTRY, { replace: true });
           }
         }
       } finally {
@@ -78,21 +95,13 @@ const AdminLayout: React.FC = () => {
       }
     };
 
-    run();
+    // 최초 실행
+    void run();
 
     // 세션 변경(로그인/로그아웃/토큰 갱신) 시 재검사
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      const role = (session?.user as any)?.app_metadata?.role;
-      const isAdmin = role === "admin";
-
-      setAllowed(!!isAdmin);
-
-      if (isAdmin && isAdminRoot) {
-        nav(DEFAULT_ADMIN_ENTRY, { replace: true });
-      }
-      if (!isAdmin) {
-        nav("/", { replace: true });
-      }
+    const { data: sub } = supabase.auth.onAuthStateChange(() => {
+      // 상태 변화 시마다 DB 기준으로 재평가
+      void run();
     });
 
     return () => {
@@ -137,15 +146,13 @@ const AdminLayout: React.FC = () => {
                   >
                     <span className="w-5 text-center">{item.emoji}</span>
                     <span>{item.label}</span>
-                    <span className="ml-auto text-[10px] px-2 py-0.5 rounded bg-gray-100 text-gray-400">
-                      soon
-                    </span>
+                    <span className="ml-auto text-[10px] px-2 py-0.5 rounded bg-gray-100 text-gray-400">soon</span>
                   </div>
                 ) : (
                   <SidebarLink key={item.to} to={item.to} emoji={item.emoji}>
                     {item.label}
                   </SidebarLink>
-                )
+                ),
               )}
             </nav>
 
@@ -178,18 +185,14 @@ const AdminLayout: React.FC = () => {
   );
 };
 
-const SidebarLink: React.FC<
-  React.PropsWithChildren<{ to: string; emoji?: string }>
-> = ({ to, emoji, children }) => {
+const SidebarLink: React.FC<React.PropsWithChildren<{ to: string; emoji?: string }>> = ({ to, emoji, children }) => {
   return (
     <NavLink
       to={to}
       className={({ isActive }) =>
         [
           "flex items-center gap-2 px-3 py-2.5 text-sm rounded-lg",
-          isActive
-            ? "bg-[#F4F0FB] text-[#6C2DFF] font-medium"
-            : "text-gray-700 hover:bg-gray-50",
+          isActive ? "bg-[#F4F0FB] text-[#6C2DFF] font-medium" : "text-gray-700 hover:bg-gray-50",
         ].join(" ")
       }
     >
@@ -204,9 +207,7 @@ const NoAccess: React.FC = () => {
   return (
     <div className="min-h-[60vh] flex flex-col items-center justify-center gap-4">
       <div className="text-xl font-semibold">접근 권한이 없습니다</div>
-      <p className="text-gray-500 text-sm">
-        관리자 계정으로 로그인 후 다시 시도해 주세요.
-      </p>
+      <p className="text-gray-500 text-sm">관리자 계정으로 로그인 후 다시 시도해 주세요.</p>
       <button
         onClick={() => nav("/", { replace: true })}
         className="px-4 py-2 rounded-lg border border-gray-300 hover:bg-gray-50 text-sm"
