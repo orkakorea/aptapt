@@ -200,6 +200,13 @@ export default function MapPage() {
   const [initialQ, setInitialQ] = useState("");
   const [kakaoError, setKakaoError] = useState<string | null>(null);
 
+  /* ---------- 먼저 선언: 정적 분리 적용 콜백 ---------- */
+  const applyStaticSeparationAll = useCallback(() => {
+    const map = mapObjRef.current;
+    if (!map || !(window as any).kakao?.maps) return;
+    groupsRef.current.forEach((group) => layoutMarkersSideBySide(map, group));
+  }, []);
+
   /* ---------- 공통: 마커 이미지 재계산 ---------- */
   const reimageAllMarkers = useCallback(() => {
     const maps = (window as KakaoNS).kakao?.maps;
@@ -274,12 +281,6 @@ export default function MapPage() {
     },
     [orderAndApplyZIndex],
   );
-
-  const applyStaticSeparationAll = useCallback(() => {
-    const map = mapObjRef.current;
-    if (!map || !(window as any).kakao?.maps) return;
-    groupsRef.current.forEach((group) => layoutMarkersSideBySide(map, group));
-  }, []);
 
   /* ---------- 지도 초기화 ---------- */
   useEffect(() => {
@@ -1111,7 +1112,7 @@ export default function MapPage() {
     btn.style.height = "22px";
     btn.style.borderRadius = "999px";
     btn.style.background = "#FFFFFF";
-    btn.style.border = "2px solid #FFD400"; // <-- fixed string
+    btn.style.border = "2px solid #FFD400";
     btn.style.boxShadow = "0 2px 6px rgba(0,0,0,0.15)";
     btn.style.display = "flex";
     btn.style.alignItems = "center";
