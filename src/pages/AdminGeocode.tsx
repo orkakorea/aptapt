@@ -4,8 +4,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { useKakaoLoader } from "@/hooks/useKakaoLoader";
 
 /**
- * - REST 키 하드코딩 제거 (JS SDK만 사용)
- * - Geocoder 사용을 위해 useKakaoLoader는 반드시 `libraries=services`를 포함해야 함
+ * AdminGeocode (안전강화판)
+ * - REST 키 하드코딩 금지(오직 Kakao JS SDK)
+ * - useKakaoLoader 가 반드시 libraries=services 를 포함해야 함
+ * - 주소/좌표 1차 검증(프론트) + DB 업데이트 시 보수적 WHERE 조건으로 레이스 방지
  */
 
 declare global {
@@ -14,18 +16,18 @@ declare global {
   }
 }
 
-/* ===== 결과 타입 (분리) ===== */
+/* ===== 결과 타입 ===== */
 type GeocodeResultOk = { lat: number; lng: number; raw?: any; error?: undefined };
 type GeocodeResultNone = { lat: null; lng: null; error?: undefined };
 type GeocodeResultFail = { lat: undefined; lng: undefined; error: string };
 type GeocodeResult = GeocodeResultOk | GeocodeResultNone | GeocodeResultFail;
 
 /* ===== 설정 ===== */
-const PER_REQ_DELAY_MS = 300;
-const MAX_RETRIES = 3;
-const BASE_BACKOFF_MS = 500;
+const PER_REQ_DELAY_MS = 300; // 개별 요청 간 최소 지연
+const MAX_RETRIES = 3; // 지오코딩 재시도 횟수
+const BASE_BACKOFF_MS = 500; // 지수 백오프 시작값(ms)
 
-/* ====== 입력 검증 유틸(프론트 1차 방어) ====== */
+/* ===== 입력/값 검증 유틸 ===== */
 function isFiniteNumber(v: any): v is number {
   return typeof v === "number" && Number.isFinite(v);
 }
@@ -41,7 +43,7 @@ function isValidAddress(addr: any): addr is string {
   return t.length > 0 && t.length <= 200;
 }
 
-/* 유틸 */
+/* ===== 공통 유틸 ===== */
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function ensureKakaoReady(timeoutMs = 8000) {
@@ -54,7 +56,7 @@ async function ensureKakaoReady(timeoutMs = 8000) {
   return false;
 }
 
-/* JS SDK Geocoder로 주소 1건 변환 */
+/* ===== JS SDK 지오코딩 (단건) ===== */
 async function geocodeOneViaJsSdk(addr: string): Promise<GeocodeResult> {
   let attempt = 0;
 
@@ -66,11 +68,9 @@ async function geocodeOneViaJsSdk(addr: string): Promise<GeocodeResult> {
         geocoder.addressSearch(addr, (data: any[], status: string) => {
           const S = window.kakao.maps.services.Status;
           if (status === S.OK && data?.[0]) {
-            resolve({
-              lat: parseFloat(data[0].y),
-              lng: parseFloat(data[0].x),
-              raw: data[0],
-            });
+            const lat = parseFloat(data[0].y);
+            const lng = parseFloat(data[0].x);
+            resolve({ lat, lng, raw: data[0] });
           } else if (status === S.ZERO_RESULT) {
             resolve({ lat: null, lng: null });
           } else {
@@ -80,16 +80,16 @@ async function geocodeOneViaJsSdk(addr: string): Promise<GeocodeResult> {
         });
       });
 
-      // 정상/없음 처리
+      // 정상/없음/오류 처리 분기
       if ("error" in result) {
         // 재시도
       } else if (result.lat === null && result.lng === null) {
-        return result;
+        return result; // ZERO_RESULT
       } else if (typeof result.lat === "number" && typeof result.lng === "number") {
-        return result;
+        return result; // 성공
       }
 
-      // 재시도 (ERROR 등)
+      // 재시도
       attempt += 1;
       if (attempt > MAX_RETRIES) {
         return {
@@ -114,7 +114,7 @@ async function geocodeOneViaJsSdk(addr: string): Promise<GeocodeResult> {
 
 /* ===== 페이지 컴포넌트 ===== */
 export default function AdminGeocode() {
-  useKakaoLoader(); // SDK 로더 (도메인 등록된 JavaScript 키 사용)
+  useKakaoLoader(); // 도메인 등록된 JavaScript 키로 SDK 로드(libraries=services 필수)
   const [running, setRunning] = useState(false);
   const [log, setLog] = useState<string[]>([]);
   const [left, setLeft] = useState<number | null>(null);
@@ -171,7 +171,7 @@ export default function AdminGeocode() {
       }
 
       // 주소 1차 검증(공백/길이)
-      const rawTargets = (data ?? []).map((r) => (r.address ?? ""));
+      const rawTargets = (data ?? []).map((r) => r.address ?? "");
       const targets = rawTargets
         .map((addr) => addr.trim())
         .filter((addr) => {
@@ -188,25 +188,46 @@ export default function AdminGeocode() {
 
         if ("error" in r) {
           // 완전 실패(예외/재시도 초과)
-          await supabase.from("places").update({ geocode_status: "fail" }).eq("address", addr);
+          await supabase
+            .from("places")
+            .update({ geocode_status: "fail" })
+            .eq("address", addr)
+            .eq("geocode_status", "pending")
+            .is("lat", null)
+            .is("lng", null);
           fail++;
           setLog((l) => [`요청 실패: ${addr} (${r.error})`, ...l]);
         } else if (r.lat === null && r.lng === null) {
           // 결과 없음
-          await supabase.from("places").update({ geocode_status: "fail" }).eq("address", addr);
+          await supabase
+            .from("places")
+            .update({ geocode_status: "fail" })
+            .eq("address", addr)
+            .eq("geocode_status", "pending")
+            .is("lat", null)
+            .is("lng", null);
           fail++;
         } else {
           // ✅ 좌표 검증: 범위 벗어나면 업데이트하지 않음
           if (!isValidLat(r.lat) || !isValidLng(r.lng)) {
-            await supabase.from("places").update({ geocode_status: "fail" }).eq("address", addr);
+            await supabase
+              .from("places")
+              .update({ geocode_status: "fail" })
+              .eq("address", addr)
+              .eq("geocode_status", "pending")
+              .is("lat", null)
+              .is("lng", null);
             fail++;
             setLog((l) => [`⚠️ 좌표 범위 위반으로 실패: ${addr} (lat=${r.lat}, lng=${r.lng})`, ...l]);
           } else {
-            // 성공
+            // 성공 업데이트 (보수적 WHERE로 레이스 방지)
             const { error: uerr } = await supabase
               .from("places")
               .update({ lat: r.lat, lng: r.lng, geocode_status: "ok" })
-              .eq("address", addr);
+              .eq("address", addr)
+              .eq("geocode_status", "pending")
+              .is("lat", null)
+              .is("lng", null);
 
             if (uerr) {
               fail++;
@@ -235,7 +256,7 @@ export default function AdminGeocode() {
     <div style={{ padding: 16, maxWidth: 720 }}>
       <h2>지오코딩 배치 실행기 (JS SDK 사용 / REST 키 미노출)</h2>
       <p>SDK 상태: {sdkReady ? "✅ Ready" : "⏳ Loading..."}</p>
-      <p>남은 pending: {left ?? "…"}</p>
+      <p>남은 pending: {left ?? "…"} 건</p>
 
       <div style={{ display: "flex", gap: 12, margin: "8px 0 16px" }}>
         <button
