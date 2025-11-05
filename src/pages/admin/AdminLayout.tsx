@@ -71,7 +71,7 @@ const AdminLayout: React.FC = () => {
         }
 
         // 2) DB 기반 역할 확인 (SSOT: user_roles → SECURITY DEFINER 함수 is_admin())
-        const { data: isAdminRpc, error: rpcError } = await supabase.rpc("is_admin");
+        const { data: isAdminRpc, error: rpcError } = await (supabase as any).rpc("is_admin");
 
         // RPC 오류 혹은 false/null → 비허용
         const isAdmin = isAdminRpc === true && !rpcError;
