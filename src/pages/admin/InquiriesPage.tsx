@@ -14,6 +14,22 @@ import { z } from "zod";
  *   (admin 가드가 끝나기 전에 SELECT가 나가 401/403이 나는 문제를 방지)
  */
 
+/* =========================
+ *  Zod Schemas (입력 검증)
+ * ========================= */
+const StatusSchema = z.enum(["new", "in_progress", "done", "canceled"]);
+const ValidTriSchema = z.union([z.literal("-"), z.literal("valid"), z.literal("invalid")]);
+// assignee: 태그 제거 → trim → 길이 최대 80, 공백이면 null
+function stripTags(s: string) {
+  return s.replace(/<[^>]*>/g, "");
+}
+function sanitizeAssignee(input: unknown): string | null {
+  if (typeof input !== "string") return null;
+  const cleaned = stripTags(input).trim();
+  if (!cleaned) return null;
+  return cleaned.length > 80 ? cleaned.slice(0, 80) : cleaned;
+}
+
 type InquiryKind = "SEAT" | "PACKAGE";
 type InquiryStatus = "new" | "in_progress" | "done" | "canceled";
 type ValidTri = "-" | "valid" | "invalid";
@@ -104,24 +120,6 @@ function addSeen(id: string) {
 }
 
 /* =========================
- *  Validation (Zod)
- * ========================= */
-const InquiryStatusSchema = z.enum(["new", "in_progress", "done", "canceled"]);
-const MAX_ASSIGNEE_LEN = 80;
-const AssigneeSchema = z
-  .string()
-  .transform((s) => sanitizeAssignee(s))
-  .refine((s) => s.length <= MAX_ASSIGNEE_LEN, `담당자는 ${MAX_ASSIGNEE_LEN}자 이하여야 합니다.`);
-
-/** 제어문자 제거 + 공백 정리 */
-function sanitizeAssignee(input: string): string {
-  return String(input ?? "")
-    .replace(/[\u0000-\u001F\u007F]/g, "") // control chars
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-/* =========================
  *  Page
  * ========================= */
 const InquiriesPage: React.FC = () => {
@@ -152,41 +150,25 @@ const InquiriesPage: React.FC = () => {
     return { fromIdx, toIdx: fromIdx + pageSize - 1 };
   }, [page, pageSize]);
 
-  // ----- 세션/role 확인 (DB RPC 기반 가드) -----
+  // ----- 세션/role 확인 (여기서도 한 번 더 가드) -----
   useEffect(() => {
     let mounted = true;
-
     const run = async () => {
-      try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-
-        if (!session) {
-          if (mounted) {
-            setIsAdmin(false);
-            setSessionReady(true);
-          }
-          return;
-        }
-
-        const { data: ok, error } = await supabase.rpc("is_admin");
-        if (mounted) {
-          setIsAdmin(ok === true && !error);
-          setSessionReady(true);
-        }
-      } catch {
-        if (mounted) {
-          setIsAdmin(false);
-          setSessionReady(true);
-        }
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const role = (session?.user as any)?.app_metadata?.role;
+      if (mounted) {
+        setIsAdmin(role === "admin");
+        setSessionReady(true);
       }
     };
+    run();
 
-    void run();
-
-    const { data: sub } = supabase.auth.onAuthStateChange(() => {
-      void run();
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      const role = (session?.user as any)?.app_metadata?.role;
+      setIsAdmin(role === "admin");
+      setSessionReady(true);
     });
 
     return () => sub?.subscription?.unsubscribe?.();
@@ -384,17 +366,15 @@ const InquiriesPage: React.FC = () => {
 
                   <Td>{r.campaign_type || "—"}</Td>
 
-                  {/* 진행상황 인라인 수정 (✅ Zod로 허용값 검증) */}
+                  {/* 진행상황 인라인 수정 (Zod 검증 추가) */}
                   <Td>
                     <select
                       value={r.status ?? "new"}
                       onChange={async (e) => {
-                        const raw = e.target.value;
-                        const parsed = InquiryStatusSchema.safeParse(raw);
+                        const nextRaw = e.target.value as string;
+                        const parsed = StatusSchema.safeParse(nextRaw);
                         if (!parsed.success) {
-                          // 잘못된 값이면 UI를 원래 값으로 되돌리고 메시지
-                          e.currentTarget.value = r.status ?? "new";
-                          setErr("허용되지 않는 진행상황입니다.");
+                          // 잘못된 값이면 무시
                           return;
                         }
                         const next = parsed.data;
@@ -403,15 +383,9 @@ const InquiriesPage: React.FC = () => {
                           .from(TBL.main)
                           .update({ [COL.status]: next })
                           .eq(COL.id, r.id);
-
-                        if (error) {
-                          setErr(error.message ?? "진행상황 변경에 실패했습니다.");
-                          // 서버 거부 시 되돌림
-                          e.currentTarget.value = r.status ?? "new";
-                          return;
+                        if (!error) {
+                          setRows((prev) => prev.map((row) => (row.id === r.id ? { ...row, status: next } : row)));
                         }
-
-                        setRows((prev) => prev.map((row) => (row.id === r.id ? { ...row, status: next } : row)));
                       }}
                       className={"border rounded-full px-2 py-1 text-sm " + pillClassForStatus(r.status ?? "new")}
                     >
@@ -423,17 +397,16 @@ const InquiriesPage: React.FC = () => {
                     </select>
                   </Td>
 
-                  {/* 유효성 인라인 수정 */}
+                  {/* 유효성 인라인 수정 (Zod 검증 + 안전 매핑) */}
                   <Td>
                     <select
                       value={validToTri(r.valid)}
                       onChange={async (e) => {
-                        const v = e.target.value as ValidTri;
-                        if (!["-", "valid", "invalid"].includes(v)) {
-                          setErr("허용되지 않는 유효성 값입니다.");
-                          e.currentTarget.value = validToTri(r.valid);
-                          return;
-                        }
+                        const raw = e.target.value as string;
+                        const parsed = ValidTriSchema.safeParse(raw);
+                        if (!parsed.success) return;
+                        const v = parsed.data;
+
                         const payload =
                           v === "-"
                             ? { [COL.valid]: null }
@@ -442,18 +415,13 @@ const InquiriesPage: React.FC = () => {
                               : { [COL.valid]: false };
 
                         const { error } = await (supabase as any).from(TBL.main).update(payload).eq(COL.id, r.id);
-
-                        if (error) {
-                          setErr(error.message ?? "유효성 변경에 실패했습니다.");
-                          e.currentTarget.value = validToTri(r.valid);
-                          return;
+                        if (!error) {
+                          setRows((prev) =>
+                            prev.map((row) =>
+                              row.id === r.id ? { ...row, valid: v === "-" ? null : v === "valid" } : row,
+                            ),
+                          );
                         }
-
-                        setRows((prev) =>
-                          prev.map((row) =>
-                            row.id === r.id ? { ...row, valid: v === "-" ? null : v === "valid" } : row,
-                          ),
-                        );
                       }}
                       className={"border rounded-full px-2 py-1 text-sm " + pillClassForValid(validToTri(r.valid))}
                     >
@@ -465,37 +433,25 @@ const InquiriesPage: React.FC = () => {
                     </select>
                   </Td>
 
-                  {/* 담당자 인라인 수정 (✅ Zod + sanitize + 길이 제한) */}
+                  {/* 담당자 인라인 수정 (sanitize + 길이 제한) */}
                   <Td>
                     <input
                       type="text"
                       defaultValue={r.assignee || ""}
                       onBlur={async (e) => {
-                        const raw = e.target.value ?? "";
-                        const result = AssigneeSchema.safeParse(raw);
-                        if (!result.success) {
-                          setErr(result.error.issues?.[0]?.message ?? "담당자 입력값이 올바르지 않습니다.");
-                          // UI 되돌림
-                          e.currentTarget.value = r.assignee || "";
-                          return;
-                        }
-                        const clean = result.data;
-                        const nextVal = clean === "" ? null : clean;
-
+                        const sanitized = sanitizeAssignee(e.target.value);
+                        // UI도 정리된 값으로 맞춰준다
+                        e.target.value = sanitized ?? "";
                         const { error } = await (supabase as any)
                           .from(TBL.main)
-                          .update({ [COL.assignee]: nextVal })
+                          .update({ [COL.assignee]: sanitized })
                           .eq(COL.id, r.id);
-
-                        if (error) {
-                          setErr(error.message ?? "담당자 업데이트에 실패했습니다.");
-                          e.currentTarget.value = r.assignee || "";
-                          return;
+                        if (!error) {
+                          setRows((prev) =>
+                            prev.map((row) => (row.id === r.id ? { ...row, assignee: sanitized } : row)),
+                          );
                         }
-
-                        setRows((prev) => prev.map((row) => (row.id === r.id ? { ...row, assignee: nextVal } : row)));
                       }}
-                      placeholder="담당자 입력(최대 80자)"
                       className="border rounded px-2 py-1 text-sm w-full"
                     />
                   </Td>
