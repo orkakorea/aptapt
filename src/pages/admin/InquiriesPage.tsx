@@ -616,10 +616,10 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
     apt_name: string;
     product_name: string;
     months: number;
-    baseMonthly: number | null; // 정가 월가
-    monthlyAfter: number | null; // 할인 후 월가
+    baseMonthly: number | null; // 정가 월가 (표시용)
+    monthlyAfter: number | null; // 할인 후 월가(참고용)
     lineTotal: number; // 총광고료(할인 후)
-    baseTotal?: number | null; // 정가 총액(가능하면)
+    baseTotal?: number | null; // 정가 총액 = baseMonthly × months (가능하면 스냅샷 값 우선)
   };
 
   function normalizeSnapshotItems(snap: any): FinalLine[] {
@@ -662,7 +662,7 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
         // 기간
         const months = firstNum(it.months, it.Months, it.period, it.duration) ?? rootMonths ?? 0;
 
-        // 정가 월가 (priceMonthly는 정가로 간주)
+        // 정가 월가(표시용) 후보 — 반드시 "할인 전" 값을 채택
         let baseMonthly = firstNum(
           it.baseMonthly,
           it.base_monthly,
@@ -686,12 +686,11 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
           it.item_total_won,
           it.total_won,
         );
-
         if ((lineTotal == null || lineTotal === 0) && candidates.length === 1 && rootTotal != null) {
           lineTotal = rootTotal;
         }
 
-        // 할인 후 월가: 명시 값 없으면 lineTotal/months
+        // 참고용 할인 후 월가
         let monthlyAfter = firstNum(
           it.monthlyAfter,
           it.monthly_after,
@@ -705,7 +704,7 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
           monthlyAfter = lineTotal / months;
         }
 
-        // 정가 총액 후보
+        // 정가 총액
         let baseTotal = firstNum(
           it.baseTotal,
           it.base_total,
@@ -717,7 +716,7 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
         if ((baseTotal == null || baseTotal === 0) && baseMonthly != null && months > 0) {
           baseTotal = baseMonthly * months;
         }
-        // baseMonthly 비어있고 baseTotal만 있으면 역산
+        // baseMonthly가 비었고 baseTotal만 있으면 역산
         if ((baseMonthly == null || baseMonthly === 0) && baseTotal != null && months > 0) {
           baseMonthly = baseTotal / months;
         }
@@ -744,14 +743,13 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
     return { total, vat, grand: total + vat };
   }, [finalLines]);
 
-  // 라인별 할인율 계산 (정가총액 우선 → 월가 비교)
-  function discountRateLine(l: FinalLine): number | null {
+  // 라인별 적용율(= 총광고료 ÷ 기준금액) — 퍼센트 표기
+  function appliedRatePercent(l: FinalLine): number | null {
     const baseTotal = l.baseTotal ?? (l.baseMonthly != null && l.months > 0 ? l.baseMonthly * l.months : null);
-    if (baseTotal != null && baseTotal > 0) return Math.max(0, (baseTotal - l.lineTotal) / baseTotal);
-    if (l.baseMonthly != null && l.baseMonthly > 0 && l.monthlyAfter != null) {
-      return Math.max(0, (l.baseMonthly - l.monthlyAfter) / l.baseMonthly);
-    }
-    return null;
+    if (baseTotal == null || baseTotal <= 0) return null;
+    const rate = l.lineTotal / baseTotal; // 0.8 -> 80%
+    if (!isFinite(rate) || rate <= 0) return null;
+    return rate;
   }
 
   function exportCSV() {
@@ -835,9 +833,9 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
                     <tr>
                       <th className="px-3 py-2 text-left">단지명</th>
                       <th className="px-3 py-2 text-left">상품명</th>
-                      <th className="px-3 py-2 text-right">월광고료(할인후)</th>
+                      <th className="px-3 py-2 text-right">월광고료</th>
                       <th className="px-3 py-2 text-right">광고기간</th>
-                      <th className="px-3 py-2 text-right">기준금액(정가 총액)</th>
+                      <th className="px-3 py-2 text-right">기준금액</th>
                       <th className="px-3 py-2 text-right">할인율</th>
                       <th className="px-3 py-2 text-right">총광고료 TOTAL</th>
                       <th className="px-3 py-2 text-right">부가세</th>
@@ -848,18 +846,21 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
                     {finalLines.map((l, i) => {
                       const baseTotal =
                         l.baseTotal ?? (l.baseMonthly != null && l.months > 0 ? l.baseMonthly * l.months : null);
-                      const rate = discountRateLine(l);
+                      const rate = appliedRatePercent(l); // 0.8 -> 80%
                       const vat = Math.round(l.lineTotal * 0.1);
                       const grand = l.lineTotal + vat;
                       return (
                         <tr key={i} className="border-t">
                           <td className="px-3 py-2">{l.apt_name || "—"}</td>
                           <td className="px-3 py-2">{l.product_name || "—"}</td>
+                          {/* 월광고료 = 정가 월가 그대로 */}
                           <td className="px-3 py-2 text-right">
-                            {l.monthlyAfter != null ? fmtWon(l.monthlyAfter) : "—"}
+                            {l.baseMonthly != null ? fmtWon(l.baseMonthly) : "—"}
                           </td>
                           <td className="px-3 py-2 text-right">{l.months?.toLocaleString?.() ?? "—"}</td>
+                          {/* 기준금액 = 월광고료 × 광고기간 */}
                           <td className="px-3 py-2 text-right">{baseTotal != null ? fmtWon(baseTotal) : "—"}</td>
+                          {/* 할인율 = 총광고료 ÷ 기준금액 (퍼센트) */}
                           <td className="px-3 py-2 text-right">{rate != null ? fmtPercent(rate) : "—"}</td>
                           <td className="px-3 py-2 text-right">{fmtWon(l.lineTotal)}</td>
                           <td className="px-3 py-2 text-right">{fmtWon(vat)}</td>
