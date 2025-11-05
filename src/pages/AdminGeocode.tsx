@@ -1,3 +1,4 @@
+// src/pages/AdminGeocode.tsx
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useKakaoLoader } from "@/hooks/useKakaoLoader";
@@ -23,6 +24,22 @@ type GeocodeResult = GeocodeResultOk | GeocodeResultNone | GeocodeResultFail;
 const PER_REQ_DELAY_MS = 300;
 const MAX_RETRIES = 3;
 const BASE_BACKOFF_MS = 500;
+
+/* ====== 입력 검증 유틸(프론트 1차 방어) ====== */
+function isFiniteNumber(v: any): v is number {
+  return typeof v === "number" && Number.isFinite(v);
+}
+function isValidLat(lat: any): lat is number {
+  return isFiniteNumber(lat) && lat >= -90 && lat <= 90;
+}
+function isValidLng(lng: any): lng is number {
+  return isFiniteNumber(lng) && lng >= -180 && lng <= 180;
+}
+function isValidAddress(addr: any): addr is string {
+  if (typeof addr !== "string") return false;
+  const t = addr.trim();
+  return t.length > 0 && t.length <= 200;
+}
 
 /* 유틸 */
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -153,7 +170,15 @@ export default function AdminGeocode() {
         return;
       }
 
-      const targets = (data ?? []).map((r) => (r.address ?? "").trim()).filter(Boolean);
+      // 주소 1차 검증(공백/길이)
+      const rawTargets = (data ?? []).map((r) => (r.address ?? ""));
+      const targets = rawTargets
+        .map((addr) => addr.trim())
+        .filter((addr) => {
+          const valid = isValidAddress(addr);
+          if (!valid) setLog((l) => [`⚠️ 무효 주소 스킵(공백/200자 초과): ${addr}`, ...l]);
+          return valid;
+        });
 
       let ok = 0;
       let fail = 0;
@@ -171,17 +196,24 @@ export default function AdminGeocode() {
           await supabase.from("places").update({ geocode_status: "fail" }).eq("address", addr);
           fail++;
         } else {
-          // 성공
-          const { error: uerr } = await supabase
-            .from("places")
-            .update({ lat: r.lat, lng: r.lng, geocode_status: "ok" })
-            .eq("address", addr);
-
-          if (uerr) {
+          // ✅ 좌표 검증: 범위 벗어나면 업데이트하지 않음
+          if (!isValidLat(r.lat) || !isValidLng(r.lng)) {
+            await supabase.from("places").update({ geocode_status: "fail" }).eq("address", addr);
             fail++;
-            setLog((l) => [`업데이트 실패: ${addr} (${uerr.message})`, ...l]);
+            setLog((l) => [`⚠️ 좌표 범위 위반으로 실패: ${addr} (lat=${r.lat}, lng=${r.lng})`, ...l]);
           } else {
-            ok++;
+            // 성공
+            const { error: uerr } = await supabase
+              .from("places")
+              .update({ lat: r.lat, lng: r.lng, geocode_status: "ok" })
+              .eq("address", addr);
+
+            if (uerr) {
+              fail++;
+              setLog((l) => [`업데이트 실패: ${addr} (${uerr.message})`, ...l]);
+            } else {
+              ok++;
+            }
           }
         }
 
