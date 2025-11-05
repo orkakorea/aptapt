@@ -289,6 +289,13 @@ export default function MapPage() {
     cleanupKakaoScripts();
     loadKakao()
       .then((kakao) => {
+        // ✅ SDK 가드: 반쪽 로드/도메인 미허용 시 조기 종료(크래시 방지)
+        if (!kakao?.maps || typeof kakao.maps.LatLng !== "function") {
+          console.error("[KakaoMap] SDK loaded but maps is unavailable (domain or network)");
+          setKakaoError("Kakao SDK 초기화 실패: 도메인 허용 여부를 확인해주세요.");
+          return;
+        }
+
         setKakaoError(null);
         if (!mapRef.current) return;
         mapRef.current.style.minHeight = "300px";
@@ -317,14 +324,22 @@ export default function MapPage() {
           fontWeight: "700",
           fontSize: "13px",
         }));
-        clustererRef.current = new kakao.maps.MarkerClusterer({
-          map,
-          averageCenter: true,
-          minLevel: 6,
-          disableClickZoom: true,
-          gridSize: 80,
-          styles: clusterStyles,
-        });
+
+        // ✅ 클러스터러 가드(없으면 null로 두고 이후 폴백)
+        let clusterer: any = null;
+        if (kakao.maps && kakao.maps.MarkerClusterer) {
+          clusterer = new kakao.maps.MarkerClusterer({
+            map,
+            averageCenter: true,
+            minLevel: 6,
+            disableClickZoom: true,
+            gridSize: 80,
+            styles: clusterStyles,
+          });
+        } else {
+          console.warn("[Kakao] clusterer library not available. Check 'libraries=clusterer' and domain allowlist.");
+        }
+        clustererRef.current = clusterer;
 
         kakao.maps.event.addListener(map, "zoom_changed", applyStaticSeparationAll);
         kakao.maps.event.addListener(map, "idle", async () => {
@@ -512,7 +527,8 @@ export default function MapPage() {
     const maps = kakao?.maps;
     const map = mapObjRef.current;
     const clusterer = clustererRef.current;
-    if (!maps || !map || !clusterer) return;
+    // ❗️클러스터러가 없어도 렌더는 진행해야 하므로 maps/map만 검사
+    if (!maps || !map) return;
 
     const bounds = map.getBounds();
     if (!bounds) return;
@@ -795,7 +811,11 @@ export default function MapPage() {
       newMarkers.push(mk);
     });
 
-    if (toAdd.length) clustererRef.current.addMarkers(toAdd);
+    // ✅ 클러스터러가 없으면 setMap 폴백
+    if (toAdd.length) {
+      if (clusterer) clusterer.addMarkers(toAdd);
+      else toAdd.forEach((m) => m.setMap(map));
+    }
 
     const toRemove: KMarker[] = [];
     markerCacheRef.current.forEach((mk, key) => {
@@ -804,7 +824,10 @@ export default function MapPage() {
         markerCacheRef.current.delete(key);
       }
     });
-    if (toRemove.length) clustererRef.current.removeMarkers(toRemove);
+    if (toRemove.length) {
+      if (clusterer) clusterer.removeMarkers(toRemove);
+      else toRemove.forEach((m) => m.setMap(null));
+    }
     if (lastClickedRef.current && toRemove.includes(lastClickedRef.current)) lastClickedRef.current = null;
 
     applyGroupPrioritiesMap(groups);
@@ -1053,7 +1076,10 @@ export default function MapPage() {
 
         if (!keyIndexRef.current[rowKey]) keyIndexRef.current[rowKey] = [];
         keyIndexRef.current[rowKey].push(mk);
-        clustererRef.current.addMarker(mk);
+
+        // ✅ 클러스터러 없으면 setMap 폴백
+        if (clusterer) clusterer.addMarker(mk);
+        else mk.setMap(map);
       });
 
       const groups2 = new Map<string, KMarker[]>();
