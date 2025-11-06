@@ -62,7 +62,7 @@ function loadKakao(): Promise<any> {
   cleanupKakaoScripts();
 
   w.__kakaoLoadingPromise = new Promise((resolve, reject) => {
-    const
+    const s = document.createElement("script");
     s.id = "kakao-maps-sdk";
     s.charset = "utf-8";
     s.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${key}&autoload=false&libraries=services,clusterer`;
@@ -73,7 +73,7 @@ function loadKakao(): Promise<any> {
         resolve(w.kakao);
       });
     };
-    
+    s.onerror = () => reject(new Error("Failed to load Kakao Maps SDK"));
     document.head.appendChild(s);
   });
   return w.__kakaoLoadingPromise;
