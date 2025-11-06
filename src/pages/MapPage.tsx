@@ -30,7 +30,7 @@ function hasImgCtors(maps: any) {
 function markerImages(maps: any) {
   const { MarkerImage, Size, Point } = maps;
   const opt = { offset: new Point(PIN_OFFSET.x, PIN_OFFSET.y) };
-  const sz = new Size(PIN_SIZE, PIN_SIZE);
+  the: const sz = new Size(PIN_SIZE, PIN_SIZE);
   const purple = new MarkerImage(PIN_PURPLE_URL, sz, opt);
   const yellow = new MarkerImage(PIN_YELLOW_URL, sz, opt);
   const clicked = new MarkerImage(PIN_CLICKED_URL, sz, opt);
@@ -140,7 +140,11 @@ type SelectedAptX = SelectedApt & { selectedInCart?: boolean };
 
 export default function MapPage() {
   // ✅ SDK는 오직 커스텀 훅으로만 로드 (중복 주입 금지)
-  const { kakao, loading: kakaoLoading, error: kakaoLoadError } = useKakaoLoader({
+  const {
+    kakao,
+    loading: kakaoLoading,
+    error: kakaoLoadError,
+  } = useKakaoLoader({
     libraries: ["services", "clusterer"],
   });
 
@@ -412,6 +416,23 @@ export default function MapPage() {
     [applyGroupPrioritiesForRowKey, applyStaticSeparationAll],
   );
 
+  /* ---------- 카트 탭 열기 유틸(추가) ---------- */
+  const openCart = useCallback((opts?: { via?: "quickadd" | "detail"; rowKey?: string }) => {
+    // URL 쿼리에 tab=cart 반영(존재 시 갱신)
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.set("tab", "cart");
+      window.history.replaceState(null, "", u.toString());
+    } catch {}
+    // 커스텀 이벤트들(둘 중 하나라도 MapChrome이 듣도록 중복 발행)
+    try {
+      window.dispatchEvent(new CustomEvent("orka:open-cart", { detail: opts || {} }));
+    } catch {}
+    try {
+      window.dispatchEvent(new CustomEvent("orka:ui:activate-tab", { detail: { tab: "cart", ...(opts || {}) } }));
+    } catch {}
+  }, []);
+
   /* ---------- 카트 제어 헬퍼 ---------- */
   const isRowKeySelected = useCallback(
     (rowKey?: string | null) => !!rowKey && selectedRowKeySetRef.current.has(rowKey),
@@ -419,14 +440,18 @@ export default function MapPage() {
   );
   const addToCartByRowKey = useCallback(
     (rowKey: string) => {
+      // 담기 처리
       selectedRowKeySetRef.current.add(rowKey);
       setMarkerStateByRowKey(rowKey, "selected", true);
-      setSelected((p) => (p && p.rowKey === rowKey ? { ...p, selectedInCart: true } : p));
+
+      // ✅ 담기 성공 후: 2탭 닫기 + 카트 열기 신호
+      setSelected(null);
       applyGroupPrioritiesForRowKey(rowKey);
       applyStaticSeparationAll();
       window.dispatchEvent(new CustomEvent("orka:cart:changed", { detail: { rowKey, selected: true } }));
+      openCart({ via: "detail", rowKey }); // 호출부 종류와 무관하게 카트로 전환
     },
-    [applyGroupPrioritiesForRowKey, applyStaticSeparationAll, setMarkerStateByRowKey],
+    [applyGroupPrioritiesForRowKey, applyStaticSeparationAll, setMarkerStateByRowKey, openCart],
   );
   const removeFromCartByRowKey = useCallback(
     (rowKey: string) => {
@@ -436,6 +461,7 @@ export default function MapPage() {
       applyGroupPrioritiesForRowKey(rowKey);
       applyStaticSeparationAll();
       window.dispatchEvent(new CustomEvent("orka:cart:changed", { detail: { rowKey, selected: false } }));
+      // 해제 시에는 카트를 강제 오픈하지 않음
     },
     [applyGroupPrioritiesForRowKey, applyStaticSeparationAll, setMarkerStateByRowKey],
   );
@@ -588,8 +614,11 @@ export default function MapPage() {
           // 퀵모드: 패널 열지 않고 담기/취소만
           if (quickAddRef.current) {
             const was = selectedRowKeySetRef.current.has(rowKey);
-            if (was) removeFromCartByRowKey(rowKey);
-            else addToCartByRowKey(rowKey);
+            if (was) {
+              removeFromCartByRowKey(rowKey);
+            } else {
+              addToCartByRowKey(rowKey); // ✅ 내부에서 2탭 닫고 카트 오픈까지 수행
+            }
             const nowSel = selectedRowKeySetRef.current.has(rowKey);
 
             const newImg =
@@ -866,8 +895,11 @@ export default function MapPage() {
           maps.event.addListener(mk, "click", () => {
             if (quickAddRef.current) {
               const was = selectedRowKeySetRef.current.has(rowKey);
-              if (was) removeFromCartByRowKey(rowKey);
-              else addToCartByRowKey(rowKey);
+              if (was) {
+                removeFromCartByRowKey(rowKey);
+              } else {
+                addToCartByRowKey(rowKey); // ✅ 내부에서 2탭 닫고 카트 오픈까지 수행
+              }
               const nowSel = selectedRowKeySetRef.current.has(rowKey);
               const newImg =
                 quickFactoryRef.current && canImg
