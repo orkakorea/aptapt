@@ -2,7 +2,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import QuoteModal, { type QuoteLineItem } from "./QuoteModal";
 import InquiryModal from "./InquiryModal";
-import { supabase } from "@/integrations/supabase/client";
 import LoginModal from "@/components/LoginModal";
 
 /** ===== 타입 ===== */
@@ -251,29 +250,9 @@ export default function MapChrome({
     onSearch?.(q);
   };
 
-  async function fetchStatsByNames(names: string[]) {
-    const uniq = Array.from(new Set(names.filter(Boolean)));
-    if (!uniq.length) return;
-    const { data, error } = await supabase
-      .from("raw_places")
-      .select("단지명, 세대수, 거주인원, 송출횟수, 모니터수량")
-      .in("단지명", uniq);
-    if (error) {
-      console.error("[Supabase] fetch error:", error);
-      return;
-    }
-    const map: Record<string, AptStats> = {};
-    (data || []).forEach((row: any) => {
-      const k = keyName(row["단지명"] || "");
-      if (!k) return;
-      map[k] = {
-        households: row["세대수"] != null ? Number(row["세대수"]) : undefined,
-        residents: row["거주인원"] != null ? Number(row["거주인원"]) : undefined,
-        monthlyImpressions: row["송출횟수"] != null ? Number(row["송출횟수"]) : undefined,
-        monitors: row["모니터수량"] != null ? Number(row["모니터수량"]) : undefined,
-      };
-    });
-    setStatsMap((prev) => ({ ...prev, ...map }));
+  // (핫픽스) raw_places 직접 조회를 막아 42703 방지: selected에서 채운 값만 사용
+  async function fetchStatsByNames(_names: string[]) {
+    return; // NOOP
   }
 
   /* ===== 담기/삭제 ===== */
