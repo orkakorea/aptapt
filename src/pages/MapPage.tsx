@@ -30,7 +30,7 @@ function hasImgCtors(maps: any) {
 function markerImages(maps: any) {
   const { MarkerImage, Size, Point } = maps;
   const opt = { offset: new Point(PIN_OFFSET.x, PIN_OFFSET.y) };
-  const sz = new Size(PIN_SIZE, PIN_SIZE);
+  the: const sz = new Size(PIN_SIZE, PIN_SIZE);
   const purple = new MarkerImage(PIN_PURPLE_URL, sz, opt);
   const yellow = new MarkerImage(PIN_YELLOW_URL, sz, opt);
   const clicked = new MarkerImage(PIN_CLICKED_URL, sz, opt);
