@@ -1,22 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 
 /**
- * useKakaoLoader (보안·안정 강화판)
- * - .env 의 VITE_KAKAO_JS_KEY만 사용 (하드코딩/폴백 키 제거)
- * - 기존 <script>가 있으면 파라미터 분석:
- *    · appkey 다르면 교체
- *    · libraries에 services 없으면 보정 후 재주입
- * - 중복 로드 방지(모듈 전역 Promise 캐싱)
- * - maps.load() 완료까지 대기
+ * ✅ 변경 요약
+ * - .env의 VITE_KAKAO_JS_KEY가 비어 있어도, index.html의 <script id="kakao-maps-sdk">에
+ *   appkey가 있으면 경고를 출력하지 않습니다.
+ * - 기존 <script>에 services 라이브러리가 없으면 자동 보정하여 재주입합니다.
+ * - 기존 <script>가 없으면 .env(JS 키) → 없으면 fallback 키로 동적 주입합니다.
  */
 
 type KakaoMapsNS = { maps: any };
 type WindowWithKakao = Window & { kakao?: KakaoMapsNS };
 
 const SCRIPT_ID = "kakao-maps-sdk";
-const SDK_REGEX = /\/\/dapi\.kakao\.com\/v2\/maps\/sdk\.js/i;
-
-let loaderPromise: Promise<KakaoMapsNS> | null = null;
+const FALLBACK_KAKAO_JS_KEY = "a53075efe7a2256480b8650cec67ebae";
 
 /* -------------------- 유틸 -------------------- */
 function parseQuery(url: string): Record<string, string> {
@@ -27,29 +23,29 @@ function parseQuery(url: string): Record<string, string> {
     return {};
   }
 }
+
 function buildSdkUrl(appkey: string, libraries: string[]) {
   const libSet = new Set(libraries.map((s) => s.trim()).filter(Boolean));
-  libSet.add("services"); // 필수
+  libSet.add("services"); // services는 반드시
   const libs = Array.from(libSet).join(",");
-  const qp = new URLSearchParams({
+  return `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(
     appkey,
-    autoload: "false",
-    libraries: libs,
-  });
-  return `https://dapi.kakao.com/v2/maps/sdk.js?${qp.toString()}`;
+  )}&autoload=false&libraries=${encodeURIComponent(libs)}`;
 }
+
 function isMapsCoreReady(w: WindowWithKakao) {
   return !!w.kakao?.maps && typeof (w.kakao as any).maps.LatLng === "function";
 }
 function hasServicesLibraryLoaded(w: WindowWithKakao) {
   return !!w.kakao?.maps?.services;
 }
+
 function waitForMapsLoad(w: WindowWithKakao): Promise<KakaoMapsNS> {
   return new Promise((resolve, reject) => {
     try {
       (w.kakao as any).maps.load(() => {
         if (!isMapsCoreReady(w)) {
-          reject(new Error("Kakao maps core not ready after maps.load()"));
+          reject(new Error("LatLng constructor not ready after maps.load()"));
           return;
         }
         resolve(w.kakao as KakaoMapsNS);
@@ -59,6 +55,7 @@ function waitForMapsLoad(w: WindowWithKakao): Promise<KakaoMapsNS> {
     }
   });
 }
+
 function injectScript(src: string) {
   return new Promise<HTMLScriptElement>((resolve, reject) => {
     const s = document.createElement("script");
@@ -71,87 +68,63 @@ function injectScript(src: string) {
     document.head.appendChild(s);
   });
 }
-function findExistingSdkTag(): HTMLScriptElement | null {
-  // 1) by ID
-  const byId = document.getElementById(SCRIPT_ID) as HTMLScriptElement | null;
-  if (byId) return byId;
-  // 2) by src pattern (마지막 태그 우선)
-  const tags = [...document.scripts] as HTMLScriptElement[];
-  const matches = tags.filter((s) => SDK_REGEX.test(s.src || ""));
-  return matches.at(-1) || null;
-}
-function maskKey(key: string) {
-  const k = key.trim();
-  if (k.length <= 8) return "***";
-  return k.slice(0, 4) + "…" + k.slice(-4);
-}
 
 /* -------------------- 핵심 로더 -------------------- */
 async function ensureSdk(libraries: string[]): Promise<KakaoMapsNS> {
   const w = window as WindowWithKakao;
 
-  // 이미 완전 준비됨
+  // 0) 이미 완전 준비
   if (isMapsCoreReady(w) && hasServicesLibraryLoaded(w)) {
     return w.kakao as KakaoMapsNS;
   }
 
-  // 환경변수 키
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const ENV_JS_KEY = (import.meta as any)?.env?.VITE_KAKAO_JS_KEY as string | undefined;
-  const envKey = (ENV_JS_KEY || "").trim();
-
-  // 기존 태그 탐색
-  let ex = findExistingSdkTag();
+  const ex = document.getElementById(SCRIPT_ID) as HTMLScriptElement | null;
   const q = ex ? parseQuery(ex.src || "") : {};
-  const exKey = (q["appkey"] || "").trim();
-  const exLibs = (q["libraries"] || "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const exAppKey = q["appkey"] || "";
+  const exLibs = (q["libraries"] || "").split(",").map((s) => s.trim());
   const exHasServices = exLibs.includes("services");
 
-  // 사용할 최종 키 결정: env 우선, 없으면 기존 태그 키
-  const desiredKey = envKey || exKey;
+  // .env의 JS 키
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ENV_JS_KEY = (import.meta as any)?.env?.VITE_KAKAO_JS_KEY as string | undefined;
 
-  if (!desiredKey) {
-    throw new Error(
-      "[useKakaoLoader] JavaScript 키가 없습니다. .env의 VITE_KAKAO_JS_KEY를 설정하거나 index.html에 SDK 태그를 추가하세요.",
-    );
-  }
+  // ⚠️ 경고 조건: .env도 없고, 기존 <script>에도 appkey가 전혀 없을 때만
+  const shouldWarnMissingEnv = (!ENV_JS_KEY || !ENV_JS_KEY.trim()) && (!exAppKey || !exAppKey.trim());
 
-  // 기존 태그가 있고, 파라미터 점검
+  // 1) 기존 스크립트가 있는 경우
   if (ex) {
-    const needReplaceByKey = !!exKey && !!envKey && exKey !== envKey; // 키 불일치
-    const needReplaceByLib = !exHasServices; // services 누락
-    if (needReplaceByKey || needReplaceByLib) {
-      try {
-        ex.remove();
-      } catch {}
-      const url = buildSdkUrl(desiredKey, libraries);
-      // console.debug("[useKakaoLoader] re-inject SDK:", url.replace(desiredKey, maskKey(desiredKey)));
-      await injectScript(url);
+    // a) 아직 window.kakao가 없거나, services가 누락된 경우 → 보정
+    if (!w.kakao?.maps || !hasServicesLibraryLoaded(w)) {
+      // 기존 appkey 또는 ENV 또는 fallback 중 우선순위로 사용
+      const appkey = (exAppKey && exAppKey.trim()) || (ENV_JS_KEY && ENV_JS_KEY.trim()) || FALLBACK_KAKAO_JS_KEY;
+
+      if (!exHasServices) {
+        // 기존 스크립트가 services 없이 로드되었으면 보정: 재주입
+        try {
+          ex.remove();
+        } catch {}
+        const url = buildSdkUrl(appkey, libraries);
+        await injectScript(url);
+      }
+      // maps.load 대기
       return waitForMapsLoad(w);
     }
-    // 태그는 있는데 아직 window.kakao 초기화 전인 경우 → maps.load 대기
-    if (!isMapsCoreReady(w)) {
-      return waitForMapsLoad(w);
-    }
-    if (!hasServicesLibraryLoaded(w)) {
-      // services 모듈이 아직 없는 경우는 드묾. 안전하게 재주입.
-      try {
-        ex.remove();
-      } catch {}
-      const url = buildSdkUrl(desiredKey, libraries);
-      await injectScript(url);
-      return waitForMapsLoad(w);
-    }
-    // 준비 완료
+
+    // b) 이미 준비됨
     return w.kakao as KakaoMapsNS;
   }
 
-  // 기존 태그가 없으면 신규 주입
-  const url = buildSdkUrl(desiredKey, libraries);
-  // console.debug("[useKakaoLoader] inject SDK:", url.replace(desiredKey, maskKey(desiredKey)));
+  // 2) 기존 스크립트가 없으면 동적 주입
+  const appkey = (ENV_JS_KEY && ENV_JS_KEY.trim()) || FALLBACK_KAKAO_JS_KEY;
+
+  // 경고는 이 타이밍에만 (정말 .env가 비어 있고, 기존 스크립트도 없을 때)
+  if (shouldWarnMissingEnv) {
+    console.warn(
+      "[useKakaoLoader] VITE_KAKAO_JS_KEY가 비어 있어 임시 키(FALLBACK_KAKAO_JS_KEY)를 사용합니다. 운영 배포 전 반드시 교체하세요.",
+    );
+  }
+
+  const url = buildSdkUrl(appkey, libraries);
   await injectScript(url);
   return waitForMapsLoad(w);
 }
@@ -172,20 +145,16 @@ export function useKakaoLoader(opts?: { libraries?: string[] }) {
     setLoading(true);
     setError(null);
 
-    if (!loaderPromise) {
-      loaderPromise = ensureSdk(memoLibs);
-    }
-
-    loaderPromise
-      .then((k) => {
+    (async () => {
+      try {
+        const k = await ensureSdk(memoLibs);
         if (!cancelled) setKakao(k);
-      })
-      .catch((e) => {
+      } catch (e: any) {
         if (!cancelled) setError(e?.message ?? String(e));
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    })();
 
     return () => {
       cancelled = true;
@@ -195,10 +164,11 @@ export function useKakaoLoader(opts?: { libraries?: string[] }) {
   return { kakao, loading, error, reload: () => location.reload() };
 }
 
-/** 컴포넌트 외부에서도 강제 보장 필요 시 */
+/** 컴포넌트 외부에서 필요 시 호출 */
 export async function ensureKakaoLoaded() {
-  if (!loaderPromise) {
-    loaderPromise = ensureSdk(["services", "clusterer"]);
+  const w = window as WindowWithKakao;
+  if (isMapsCoreReady(w) && hasServicesLibraryLoaded(w)) {
+    return w.kakao as KakaoMapsNS;
   }
-  return loaderPromise;
+  return ensureSdk(["services", "clusterer"]);
 }
