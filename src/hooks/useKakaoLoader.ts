@@ -12,6 +12,7 @@ type KakaoMapsNS = { maps: any };
 type WindowWithKakao = Window & { kakao?: KakaoMapsNS };
 
 const SCRIPT_ID = "kakao-maps-sdk";
+const FALLBACK_KAKAO_JS_KEY = "a53075efe7a2256480b8650cec67ebae";
 
 /* -------------------- 유틸 -------------------- */
 function parseQuery(url: string): Record<string, string> {
