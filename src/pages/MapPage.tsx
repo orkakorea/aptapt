@@ -4,9 +4,9 @@ import { supabase } from "@/integrations/supabase/client";
 import MapChrome, { SelectedApt } from "../components/MapChrome";
 import { LocateFixed, Plus } from "lucide-react";
 import getQuickImageFactory from "@/lib/quickAdd";
+import { useKakaoLoader } from "@/hooks/useKakaoLoader";
 
 type KakaoNS = typeof window & { kakao: any };
-const FALLBACK_KAKAO_KEY = "a53075efe7a2256480b8650cec67ebae";
 
 /* =========================================================================
    ① 마커 이미지 유틸
@@ -49,50 +49,7 @@ function safeSetImage(marker: any, image: any) {
 }
 
 /* =========================================================================
-   ② Kakao SDK 로더/정리
-   ------------------------------------------------------------------------- */
-function cleanupKakaoScripts() {
-  const candidates = Array.from(document.scripts).filter((s) => s.src.includes("dapi.kakao.com/v2/maps/sdk.js"));
-  candidates.forEach((s) => s.parentElement?.removeChild(s));
-  const w = window as any;
-  if (w.kakao) {
-    try {
-      delete w.kakao;
-    } catch {
-      w.kakao = undefined;
-    }
-  }
-}
-function loadKakao(): Promise<any> {
-  const w = window as any;
-  if (w.kakao?.maps && typeof w.kakao.maps.LatLng === "function") return Promise.resolve(w.kakao);
-  if (w.__kakaoLoadingPromise) return w.__kakaoLoadingPromise;
-
-  const envKey = (import.meta as any).env?.VITE_KAKAO_JS_KEY as string | undefined;
-  const key = envKey && envKey.trim() ? envKey : FALLBACK_KAKAO_KEY;
-
-  cleanupKakaoScripts();
-
-  w.__kakaoLoadingPromise = new Promise((resolve, reject) => {
-    const s = document.createElement("script");
-    s.id = "kakao-maps-sdk";
-    s.charset = "utf-8";
-    s.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${key}&autoload=false&libraries=services,clusterer`;
-    s.onload = () => {
-      if (!w.kakao?.maps) return reject(new Error("kakao maps namespace missing"));
-      w.kakao.maps.load(() => {
-        if (typeof w.kakao.maps.LatLng !== "function") return reject(new Error("LatLng constructor not ready"));
-        resolve(w.kakao);
-      });
-    };
-    s.onerror = () => reject(new Error("Failed to load Kakao Maps SDK"));
-    document.head.appendChild(s);
-  });
-  return w.__kakaoLoadingPromise;
-}
-
-/* =========================================================================
-   ③ 헬퍼
+   ② 헬퍼
    ------------------------------------------------------------------------- */
 function readQuery() {
   const u = new URL(window.location.href);
@@ -125,7 +82,7 @@ function expandBounds(bounds: any, pad = 0.05) {
 const rowIdOf = (r: any) => r?.id ?? r?.place_id ?? r?.placeId ?? r?.placeID ?? null;
 
 /* =========================================================================
-   ④ 타입/키 유틸
+   ③ 타입/키 유틸
    ------------------------------------------------------------------------- */
 type PlaceRow = {
   id?: number | string;
@@ -153,7 +110,7 @@ const buildRowKeyFromRow = (row: PlaceRow) => {
 };
 
 /* =========================================================================
-   ⑤ ‘정적 분리(항상 나란히)’ 레이아웃
+   ④ ‘정적 분리(항상 나란히)’ 레이아웃
    ------------------------------------------------------------------------- */
 function layoutMarkersSideBySide(map: any, group: KMarker[]) {
   const kakao = (window as any).kakao;
@@ -177,11 +134,20 @@ function layoutMarkersSideBySide(map: any, group: KMarker[]) {
 }
 
 /* =========================================================================
-   ⑥ 메인 컴포넌트
+   ⑤ 메인 컴포넌트
    ------------------------------------------------------------------------- */
 type SelectedAptX = SelectedApt & { selectedInCart?: boolean };
 
 export default function MapPage() {
+  // ✅ SDK는 오직 커스텀 훅으로만 로드 (중복 주입 금지)
+  const {
+    kakao,
+    loading: kakaoLoading,
+    error: kakaoLoadError,
+  } = useKakaoLoader({
+    libraries: ["services", "clusterer"],
+  });
+
   const mapRef = useRef<HTMLDivElement | null>(null);
   const mapObjRef = useRef<any>(null);
   const clustererRef = useRef<any>(null);
@@ -298,87 +264,93 @@ export default function MapPage() {
     [orderAndApplyZIndex],
   );
 
-  /* ---------- 지도 초기화 ---------- */
+  /* ---------- 지도 초기화 (SDK 로딩 성공 후에만) ---------- */
   useEffect(() => {
+    if (kakaoLoading) return;
+    if (kakaoLoadError) {
+      setKakaoError(kakaoLoadError);
+      return;
+    }
+    const w = window as any;
+    if (!w.kakao?.maps) return; // 아직 window에 탑재 전
+
     let resizeHandler: any;
     let map: any;
-    cleanupKakaoScripts();
-    loadKakao()
-      .then((kakao) => {
-        setKakaoError(null);
-        if (!mapRef.current) return;
-        mapRef.current.style.minHeight = "300px";
-        mapRef.current.style.minWidth = "300px";
-        const center = new kakao.maps.LatLng(37.5665, 126.978);
-        map = new kakao.maps.Map(mapRef.current, { center, level: 6 });
-        mapObjRef.current = map;
-        (window as any).kakaoMap = map;
-        (window as any).__kakaoMap = map;
 
-        placesRef.current = new kakao.maps.services.Places();
+    try {
+      setKakaoError(null);
+      if (!mapRef.current) return;
 
-        // 퀵담기 이미지 팩토리 준비(생성자 있을 때만)
-        if (hasImgCtors(kakao.maps)) {
-          quickFactoryRef.current = getQuickImageFactory(kakao.maps, { size: PIN_SIZE, offset: PIN_OFFSET });
-        } else {
-          quickFactoryRef.current = null;
-        }
+      mapRef.current.style.minHeight = "300px";
+      mapRef.current.style.minWidth = "300px";
+      const center = new w.kakao.maps.LatLng(37.5665, 126.978);
+      map = new w.kakao.maps.Map(mapRef.current, { center, level: 6 });
+      mapObjRef.current = map;
+      w.kakaoMap = map;
+      w.__kakaoMap = map;
 
-        const SIZES = [34, 44, 54];
-        const clusterStyles = SIZES.map((sz) => ({
-          width: `${sz}px`,
-          height: `${sz}px`,
-          lineHeight: `${sz}px`,
-          textAlign: "center",
-          borderRadius: "999px",
-          background: "rgba(108, 45, 255, 0.18)",
-          border: "1px solid rgba(108, 45, 255, 0.35)",
-          color: "#6C2DFF",
-          fontWeight: "700",
-          fontSize: "13px",
-        }));
-        clustererRef.current = new kakao.maps.MarkerClusterer({
-          map,
-          averageCenter: true,
-          minLevel: 6,
-          disableClickZoom: true,
-          gridSize: 80,
-          styles: clusterStyles,
-        });
+      placesRef.current = new w.kakao.maps.services.Places();
 
-        kakao.maps.event.addListener(map, "zoom_changed", applyStaticSeparationAll);
-        kakao.maps.event.addListener(map, "idle", async () => {
-          await loadMarkersInBounds();
-          applyStaticSeparationAll();
-        });
+      // 퀵담기 이미지 팩토리 준비(생성자 있을 때만)
+      if (hasImgCtors(w.kakao.maps)) {
+        quickFactoryRef.current = getQuickImageFactory(w.kakao.maps, { size: PIN_SIZE, offset: PIN_OFFSET });
+      } else {
+        quickFactoryRef.current = null;
+      }
 
-        setTimeout(() => map && map.relayout(), 0);
-        (async () => {
-          await loadMarkersInBounds();
-          applyStaticSeparationAll();
-        })();
-
-        const q0 = readQuery();
-        setInitialQ(q0);
-        if (q0) runPlaceSearch(q0);
-
-        resizeHandler = () => {
-          if (!map) return;
-          map.relayout();
-          applyStaticSeparationAll();
-        };
-        window.addEventListener("resize", resizeHandler);
-      })
-      .catch((err) => {
-        console.error("[KakaoMap] load error:", err);
-        setKakaoError(err?.message || String(err));
+      const SIZES = [34, 44, 54];
+      const clusterStyles = SIZES.map((sz) => ({
+        width: `${sz}px`,
+        height: `${sz}px`,
+        lineHeight: `${sz}px`,
+        textAlign: "center",
+        borderRadius: "999px",
+        background: "rgba(108, 45, 255, 0.18)",
+        border: "1px solid rgba(108, 45, 255, 0.35)",
+        color: "#6C2DFF",
+        fontWeight: "700",
+        fontSize: "13px",
+      }));
+      clustererRef.current = new w.kakao.maps.MarkerClusterer({
+        map,
+        averageCenter: true,
+        minLevel: 6,
+        disableClickZoom: true,
+        gridSize: 80,
+        styles: clusterStyles,
       });
+
+      w.kakao.maps.event.addListener(map, "zoom_changed", applyStaticSeparationAll);
+      w.kakao.maps.event.addListener(map, "idle", async () => {
+        await loadMarkersInBounds();
+        applyStaticSeparationAll();
+      });
+
+      setTimeout(() => map && map.relayout(), 0);
+      (async () => {
+        await loadMarkersInBounds();
+        applyStaticSeparationAll();
+      })();
+
+      const q0 = readQuery();
+      setInitialQ(q0);
+      if (q0) runPlaceSearch(q0);
+
+      resizeHandler = () => {
+        if (!map) return;
+        map.relayout();
+        applyStaticSeparationAll();
+      };
+      window.addEventListener("resize", resizeHandler);
+    } catch (e: any) {
+      setKakaoError(e?.message || String(e));
+    }
 
     return () => {
       window.removeEventListener("resize", resizeHandler);
-      const w = window as any;
-      if (w.kakaoMap === mapObjRef.current) w.kakaoMap = null;
-      if (w.__kakaoMap === mapObjRef.current) w.__kakaoMap = null;
+      const ww = window as any;
+      if (ww.kakaoMap === mapObjRef.current) ww.kakaoMap = null;
+      if (ww.__kakaoMap === mapObjRef.current) ww.__kakaoMap = null;
       try {
         radiusCircleRef.current?.setMap(null);
       } catch {}
@@ -393,7 +365,7 @@ export default function MapPage() {
       } catch {}
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applyStaticSeparationAll]);
+  }, [kakaoLoading, kakaoLoadError, applyStaticSeparationAll]);
 
   useEffect(() => {
     const m = mapObjRef.current;
@@ -444,6 +416,23 @@ export default function MapPage() {
     [applyGroupPrioritiesForRowKey, applyStaticSeparationAll],
   );
 
+  /* ---------- 카트 탭 열기 유틸(추가) ---------- */
+  const openCart = useCallback((opts?: { via?: "quickadd" | "detail"; rowKey?: string }) => {
+    // URL 쿼리에 tab=cart 반영(존재 시 갱신)
+    try {
+      const u = new URL(window.location.href);
+      u.searchParams.set("tab", "cart");
+      window.history.replaceState(null, "", u.toString());
+    } catch {}
+    // 커스텀 이벤트들(둘 중 하나라도 MapChrome이 듣도록 중복 발행)
+    try {
+      window.dispatchEvent(new CustomEvent("orka:open-cart", { detail: opts || {} }));
+    } catch {}
+    try {
+      window.dispatchEvent(new CustomEvent("orka:ui:activate-tab", { detail: { tab: "cart", ...(opts || {}) } }));
+    } catch {}
+  }, []);
+
   /* ---------- 카트 제어 헬퍼 ---------- */
   const isRowKeySelected = useCallback(
     (rowKey?: string | null) => !!rowKey && selectedRowKeySetRef.current.has(rowKey),
@@ -451,14 +440,18 @@ export default function MapPage() {
   );
   const addToCartByRowKey = useCallback(
     (rowKey: string) => {
+      // 담기 처리
       selectedRowKeySetRef.current.add(rowKey);
       setMarkerStateByRowKey(rowKey, "selected", true);
-      setSelected((p) => (p && p.rowKey === rowKey ? { ...p, selectedInCart: true } : p));
+
+      // ✅ 담기 성공 후: 2탭 닫기 + 카트 열기 신호
+      setSelected(null);
       applyGroupPrioritiesForRowKey(rowKey);
       applyStaticSeparationAll();
       window.dispatchEvent(new CustomEvent("orka:cart:changed", { detail: { rowKey, selected: true } }));
+      openCart({ via: "detail", rowKey }); // 호출부 종류와 무관하게 카트로 전환
     },
-    [applyGroupPrioritiesForRowKey, applyStaticSeparationAll, setMarkerStateByRowKey],
+    [applyGroupPrioritiesForRowKey, applyStaticSeparationAll, setMarkerStateByRowKey, openCart],
   );
   const removeFromCartByRowKey = useCallback(
     (rowKey: string) => {
@@ -468,6 +461,7 @@ export default function MapPage() {
       applyGroupPrioritiesForRowKey(rowKey);
       applyStaticSeparationAll();
       window.dispatchEvent(new CustomEvent("orka:cart:changed", { detail: { rowKey, selected: false } }));
+      // 해제 시에는 카트를 강제 오픈하지 않음
     },
     [applyGroupPrioritiesForRowKey, applyStaticSeparationAll, setMarkerStateByRowKey],
   );
@@ -553,8 +547,6 @@ export default function MapPage() {
       limit_n: 5000,
     });
 
-    console.log("[map] RPC NOW:", (data ?? []).length, error?.message);
-
     if (reqId !== lastReqIdRef.current) return;
     if (error) {
       console.error("Supabase rpc(get_public_map_places) error:", error.message);
@@ -622,8 +614,11 @@ export default function MapPage() {
           // 퀵모드: 패널 열지 않고 담기/취소만
           if (quickAddRef.current) {
             const was = selectedRowKeySetRef.current.has(rowKey);
-            if (was) removeFromCartByRowKey(rowKey);
-            else addToCartByRowKey(rowKey);
+            if (was) {
+              removeFromCartByRowKey(rowKey);
+            } else {
+              addToCartByRowKey(rowKey); // ✅ 내부에서 2탭 닫고 카트 오픈까지 수행
+            }
             const nowSel = selectedRowKeySetRef.current.has(rowKey);
 
             const newImg =
@@ -857,7 +852,6 @@ export default function MapPage() {
         max_lng: pad.maxLng,
         limit_n: 5000,
       });
-      console.log("[map] RPC EXPANDED:", (data2 ?? []).length, err2?.message);
 
       if (err2) {
         console.warn("[MapPage] expanded select error:", err2.message);
@@ -901,8 +895,11 @@ export default function MapPage() {
           maps.event.addListener(mk, "click", () => {
             if (quickAddRef.current) {
               const was = selectedRowKeySetRef.current.has(rowKey);
-              if (was) removeFromCartByRowKey(rowKey);
-              else addToCartByRowKey(rowKey);
+              if (was) {
+                removeFromCartByRowKey(rowKey);
+              } else {
+                addToCartByRowKey(rowKey); // ✅ 내부에서 2탭 닫고 카트 오픈까지 수행
+              }
               const nowSel = selectedRowKeySetRef.current.has(rowKey);
               const newImg =
                 quickFactoryRef.current && canImg
@@ -1388,9 +1385,9 @@ export default function MapPage() {
       />
 
       {/* 에러 토스트들 */}
-      {kakaoError && (
+      {(kakaoError || kakaoLoadError) && (
         <div className="fixed bottom-4 right-4 z-[100] rounded-lg bg-red-600 text-white px-3 py-2 text-sm shadow">
-          Kakao SDK 로드 오류: {kakaoError}
+          Kakao SDK 로드 오류: {kakaoError || kakaoLoadError}
         </div>
       )}
       {geoError && (
