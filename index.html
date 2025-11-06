@@ -30,6 +30,15 @@
 
     <!-- ⚠️중요: CSP 메타는 일단 제거(추후 다시 최소 권한만 넣자) -->
 
+    <!-- ✅ Kakao Maps SDK: 정적 로드 (키를 직접 넣어 주세요) -->
+    <script
+      id="kakao-maps-sdk"
+      async
+      defer
+      src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=157cb75d5b47dd47c032ef34add3682f&autoload=false&libraries=services,clusterer"
+    ></script>
+  </head>
+
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
