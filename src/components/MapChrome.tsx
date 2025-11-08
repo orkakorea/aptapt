@@ -3,7 +3,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import QuoteModal, { QuoteLineItem } from "./QuoteModal";
 import InquiryModal from "./InquiryModal";
 import { supabase } from "@/integrations/supabase/client";
-import LoginModal from "@/components/LoginModal";
 
 /** ===== 타입 ===== */
 export type SelectedApt = {
