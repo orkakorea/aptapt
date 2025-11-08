@@ -630,6 +630,16 @@ export default function MapPage() {
             lng,
             selectedInCart: selectedRowKeySetRef.current.has(rowKey),
           };
+
+          if (quickModeRef.current && !suppressQuickRef.current) {
+            // 퀵담기 ON + 사용자 직접 클릭 → 담기/취소만 수행하고 종료
+            toggleCartByRowKey(rowKey);
+            lastClickedRef.current = null;
+            applyStaticSeparationAll();
+            return; // 아래 클릭 강조 로직은 스킵
+          }
+          // (포커스에서 유도한 클릭이면 여기서 억제 플래그만 해제하고 상세를 연다)
+          suppressQuickRef.current = false;
           setSelected(sel);
           // React가 selected를 커밋한 뒤에 카트 토글 신호를 보내도록 한 틱 지연
           setTimeout(() => {
