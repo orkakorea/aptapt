@@ -1,3 +1,4 @@
+// src/components/MapChrome.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import QuoteModal, { QuoteLineItem } from "./QuoteModal";
 import InquiryModal from "./InquiryModal";
@@ -182,10 +183,21 @@ type CartItem = {
   months: number;
   lat?: number;
   lng?: number;
+  /** 내부 상태: 정보 미충분 → fetch 보강 필요 */
+  hydrated?: boolean;
 };
 
 /** ===== Supabase 캐시 ===== */
 type AptStats = { households?: number; residents?: number; monthlyImpressions?: number; monitors?: number };
+
+/** ===== 내부 유틸(행키 파서 & 보강) ===== */
+function parseRowKey(rowKey?: string): { placeId?: string } {
+  if (!rowKey) return {};
+  // 형태1) id:123
+  const m = /^id:([^|]+)$/i.exec(rowKey.trim());
+  if (m) return { placeId: m[1] };
+  return {};
+}
 
 /** ===== 컴포넌트 ===== */
 export default function MapChrome({
@@ -216,51 +228,175 @@ export default function MapChrome({
   const [openPackageInquiry, setOpenPackageInquiry] = useState(false);
 
   const [statsMap, setStatsMap] = useState<Record<string, AptStats>>({});
-  // 퀵담기 신호 수신 시, 최신 selected를 정확히 읽기 위한 ref
+
+  // 최신 selected를 안전하게 참조하기 위한 ref
   const selectedRef = React.useRef<SelectedApt | null>(selected);
   useEffect(() => {
     selectedRef.current = selected ?? null;
   }, [selected]);
-  // 지도(MapPage)에서 날아오는 담기/취소 이벤트 → 카트에 반영
+
+  /** ====== Supabase로 카트아이템 보강 ====== */
+  async function hydrateCartItemByRowKey(rowKey: string, hint?: SelectedApt) {
+    setCart((prev) => {
+      const idx = prev.findIndex((x) => x.rowKey === rowKey);
+      if (idx < 0) return prev;
+
+      const it = prev[idx];
+      // 힌트로 먼저 보강
+      let next: CartItem = { ...it };
+      if (hint) {
+        next = {
+          ...next,
+          name: hint.name ?? next.name,
+          productName: hint.productName ?? next.productName,
+          productKey: next.productKey ?? classifyProductForPolicy(hint.productName, hint.installLocation),
+          baseMonthly: Number.isFinite(hint.monthlyFee!) ? hint.monthlyFee : next.baseMonthly,
+          lat: hint.lat ?? next.lat,
+          lng: hint.lng ?? next.lng,
+        };
+      }
+      const place = parseRowKey(rowKey);
+      // 이미 충분하면 패스
+      if (next.baseMonthly && next.productName) {
+        next.hydrated = true;
+        const copy = prev.slice();
+        copy[idx] = next;
+        return copy;
+      }
+
+      // placeId가 없으면 일단 힌트까지만 반영
+      if (!place.placeId) {
+        const copy = prev.slice();
+        copy[idx] = next;
+        return copy;
+      }
+
+      // 비동기 호출: 완료 시 상태 반영
+      (async () => {
+        const { data, error } = await (supabase as any).rpc("get_public_place_detail", {
+          p_place_id: place.placeId,
+        });
+        if (error) {
+          console.warn("[hydrateCartItemByRowKey] detail RPC error:", error.message);
+          return;
+        }
+        const d = data?.[0];
+        if (!d) return;
+
+        setCart((cur) => {
+          const j = cur.findIndex((x) => x.rowKey === rowKey);
+          if (j < 0) return cur;
+          const curItem = cur[j];
+          const updated: CartItem = {
+            ...curItem,
+            name: (hint?.name ?? curItem.name) || d.name || curItem.name,
+            productName: hint?.productName ?? curItem.productName ?? d.product_name ?? curItem.productName,
+            productKey:
+              curItem.productKey ??
+              classifyProductForPolicy(hint?.productName ?? d.product_name, d.install_location ?? d.installLocation),
+            baseMonthly:
+              Number.isFinite(curItem.baseMonthly as number) && (curItem.baseMonthly as number) > 0
+                ? curItem.baseMonthly
+                : (d.monthly_fee ?? curItem.baseMonthly),
+            lat: curItem.lat ?? d.lat ?? hint?.lat,
+            lng: curItem.lng ?? d.lng ?? hint?.lng,
+            hydrated: true,
+          };
+          const out = cur.slice();
+          out[j] = updated;
+          return out;
+        });
+
+        // statsMap도 보강
+        const key = keyName(hint?.name ?? d.name ?? "");
+        if (key) {
+          setStatsMap((prev) => ({
+            ...prev,
+            [key]: {
+              households: d.households ?? prev[key]?.households,
+              residents: d.residents ?? prev[key]?.residents,
+              monthlyImpressions: d.monthly_impressions ?? prev[key]?.monthlyImpressions,
+              monitors: d.monitors ?? prev[key]?.monitors,
+            },
+          }));
+        }
+      })();
+
+      const copy = prev.slice();
+      copy[idx] = next;
+      return copy;
+    });
+  }
+
+  /** ============================================================
+   *  지도(MapPage) → 카트: 담기/취소 이벤트 수신
+   *  - payload.selectedSnapshot 이 오면 최우선 사용
+   *  - 없으면 현재 상세(selectedRef)에서 보강
+   *  - 없거나 부족하면 rowKey를 기반으로 Supabase RPC로 보강
+   * ============================================================ */
+  type CartChangedDetail = { rowKey: string; selected: boolean; selectedSnapshot?: SelectedApt | null };
   useEffect(() => {
     const onCartChanged = (ev: Event) => {
-      const e = ev as CustomEvent<{ rowKey: string; selected: boolean }>;
-      const payload = e.detail;
-      if (!payload) return;
+      const { detail } = ev as CustomEvent<CartChangedDetail>;
+      if (!detail) return;
 
-      const { rowKey, selected: shouldSelect } = payload;
-      const sel = selectedRef.current;
+      const { rowKey, selected: shouldSelect, selectedSnapshot } = detail;
+      const snap =
+        selectedSnapshot ?? (selectedRef.current && selectedRef.current.rowKey === rowKey ? selectedRef.current : null);
 
-      // 현재 상세(2탭)가 같은 rowKey일 때만 카트 반영(정보를 sel에서 가져옴)
       setCart((prev) => {
         const already = prev.some((x) => x.rowKey === rowKey);
-
         if (shouldSelect) {
-          if (already) return prev;
-          if (!sel || sel.rowKey !== rowKey) return prev; // 아직 상세가 안 열렸다면 대기
+          if (already) {
+            // 이미 있으면 보강만 시도
+            setTimeout(() => hydrateCartItemByRowKey(rowKey, snap ?? undefined), 0);
+            return prev;
+          }
 
+          // snap이 있으면 즉시 생성, 없으면 placeholder 후 보강
+          const name = snap?.name ?? "(이름 불러오는 중)";
+          const productName = snap?.productName ?? undefined;
+          const baseMonthly = snap?.monthlyFee ?? undefined;
           const id = [
-            String(sel.name ?? "")
+            String(name ?? "")
               .replace(/\s+/g, "")
               .toLowerCase(),
-            String(sel.productName ?? "")
+            String(productName ?? "")
               .replace(/\s+/g, "")
               .toLowerCase(),
           ].join("||");
-          const productKey = classifyProductForPolicy(sel.productName, sel.installLocation);
+          const productKey = classifyProductForPolicy(snap?.productName, snap?.installLocation);
           const defaultMonths = prev.length > 0 ? prev[0].months : 1;
 
           const newItem: CartItem = {
             id,
             rowKey,
-            name: sel.name,
+            name,
             productKey,
-            productName: sel.productName,
-            baseMonthly: sel.monthlyFee,
+            productName,
+            baseMonthly,
             months: defaultMonths,
-            lat: sel.lat,
-            lng: sel.lng,
+            lat: snap?.lat,
+            lng: snap?.lng,
+            hydrated: Boolean(snap?.monthlyFee && snap?.productName),
           };
+
+          // statsMap을 스냅샷으로 선반영
+          if (snap?.name) {
+            const k = keyName(snap.name);
+            setStatsMap((prevStats) => ({
+              ...prevStats,
+              [k]: {
+                households: snap.households ?? prevStats[k]?.households,
+                residents: snap.residents ?? prevStats[k]?.residents,
+                monthlyImpressions: snap.monthlyImpressions ?? prevStats[k]?.monthlyImpressions,
+                monitors: snap.monitors ?? prevStats[k]?.monitors,
+              },
+            }));
+          }
+
+          // 보강 예약
+          setTimeout(() => hydrateCartItemByRowKey(rowKey, snap ?? undefined), 0);
 
           // 스티키 헤더로 살짝 스크롤 유도
           setTimeout(() => {
@@ -269,7 +405,6 @@ export default function MapChrome({
 
           return [newItem, ...prev];
         } else {
-          // 취소일 때는 해당 rowKey만 제거
           return prev.filter((x) => x.rowKey !== rowKey);
         }
       });
@@ -279,54 +414,12 @@ export default function MapChrome({
     return () => window.removeEventListener("orka:cart:changed", onCartChanged as EventListener);
   }, []);
 
-  // 퀵담기(지도) → 카트(좌측) 동기화
-  useEffect(() => {
-    const handler = (ev: Event) => {
-      const e = ev as CustomEvent<{ rowKey: string; selected: boolean }>;
-      const detail = e.detail;
-      if (!detail) return;
-      const { rowKey, selected: isSel } = detail;
-
-      // 현재 상세(2탭)가 같은 rowKey면 카트 반영
-      setCart((prev) => {
-        const has = prev.some((x) => x.rowKey === rowKey);
-        if (isSel) {
-          if (!has && selected && selected.rowKey === rowKey) {
-            const id = makeIdFromSelected(selected);
-            const productKey = classifyProductForPolicy(selected.productName, selected.installLocation);
-            const defaultMonths = prev.length > 0 ? prev[0].months : 1;
-            const newItem: CartItem = {
-              id,
-              rowKey,
-              name: selected.name,
-              productKey,
-              productName: selected.productName,
-              baseMonthly: selected.monthlyFee,
-              months: defaultMonths,
-              lat: selected.lat,
-              lng: selected.lng,
-            };
-            // 스크롤 유도
-            setTimeout(() => {
-              document.getElementById("bulkMonthsApply")?.scrollIntoView({ behavior: "smooth", block: "start" });
-            }, 0);
-            return [newItem, ...prev];
-          }
-          return prev;
-        } else {
-          return prev.filter((x) => x.rowKey !== rowKey);
-        }
-      });
-    };
-
-    window.addEventListener("orka:cart:changed", handler as EventListener);
-    return () => window.removeEventListener("orka:cart:changed", handler as EventListener);
-  }, [selected]);
-
+  /** ===== 포맷터 ===== */
   const fmtNum = (n?: number, unit = "") =>
     typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() + (unit ? " " + unit : "") : "—";
   const fmtWon = (n?: number) => (typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() : "—");
 
+  /** ===== 섬네일/요약 ===== */
   const matchedFile = resolveProductFile(selected?.productName, selected?.installLocation);
   const initialThumb = selected?.imageUrl || (matchedFile ? PRIMARY_ASSET_BASE + matchedFile : PLACEHOLDER);
 
@@ -341,6 +434,7 @@ export default function MapChrome({
     return Math.round(base * (1 - preRate) * (1 - periodRate));
   }, [selected]);
 
+  /** ===== 총 합계 (보강 후 자동 반영) ===== */
   const cartTotal = useMemo(() => {
     return cart.reduce((sum, item) => {
       const rule = item.productKey ? DEFAULT_POLICY[item.productKey] : undefined;
@@ -357,6 +451,7 @@ export default function MapChrome({
     onSearch?.(q);
   };
 
+  /** ===== 통계 보강 ===== */
   async function fetchStatsByNames(names: string[]) {
     const uniq = Array.from(new Set(names.filter(Boolean)));
     if (!uniq.length) return;
@@ -382,7 +477,7 @@ export default function MapChrome({
     setStatsMap((prev) => ({ ...prev, ...map }));
   }
 
-  /* ===== 담기/삭제 ===== */
+  /* ===== 담기/삭제 (2탭 버튼) ===== */
   const makeIdFromSelected = (s: SelectedApt) => {
     const nk = (v?: string) => (v ? v.replace(/\s+/g, "").toLowerCase() : "");
     const nameKey = nk(s.name || s.address || "");
@@ -409,6 +504,7 @@ export default function MapChrome({
                 baseMonthly: selected.monthlyFee,
                 lat: selected.lat,
                 lng: selected.lng,
+                hydrated: true,
               }
             : x,
         );
@@ -424,6 +520,7 @@ export default function MapChrome({
         months: defaultMonths,
         lat: selected.lat,
         lng: selected.lng,
+        hydrated: true,
       };
       return [newItem, ...prev];
     });
@@ -487,10 +584,17 @@ export default function MapChrome({
     else if (item.lat != null && item.lng != null && focusByLatLng) focusByLatLng(item.lat, item.lng, { level: 4 });
   };
 
+  /** ===== 견적 모달 열릴 때 미보강 아이템 보강 ===== */
   useEffect(() => {
-    if (openQuote && cart.length > 0) fetchStatsByNames(cart.map((c) => c.name));
-  }, [openQuote, cart]);
+    if (!openQuote) return;
+    const need = cart.filter((c) => !c.hydrated || !c.baseMonthly || !c.productName);
+    if (!need.length) return;
+    need.forEach((c) => hydrateCartItemByRowKey(c.rowKey!, selectedRef.current ?? undefined));
+    const names = cart.map((c) => c.name).filter(Boolean);
+    if (names.length) fetchStatsByNames(names);
+  }, [openQuote]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** ===== 견적서 빌더 ===== */
   function yyyy_mm_dd(d: Date) {
     const y = d.getFullYear();
     const m = `${d.getMonth() + 1}`.padStart(2, "0");
@@ -590,7 +694,11 @@ export default function MapChrome({
           <button
             disabled={cart.length === 0}
             onClick={() => cart.length > 0 && setOpenSeatInquiry(true)}
-            className={`h-10 rounded-md border text-sm font-medium ${cart.length > 0 ? "bg-[#6C2DFF] text-white border-[#6C2DFF]" : "bg.white text.black border-[#E5E7EB] cursor-default pointer-events-none"}`}
+            className={`h-10 rounded-md border text-sm font-medium ${
+              cart.length > 0
+                ? "bg-[#6C2DFF] text-white border-[#6C2DFF]"
+                : "bg.white text.black border-[#E5E7EB] cursor-default pointer-events-none"
+            }`}
           >
             구좌(T.O) 문의하기
           </button>
@@ -609,11 +717,7 @@ export default function MapChrome({
                 <div className="absolute inset-0 grid place-items-center p-6">
                   <div className="w-full max-w-[320px] min-h-[200px] grid place-items-center text-center">
                     {/* 아이콘 */}
-                    <img
-                      src="/atp.png" // ← public/atp.png 파일을 이렇게 참조
-                      alt="아파트 아이콘"
-                      className="w-16 h-16 mb-3 object-contain"
-                    />
+                    <img src="/atp.png" alt="아파트 아이콘" className="w-16 h-16 mb-3 object-contain" />
 
                     {/* 문구 */}
                     <div className="text-x1 text-[#6B7280] font-semibold leading-relaxed">
@@ -744,7 +848,9 @@ export default function MapChrome({
 
               {/* 즉시 토글 */}
               <button
-                className={`mt-1 h-12 w-full rounded-xl font-semibold transition-colors ${inCart ? "bg-[#E5E7EB] text-[#6B7280]" : "bg-[#6C2DFF] text-white"}`}
+                className={`mt-1 h-12 w-full rounded-xl font-semibold transition-colors ${
+                  inCart ? "bg-[#E5E7EB] text-[#6B7280]" : "bg-[#6C2DFF] text-white"
+                }`}
                 onClick={onClickAddOrCancel}
               >
                 {inCart ? "담기취소" : "아파트 담기"}
