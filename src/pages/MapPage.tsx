@@ -601,12 +601,14 @@ export default function MapPage() {
             return; // ▼ 아래 'clicked' 이미지 로직 타지 않음
           }
           setSelected(sel);
-          if (quickModeRef.current) {
-            toggleCartByRowKey(rowKey);
-            lastClickedRef.current = null;
-            applyStaticSeparationAll();
-            return;
-          }
+          // React가 selected를 커밋한 뒤에 카트 토글 신호를 보내도록 한 틱 지연
+          setTimeout(() => {
+            if (quickModeRef.current) {
+              toggleCartByRowKey(rowKey);
+              lastClickedRef.current = null;
+              applyStaticSeparationAll();
+            }
+          }, 0);
 
           // ✅ 상세 보강 RPC
           (() => {
@@ -804,12 +806,14 @@ export default function MapPage() {
             return; // ▼ 아래 'clicked' 이미지 로직 타지 않음
           }
           setSelected(sel);
-          if (quickModeRef.current) {
-            toggleCartByRowKey(rowKey);
-            lastClickedRef.current = null;
-            applyStaticSeparationAll();
-            return;
-          }
+          // React가 selected를 커밋한 뒤에 카트 토글 신호를 보내도록 한 틱 지연
+          setTimeout(() => {
+            if (quickModeRef.current) {
+              toggleCartByRowKey(rowKey);
+              lastClickedRef.current = null;
+              applyStaticSeparationAll();
+            }
+          }, 0);
 
           // ✅ 상세 보강 RPC
           (() => {
