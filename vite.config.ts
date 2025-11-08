@@ -10,7 +10,9 @@ export default defineConfig(({ mode }) => ({
     port: 8080,
   },
   plugins: [
-    react(),
+    react({
+      tsDecorators: true,
+    }),
     mode === 'development' &&
     componentTagger(),
   ].filter(Boolean),
@@ -18,5 +20,11 @@ export default defineConfig(({ mode }) => ({
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+  },
+  build: {
+    sourcemap: false,
+  },
+  esbuild: {
+    logOverride: { 'this-is-undefined-in-esm': 'silent' }
   },
 }));

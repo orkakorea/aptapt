@@ -1,14 +1,15 @@
 // src/pages/MapPage.tsx
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import MapChrome, { SelectedApt } from "../components/MapChrome";
+import MapChrome from "../components/MapChrome";
+import type { SelectedApt } from "@/types/map";
 import { LocateFixed, Zap } from "lucide-react";
 
 type KakaoNS = typeof window & { kakao: any };
 const FALLBACK_KAKAO_KEY = "a53075efe7a2256480b8650cec67ebae";
 
 /* =========================================================================
-   ① 마커 이미지 유틸
+   ① 마커 이미지 유틸 - 핀 설정
    ------------------------------------------------------------------------- */
 const PIN_PURPLE_URL = "/makers/pin-purple@2x.png"; // 기본
 const PIN_YELLOW_URL = "/makers/pin-yellow@2x.png"; // 담김(선택)

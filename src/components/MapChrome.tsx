@@ -4,27 +4,7 @@ import QuoteModal, { QuoteLineItem } from "./QuoteModal";
 import InquiryModal from "./InquiryModal";
 import { supabase } from "@/integrations/supabase/client";
 import LoginModal from "@/components/LoginModal";
-
-/** ===== 타입 ===== */
-export type SelectedApt = {
-  rowKey?: string;
-  rowId?: string;
-  name: string;
-  address?: string;
-  productName?: string;
-  installLocation?: string;
-  monitors?: number;
-  monthlyImpressions?: number;
-  costPerPlay?: number;
-  hours?: string;
-  households?: number;
-  residents?: number;
-  monthlyFee?: number;
-  monthlyFeeY1?: number;
-  imageUrl?: string;
-  lat: number;
-  lng: number;
-};
+import type { SelectedApt } from "@/types/map";
 
 type Props = {
   selected?: SelectedApt | null;
