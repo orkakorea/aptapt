@@ -444,7 +444,7 @@ export default function MapChrome({
     const uniq = Array.from(new Set(names.filter(Boolean)));
     if (!uniq.length) return;
 
-    const { data, error } = await supabase.rpc("get_public_place_stats_by_names", {
+    const { data, error } = await (supabase.rpc as any)("get_public_place_stats_by_names", {
       p_names: uniq,
     });
 
@@ -454,7 +454,7 @@ export default function MapChrome({
     }
 
     const map: Record<string, AptStats> = {};
-    (data || []).forEach((row: any) => {
+    ((data as any[]) || []).forEach((row: any) => {
       const k = keyName(row.name || "");
       if (!k) return;
       map[k] = {
