@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { z } from "zod";
 
-/* === 추가: 완료모달과 동일한 계산 유틸 임포트 (정책/월가 계산) === */
+/* === 완료모달과 동일한 계산 유틸 === */
 import { calcMonthlyWithPolicy, normPolicyKey, DEFAULT_POLICY, rateFromRanges } from "@/core/pricing";
 
 /**
@@ -165,21 +165,18 @@ const InquiriesPage: React.FC = () => {
     return { fromIdx, toIdx: fromIdx + pageSize - 1 };
   }, [page, pageSize]);
 
-  // ----- 세션/role 확인 (DB RPC is_admin()만 사용) -----
+  // ----- 세션/role 확인 -----
   useEffect(() => {
     let mounted = true;
 
     async function checkAdmin() {
       try {
-        // 1) 현재 세션 확인
         const {
           data: { session },
         } = await supabase.auth.getSession();
-
         if (!mounted) return;
 
         if (session?.user) {
-          // 2) DB 보안 단일 출처: SECURITY DEFINER RPC
           const { data: adminCheck, error } = await supabase.rpc("is_admin");
           if (!mounted) return;
           setIsAdmin(Boolean(adminCheck) && !error);
@@ -195,15 +192,12 @@ const InquiriesPage: React.FC = () => {
       }
     }
 
-    // 마운트 시 1회 검사
     checkAdmin();
 
-    // 세션 변동 시 재검사 (구독 1개만)
     const { data: sub } = supabase.auth.onAuthStateChange((_e, _session) => {
       checkAdmin();
     });
 
-    // 정리
     return () => {
       mounted = false;
       sub?.subscription?.unsubscribe?.();
@@ -248,7 +242,7 @@ const InquiriesPage: React.FC = () => {
           memo: d[COL.memo],
           cart_snapshot: d[COL.cartSnapshot],
 
-          // 추가 필드(있으면 사용)
+          // 추가 필드
           device: d[COL.device],
           meta: d[COL.meta],
           source_page: d[COL.sourcePage],
@@ -619,7 +613,6 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
   // 표시 리스트(단지/개월/상품명) — 화면 표시는 제거, CSV 생성에만 사용
   const listToRender: { apt_name: string; months: number | null; product_name: string }[] = useMemo(() => {
     if (aptRows.length === 0 && snapshotSets.length > 0) return snapshotSets;
-
     if (aptRows.length > 0) {
       return aptRows.map((ap) => {
         const found = snapshotSets.find(
@@ -676,7 +669,61 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
     return false;
   }
 
-  /** === 핵심: 완료모달 로직과 동일한 정규화 파서 (PC는 유지, 모바일만 보강/재계산) === */
+  /** 모바일 할인 모드 추론: 명시값 → 스냅샷 근사 → 기본값(period) */
+  function resolveMobileDiscountMode(it: any, snap: any, baseMonthlyTrue: number | null, months: number) {
+    // 1) 명시 플래그 우선
+    const raw = (
+      it?.discount_mode ??
+      it?.discountMode ??
+      snap?.summary?.discount_mode ??
+      snap?.summary?.discountMode ??
+      ""
+    )
+      .toString()
+      .toLowerCase();
+    if (/precomp|사전|pre/i.test(raw)) return "precomp";
+    if (/period|기간/i.test(raw)) return "period";
+
+    // 2) 근사치로 추정(스냅샷의 monthlyAfter와 가장 가까운 쪽)
+    const monthlyAfterRaw = toNum(
+      pick(it, [
+        "monthlyAfter",
+        "monthly_after",
+        "priceMonthlyAfter",
+        "discountedMonthly",
+        "discounted_monthly",
+        "finalMonthly",
+        "final_monthly",
+        "price_monthly",
+        "monthly",
+        "monthlyFee",
+        "netMonthly",
+        "saleMonthly",
+        "quoteMonthly",
+      ]),
+    );
+
+    if (baseMonthlyTrue != null && baseMonthlyTrue > 0 && months > 0) {
+      const periodRate = rateFromRanges(DEFAULT_POLICY["ELEVATOR TV"]?.period ?? [], months) || 0;
+      const precompRate = rateFromRanges(DEFAULT_POLICY["ELEVATOR TV"]?.precomp ?? [], months) || 0;
+
+      const mPeriod = Math.round(baseMonthlyTrue * (1 - periodRate));
+      const mPre = Math.round(baseMonthlyTrue * (1 - precompRate));
+
+      if (monthlyAfterRaw != null) {
+        const dP = Math.abs(mPeriod - monthlyAfterRaw);
+        const dC = Math.abs(mPre - monthlyAfterRaw);
+        if (dP < dC) return "period";
+        if (dC < dP) return "precomp";
+      }
+      // 3) 기본값: 기간할인
+      return "period";
+    }
+
+    return "period";
+  }
+
+  /** === 핵심: 완료모달 로직과 동일한 정규화 파서 (PC는 유지, 모바일만 '단일 할인' 보정) === */
   function normalizeSnapshotItems(snap: any): FinalLine[] {
     if (!snap) return [];
 
@@ -726,7 +773,7 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
           ]) ?? pick(it, ["Months", "Period", "Duration"]),
         ) || 0;
 
-      // 기준 월가 후보 / 기준 총액 후보
+      // 기준 월가 후보 / 기준 총액 후보(스냅샷 원자료)
       const baseMonthlyRaw = toNum(
         pick(it, [
           "baseMonthly",
@@ -744,14 +791,8 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
       const baseTotalField = toNum(
         pick(it, ["baseTotal", "base_total", "listTotal", "standardTotal", "std_total", "total_before_discount"]),
       );
-      let baseTotal =
-        baseTotalField != null
-          ? baseTotalField
-          : baseMonthlyRaw != null && months > 0
-            ? Math.round(baseMonthlyRaw * months)
-            : 0;
 
-      // 할인후 월가 후보
+      // 할인후 월가/라인합계(스냅샷 원자료)
       let monthlyAfter: number | null =
         toNum(
           pick(it, [
@@ -771,7 +812,6 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
           ]),
         ) ?? null;
 
-      // 라인 합계 후보
       let lineTotal: number =
         toNum(
           pick(it, [
@@ -789,7 +829,9 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
           ]),
         ) ?? 0;
 
-      // 역산 로직(공통)
+      // ───────────────────────────────────────────────────────────
+      // ① 공통 역산 (원자료가 비어있을 때만 보조)
+      // ───────────────────────────────────────────────────────────
       if ((!lineTotal || lineTotal <= 0) && months > 0 && monthlyAfter != null && monthlyAfter > 0) {
         lineTotal = Math.round(monthlyAfter * months);
       }
@@ -797,12 +839,12 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
         lineTotal = Math.round(baseMonthlyRaw * months);
       }
 
-      // 표시용 기준 월가
+      // 표시용 기본값(가용 원자료로 1차 구성)
       const baseMonthlyEff =
         baseMonthlyRaw != null && baseMonthlyRaw > 0
           ? baseMonthlyRaw
-          : months > 0 && baseTotal > 0
-            ? Math.round(baseTotal / months)
+          : months > 0 && baseTotalField != null && baseTotalField > 0
+            ? Math.round(baseTotalField / months)
             : null;
 
       const productName =
@@ -812,29 +854,62 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
         ) || "";
       const key = normPolicyKey(productName);
 
-      // ───────── 모바일 유입만: 정책 유틸로 재계산(표준화) ─────────
-      if (mobile && months > 0) {
-        const baseCandidate =
-          (baseMonthlyEff != null ? baseMonthlyEff : null) ??
-          (lineTotal > 0 ? Math.round(lineTotal / months) : null) ??
-          (monthlyAfter != null ? monthlyAfter : null);
+      // 디스플레이용 기준 월가(초기값)
+      let baseMonthlyView = baseMonthlyEff;
+      // 계산용 기준 총액(초기값)
+      let baseTotal =
+        baseTotalField != null ? baseTotalField : baseMonthlyEff != null && months > 0 ? baseMonthlyEff * months : 0;
 
-        if (baseCandidate != null && baseCandidate > 0) {
-          const { monthly } = calcMonthlyWithPolicy(productName, months, baseCandidate, undefined, 1);
-          if (monthly && monthly > 0) {
-            monthlyAfter = monthly;
-            lineTotal = Math.round(monthly * months);
+      // ───────────────────────────────────────────────────────────
+      // ② 모바일 전용 보정 (엘리베이터TV만 ‘단일 할인’ 적용)
+      //     - 월광고료(기준): DB 기준값(= 할인 전)로 고정
+      //     - 할인은 사전보상 or 기간할인 중 '하나'만 적용
+      // ───────────────────────────────────────────────────────────
+      if (mobile && key === "ELEVATOR TV" && months > 0) {
+        // (1) 할인 전 기준 월가 확정
+        const baseMonthlyTrue =
+          (baseMonthlyRaw != null && baseMonthlyRaw > 0 ? baseMonthlyRaw : null) ??
+          (baseTotalField != null && months > 0 ? Math.round(baseTotalField / months) : null);
+
+        // baseMonthlyTrue가 없으면, (monthlyAfter, 정책 r)로 역계산 시도
+        let baseForCalc = baseMonthlyTrue;
+        if (baseForCalc == null) {
+          const periodRate = rateFromRanges(DEFAULT_POLICY["ELEVATOR TV"]?.period ?? [], months) || 0;
+          const precompRate = rateFromRanges(DEFAULT_POLICY["ELEVATOR TV"]?.precomp ?? [], months) || 0;
+          if (monthlyAfter != null && monthlyAfter > 0) {
+            // 두 후보를 역산해보고 정수 오차가 적은 쪽을 취함
+            const candPeriod = Math.round(monthlyAfter / (1 - periodRate || 1));
+            const candPre = Math.round(monthlyAfter / (1 - precompRate || 1));
+            // 둘 다 유효하면 더 "그럴듯"한 쪽 선택
+            if (candPeriod > 0 && candPre > 0) {
+              baseForCalc = Math.abs(candPeriod - candPre) <= 1 ? candPeriod : Math.max(candPeriod, candPre);
+            } else {
+              baseForCalc = candPeriod > 0 ? candPeriod : candPre > 0 ? candPre : null;
+            }
           }
         }
-        // baseTotal 보정(표시용)
-        if ((!baseTotal || baseTotal <= 0) && baseCandidate != null && months > 0) {
-          baseTotal = baseCandidate * months;
+
+        if (baseForCalc != null && baseForCalc > 0) {
+          // (2) 할인 모드 결정: 명시값 → 스냅샷 근사 → 기본(period)
+          const mode = resolveMobileDiscountMode(it, snap, baseForCalc, months); // "precomp" | "period"
+          const periodRate = rateFromRanges(DEFAULT_POLICY["ELEVATOR TV"]?.period ?? [], months) || 0;
+          const precompRate = rateFromRanges(DEFAULT_POLICY["ELEVATOR TV"]?.precomp ?? [], months) || 0;
+          const r = mode === "precomp" ? precompRate : periodRate;
+
+          // (3) 단일 할인 적용
+          baseMonthlyView = baseForCalc; // 표 ‘월광고료(기준)’ = 할인 전
+          const monthlyOne = Math.round(baseForCalc * (1 - r)); // 월광고료(할인후)
+          monthlyAfter = monthlyOne;
+          lineTotal = Math.round(monthlyOne * months); // 총광고료
+          baseTotal = Math.round(baseForCalc * months); // 기준금액
         }
+        // ⚠️ 주의: 이 블록에서는 이중할인(기간×사전보상) 금지
       }
-      // ───────── PC 유입/기존 경로: 기존 로직 유지 (변경 없음) ─────────
+      // ───────────────────────────────────────────────────────────
+      // ③ PC/기타 상품: 기존 로직 유지
+      // ───────────────────────────────────────────────────────────
       else {
-        // ELEVATOR TV 전용: 기존 규칙 유지
-        if (key === "ELEVATOR TV" && months > 0) {
+        if (key === "ELEVATOR TV" && months > 0 && !mobile) {
           if (!baseTotal || baseTotal <= 0) {
             baseTotal = baseMonthlyEff != null && months > 0 ? baseMonthlyEff * months : 0;
           }
@@ -843,7 +918,7 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
           const tvTotal = Math.round((baseTotal || 0) * (1 - periodRate) * (1 - precompRate));
           lineTotal = tvTotal;
           monthlyAfter = months > 0 ? Math.round(tvTotal / months) : monthlyAfter;
-        } else {
+        } else if (!mobile) {
           const looksZeroDiscount = (() => {
             if (!baseTotal || baseTotal <= 0 || !lineTotal || lineTotal <= 0) return true;
             const r = 1 - lineTotal / baseTotal;
@@ -868,7 +943,9 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
           ) || "",
         product_name: productName,
         months: Math.max(0, months || 0),
-        baseMonthly: baseMonthlyEff ?? (months > 0 && baseTotal > 0 ? Math.round(baseTotal / months) : null),
+        // 표의 ‘월광고료(기준)’은 항상 할인 전 수치(모바일+TV 보정 포함)
+        baseMonthly: baseMonthlyView ?? (months > 0 && baseTotal > 0 ? Math.round(baseTotal / months) : null),
+        // ‘월광고료(할인후)’는 단일 할인 적용 결과(모바일+TV 보정), 그 외 기존 분기
         monthlyAfter: monthlyAfter ?? (months > 0 && lineTotal > 0 ? Math.round(lineTotal / months) : null),
         lineTotal: Math.max(0, lineTotal || 0),
       };
@@ -974,7 +1051,6 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
         <div className="p-5 space-y-5 overflow-y-auto h-[calc(100%-56px)]">
           <InfoItem label="문의일시" value={formatDateTime(row.created_at)} />
           <InfoItem label="캠페인 유형" value={row.campaign_type || (row.extra?.campaign_type ?? "—")} />
-          {/* 추가: 유입경로, 디바이스 */}
           <InfoItem label="유입경로" value={<SourceBadge value={row.inquiry_kind} />} />
           <InfoItem label="디바이스" value={deviceLabel} />
           <InfoItem label="담당자명(광고주)" value={row.customer_name || "—"} />
