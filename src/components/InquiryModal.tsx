@@ -639,7 +639,7 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
                       <p className="font-medium">정보주체의 권리</p>
                       <ul className="list-disc pl-5 mt-1 space-y-1">
                         <li>이용자는 언제든지 개인정보 열람·정정·삭제·처리정지를 요청할 수 있습니다.</li>
-                        <li>문의: privacy@orka.co.kr / 031-1551-0810</li>
+                        <li>문의: master@orka.co.kr / 031-1551-0810</li>
                       </ul>
                     </li>
 
