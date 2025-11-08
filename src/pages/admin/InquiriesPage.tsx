@@ -663,13 +663,28 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
     return undefined;
   };
 
-  /** === 핵심: 완료모달 로직과 동일한 정규화 파서 === */
+  /** 모바일 유입 여부 판별(표시/계산용 분기 전용) */
+  function isMobileInquiry(row: InquiryRow, snap: any): boolean {
+    const dl = deriveDeviceLabel(row);
+    if (dl === "모바일") return true;
+    const meta = (row.meta ?? snap?.meta ?? snap?.context ?? {}) as any;
+    if (meta?.isMobile === true) return true;
+    const ua = String(meta?.ua ?? meta?.userAgent ?? "");
+    if (ua && /Mobile/i.test(ua)) return true;
+    const sp = (row.source_page ?? "").toLowerCase();
+    if (sp.includes("/mobile")) return true;
+    return false;
+  }
+
+  /** === 핵심: 완료모달 로직과 동일한 정규화 파서 (PC는 유지, 모바일만 보강/재계산) === */
   function normalizeSnapshotItems(snap: any): FinalLine[] {
     if (!snap) return [];
 
-    // ① 항목 배열 우선순위 (DB 스냅샷 신뢰 경로)
+    // ① 항목 배열 우선순위 (경로 보강: 모바일 스냅샷 변형 대응)
     const candidates: any[] =
       (Array.isArray(snap?.receipt_v1?.items) && snap.receipt_v1.items) ||
+      (Array.isArray(snap?.receipt_mobile?.items) && snap.receipt_mobile.items) ||
+      (Array.isArray(snap?.mobile?.items) && snap.mobile.items) ||
       (Array.isArray(snap?.items) && snap.items) ||
       (Array.isArray(snap?.computedCart) && snap.computedCart) ||
       (Array.isArray(snap?.cart?.items) && snap.cart.items) ||
@@ -680,6 +695,8 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
     // 상단 라벨 폴백
     const topAptFallback: string =
       typeof snap?.summary?.topAptLabel === "string" ? String(snap.summary.topAptLabel).replace(/\s*외.*$/, "") : "";
+
+    const mobile = isMobileInquiry(row, snap);
 
     const lines: FinalLine[] = candidates.map((it: any) => {
       // months 추출(문자/단위 혼입 대비)
@@ -695,15 +712,38 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
 
       const months =
         parseMonths(
-          pick(it, ["months", "month", "Months", "period", "duration"]) ?? pick(it, ["Months", "Period", "Duration"]),
+          pick(it, [
+            "months",
+            "month",
+            "Months",
+            "period",
+            "duration",
+            "m",
+            "months_count",
+            "개월",
+            "개월수",
+            "periodMonths",
+          ]) ?? pick(it, ["Months", "Period", "Duration"]),
         ) || 0;
 
       // 기준 월가 후보 / 기준 총액 후보
       const baseMonthlyRaw = toNum(
-        pick(it, ["baseMonthly", "base_monthly", "monthlyBefore", "basePriceMonthly", "priceMonthly"]),
+        pick(it, [
+          "baseMonthly",
+          "base_monthly",
+          "monthlyBefore",
+          "basePriceMonthly",
+          "priceMonthlyBase",
+          "standardMonthly",
+          "stdMonthly",
+          "listMonthly",
+          "priceMonthly",
+        ]),
       );
 
-      const baseTotalField = toNum(pick(it, ["baseTotal", "base_total"]));
+      const baseTotalField = toNum(
+        pick(it, ["baseTotal", "base_total", "listTotal", "standardTotal", "std_total", "total_before_discount"]),
+      );
       let baseTotal =
         baseTotalField != null
           ? baseTotalField
@@ -725,6 +765,9 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
             "price_monthly",
             "monthly",
             "monthlyFee",
+            "netMonthly",
+            "saleMonthly",
+            "quoteMonthly",
           ]),
         ) ?? null;
 
@@ -734,16 +777,19 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
           pick(it, [
             "lineTotal",
             "line_total",
+            "line_total_after",
             "total",
             "totalCost",
             "final_total",
             "subtotal",
             "item_total_won",
             "total_won",
+            "sum",
+            "net_total",
           ]),
         ) ?? 0;
 
-      // 역산 로직(모달 동일)
+      // 역산 로직(공통)
       if ((!lineTotal || lineTotal <= 0) && months > 0 && monthlyAfter != null && monthlyAfter > 0) {
         lineTotal = Math.round(monthlyAfter * months);
       }
@@ -759,11 +805,6 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
             ? Math.round(baseTotal / months)
             : null;
 
-      // ───────────────────────────────────────────────────────────
-      // ELEVATOR TV 전용 규칙 강제 적용 (모달과 동일)
-      //   총액 = 기준금액 × (1-기간할인) × (1-사전보상할인[개월기준])
-      //   할인후월가 = 총액/개월
-      // ───────────────────────────────────────────────────────────
       const productName =
         String(
           pick(it, ["product_name", "productName", "mediaName", "media_name", "media", "product", "product_code"]) ??
@@ -771,28 +812,50 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
         ) || "";
       const key = normPolicyKey(productName);
 
-      if (key === "ELEVATOR TV" && months > 0) {
-        if (!baseTotal || baseTotal <= 0) {
-          baseTotal = baseMonthlyEff != null && months > 0 ? baseMonthlyEff * months : 0;
-        }
-        const periodRate = rateFromRanges(DEFAULT_POLICY["ELEVATOR TV"].period, months);
-        const precompRate = months < 3 ? 0.03 : 0.05;
-        const tvTotal = Math.round((baseTotal || 0) * (1 - periodRate) * (1 - precompRate));
-        lineTotal = tvTotal;
-        monthlyAfter = months > 0 ? Math.round(tvTotal / months) : monthlyAfter;
-      } else {
-        // 비 TV 상품: 정책 폴백
-        const looksZeroDiscount = (() => {
-          if (!baseTotal || baseTotal <= 0 || !lineTotal || lineTotal <= 0) return true;
-          const r = 1 - lineTotal / baseTotal;
-          return !isFinite(r) || Math.abs(r) < 0.01;
-        })();
+      // ───────── 모바일 유입만: 정책 유틸로 재계산(표준화) ─────────
+      if (mobile && months > 0) {
+        const baseCandidate =
+          (baseMonthlyEff != null ? baseMonthlyEff : null) ??
+          (lineTotal > 0 ? Math.round(lineTotal / months) : null) ??
+          (monthlyAfter != null ? monthlyAfter : null);
 
-        if (looksZeroDiscount && baseMonthlyEff != null && baseMonthlyEff > 0 && months > 0) {
-          const { monthly } = calcMonthlyWithPolicy(productName, months, baseMonthlyEff, undefined, 1);
-          if (monthly > 0 && monthly <= baseMonthlyEff) {
+        if (baseCandidate != null && baseCandidate > 0) {
+          const { monthly } = calcMonthlyWithPolicy(productName, months, baseCandidate, undefined, 1);
+          if (monthly && monthly > 0) {
             monthlyAfter = monthly;
             lineTotal = Math.round(monthly * months);
+          }
+        }
+        // baseTotal 보정(표시용)
+        if ((!baseTotal || baseTotal <= 0) && baseCandidate != null && months > 0) {
+          baseTotal = baseCandidate * months;
+        }
+      }
+      // ───────── PC 유입/기존 경로: 기존 로직 유지 (변경 없음) ─────────
+      else {
+        // ELEVATOR TV 전용: 기존 규칙 유지
+        if (key === "ELEVATOR TV" && months > 0) {
+          if (!baseTotal || baseTotal <= 0) {
+            baseTotal = baseMonthlyEff != null && months > 0 ? baseMonthlyEff * months : 0;
+          }
+          const periodRate = rateFromRanges(DEFAULT_POLICY["ELEVATOR TV"].period, months);
+          const precompRate = months < 3 ? 0.03 : 0.05;
+          const tvTotal = Math.round((baseTotal || 0) * (1 - periodRate) * (1 - precompRate));
+          lineTotal = tvTotal;
+          monthlyAfter = months > 0 ? Math.round(tvTotal / months) : monthlyAfter;
+        } else {
+          const looksZeroDiscount = (() => {
+            if (!baseTotal || baseTotal <= 0 || !lineTotal || lineTotal <= 0) return true;
+            const r = 1 - lineTotal / baseTotal;
+            return !isFinite(r) || Math.abs(r) < 0.01;
+          })();
+
+          if (looksZeroDiscount && baseMonthlyEff != null && baseMonthlyEff > 0 && months > 0) {
+            const { monthly } = calcMonthlyWithPolicy(productName, months, baseMonthlyEff, undefined, 1);
+            if (monthly > 0 && monthly <= baseMonthlyEff) {
+              monthlyAfter = monthly;
+              lineTotal = Math.round(monthly * months);
+            }
           }
         }
       }
@@ -805,7 +868,7 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
           ) || "",
         product_name: productName,
         months: Math.max(0, months || 0),
-        baseMonthly: baseMonthlyEff ?? null,
+        baseMonthly: baseMonthlyEff ?? (months > 0 && baseTotal > 0 ? Math.round(baseTotal / months) : null),
         monthlyAfter: monthlyAfter ?? (months > 0 && lineTotal > 0 ? Math.round(lineTotal / months) : null),
         lineTotal: Math.max(0, lineTotal || 0),
       };
