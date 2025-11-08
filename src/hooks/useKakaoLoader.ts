@@ -1,21 +1,18 @@
-// src/hooks/useKakaoLoader.ts
 import { useEffect, useMemo, useState } from "react";
 
 /**
- * Kakao Maps SDK 로더 (단일 진입점)
- * - index.html 에서 SDK <script>는 제거하고, 이 훅만 사용하세요.
- * - 환경변수 VITE_KAKAO_JS_KEY (Kakao Developers "JavaScript 키")가 반드시 필요합니다.
- * - 멱등 보장: 전역 Promise 캐시로 StrictMode/다중 호출에서도 1회만 로드
- * - 중복 방지: 기존 스크립트/라이브러리 검사 후 필요 시 재주입
+ * ✅ 변경 요약
+ * - .env의 VITE_KAKAO_JS_KEY가 비어 있어도, index.html의 <script id="kakao-maps-sdk">에
+ *   appkey가 있으면 경고를 출력하지 않습니다.
+ * - 기존 <script>에 services 라이브러리가 없으면 자동 보정하여 재주입합니다.
+ * - 기존 <script>가 없으면 .env(JS 키) → 없으면 fallback 키로 동적 주입합니다.
  */
 
 type KakaoMapsNS = { maps: any };
-type WindowWithKakao = Window & {
-  kakao?: KakaoMapsNS;
-  __KAKAO_SDK_PROMISE__?: Promise<KakaoMapsNS>;
-};
+type WindowWithKakao = Window & { kakao?: KakaoMapsNS };
 
 const SCRIPT_ID = "kakao-maps-sdk";
+const FALLBACK_KAKAO_JS_KEY = "a53075efe7a2256480b8650cec67ebae";
 
 /* -------------------- 유틸 -------------------- */
 function parseQuery(url: string): Record<string, string> {
@@ -28,9 +25,8 @@ function parseQuery(url: string): Record<string, string> {
 }
 
 function buildSdkUrl(appkey: string, libraries: string[]) {
-  // 항상 services 포함
   const libSet = new Set(libraries.map((s) => s.trim()).filter(Boolean));
-  libSet.add("services");
+  libSet.add("services"); // services는 반드시
   const libs = Array.from(libSet).join(",");
   return `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(
     appkey,
@@ -49,29 +45,26 @@ function waitForMapsLoad(w: WindowWithKakao): Promise<KakaoMapsNS> {
     try {
       (w.kakao as any).maps.load(() => {
         if (!isMapsCoreReady(w)) {
-          reject(new Error("[Kakao] maps.load 이후에도 코어가 준비되지 않았습니다."));
+          reject(new Error("LatLng constructor not ready after maps.load()"));
           return;
         }
         resolve(w.kakao as KakaoMapsNS);
       });
     } catch (e) {
-      reject(e instanceof Error ? e : new Error(String(e)));
+      reject(e);
     }
   });
 }
 
 function injectScript(src: string) {
   return new Promise<HTMLScriptElement>((resolve, reject) => {
-    const prev = document.getElementById(SCRIPT_ID);
-    if (prev) prev.remove();
-
     const s = document.createElement("script");
     s.id = SCRIPT_ID;
     s.async = true;
     s.defer = true;
     s.src = src;
     s.onload = () => resolve(s);
-    s.onerror = () => reject(new Error("[Kakao] SDK 스크립트 로드 실패"));
+    s.onerror = () => reject(new Error("Failed to load Kakao Maps SDK"));
     document.head.appendChild(s);
   });
 }
@@ -80,65 +73,60 @@ function injectScript(src: string) {
 async function ensureSdk(libraries: string[]): Promise<KakaoMapsNS> {
   const w = window as WindowWithKakao;
 
-  // 이미 완전 준비
+  // 0) 이미 완전 준비
   if (isMapsCoreReady(w) && hasServicesLibraryLoaded(w)) {
     return w.kakao as KakaoMapsNS;
   }
 
-  // 동시 호출 합치기
-  if (w.__KAKAO_SDK_PROMISE__) {
-    return w.__KAKAO_SDK_PROMISE__;
+  const ex = document.getElementById(SCRIPT_ID) as HTMLScriptElement | null;
+  const q = ex ? parseQuery(ex.src || "") : {};
+  const exAppKey = q["appkey"] || "";
+  const exLibs = (q["libraries"] || "").split(",").map((s) => s.trim());
+  const exHasServices = exLibs.includes("services");
+
+  // .env의 JS 키
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ENV_JS_KEY = (import.meta as any)?.env?.VITE_KAKAO_JS_KEY as string | undefined;
+
+  // ⚠️ 경고 조건: .env도 없고, 기존 <script>에도 appkey가 전혀 없을 때만
+  const shouldWarnMissingEnv = (!ENV_JS_KEY || !ENV_JS_KEY.trim()) && (!exAppKey || !exAppKey.trim());
+
+  // 1) 기존 스크립트가 있는 경우
+  if (ex) {
+    // a) 아직 window.kakao가 없거나, services가 누락된 경우 → 보정
+    if (!w.kakao?.maps || !hasServicesLibraryLoaded(w)) {
+      // 기존 appkey 또는 ENV 또는 fallback 중 우선순위로 사용
+      const appkey = (exAppKey && exAppKey.trim()) || (ENV_JS_KEY && ENV_JS_KEY.trim()) || FALLBACK_KAKAO_JS_KEY;
+
+      if (!exHasServices) {
+        // 기존 스크립트가 services 없이 로드되었으면 보정: 재주입
+        try {
+          ex.remove();
+        } catch {}
+        const url = buildSdkUrl(appkey, libraries);
+        await injectScript(url);
+      }
+      // maps.load 대기
+      return waitForMapsLoad(w);
+    }
+
+    // b) 이미 준비됨
+    return w.kakao as KakaoMapsNS;
   }
 
-  const ENV_JS_KEY = (import.meta as any)?.env?.VITE_KAKAO_JS_KEY as string | undefined;
-  if (!ENV_JS_KEY || !ENV_JS_KEY.trim()) {
-    throw new Error(
-      "[Kakao] VITE_KAKAO_JS_KEY 가 설정되어 있지 않습니다. Kakao Developers의 JavaScript 키를 .env에 설정해 주세요.",
+  // 2) 기존 스크립트가 없으면 동적 주입
+  const appkey = (ENV_JS_KEY && ENV_JS_KEY.trim()) || FALLBACK_KAKAO_JS_KEY;
+
+  // 경고는 이 타이밍에만 (정말 .env가 비어 있고, 기존 스크립트도 없을 때)
+  if (shouldWarnMissingEnv) {
+    console.warn(
+      "[useKakaoLoader] VITE_KAKAO_JS_KEY가 비어 있어 임시 키(FALLBACK_KAKAO_JS_KEY)를 사용합니다. 운영 배포 전 반드시 교체하세요.",
     );
   }
 
-  // 기존 스크립트 검사(있다면 라이브러리 보정)
-  const existingById = document.getElementById(SCRIPT_ID) as HTMLScriptElement | null;
-  const existingAny =
-    existingById ||
-    (document.querySelector('script[src*="dapi.kakao.com/v2/maps/sdk.js"]') as HTMLScriptElement | null);
-
-  const promise = (async () => {
-    if (existingAny) {
-      const q = parseQuery(existingAny.src || "");
-      const exLibs = (q["libraries"] || "")
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-      const needLibs = new Set(["services", ...libraries]);
-
-      const hasAllLibs = Array.from(needLibs).every((lib) => exLibs.includes(lib));
-
-      // 라이브러리가 부족하면 재주입(ENV 키로 통일)
-      if (!hasAllLibs) {
-        existingAny.remove();
-        const url = buildSdkUrl(ENV_JS_KEY.trim(), libraries);
-        await injectScript(url);
-      }
-      // 이미 있던 스크립트가 있고, libs도 충분하면 그대로 진행
-    } else {
-      // 스크립트 없음 → ENV 키로 신규 주입
-      const url = buildSdkUrl(ENV_JS_KEY.trim(), libraries);
-      await injectScript(url);
-    }
-
-    // maps.load 대기
-    return waitForMapsLoad(w);
-  })();
-
-  w.__KAKAO_SDK_PROMISE__ = promise;
-  try {
-    const k = await promise;
-    return k;
-  } finally {
-    // 성공/실패와 무관하게, 이후 호출은 최신 상태를 다시 판단하도록 캐시 유지
-    // (원한다면 성공시에만 유지하고, 실패 시엔 삭제하는 패턴도 가능)
-  }
+  const url = buildSdkUrl(appkey, libraries);
+  await injectScript(url);
+  return waitForMapsLoad(w);
 }
 
 /* -------------------- React Hook -------------------- */
@@ -148,7 +136,7 @@ export function useKakaoLoader(opts?: { libraries?: string[] }) {
   const [error, setError] = useState<string | null>(null);
 
   const memoLibs = useMemo(
-    () => (opts?.libraries && opts.libraries.length ? opts.libraries : ["clusterer"]), // services는 내부에서 강제 포함
+    () => (opts?.libraries && opts.libraries.length ? opts.libraries : ["services", "clusterer"]),
     [opts?.libraries],
   );
 
@@ -182,5 +170,5 @@ export async function ensureKakaoLoaded() {
   if (isMapsCoreReady(w) && hasServicesLibraryLoaded(w)) {
     return w.kakao as KakaoMapsNS;
   }
-  return ensureSdk(["clusterer"]);
+  return ensureSdk(["services", "clusterer"]);
 }

@@ -7,26 +7,12 @@ import { z } from "zod";
  * InquiriesPage (관리자 전용)
  * - 목록/검색/필터/페이지네이션
  * - 인라인 수정: status, valid(—/유효/무효), assignee
- * - 상세 드로어: 광고주 최종확인(금액) 스냅샷 테이블
+ * - 상세 드로어: inquiry_apartments 우선, 없으면 cart_snapshot(items) 폴백
  *
- * ⚠️ 중요: admin 세션 확인이 끝난 뒤에만 SELECT 수행
+ * ⚠️ 중요
+ * - 이 페이지는 "세션이 로드되어 admin 확인이 끝난 뒤"에만 데이터를 읽습니다.
+ *   (admin 가드가 끝나기 전에 SELECT가 나가 401/403이 나는 문제를 방지)
  */
-
-/* =========================
- *  Zod Schemas (입력 검증)
- * ========================= */
-const StatusSchema = z.enum(["new", "in_progress", "done", "canceled"]);
-const ValidTriSchema = z.union([z.literal("-"), z.literal("valid"), z.literal("invalid")]);
-// assignee: 태그 제거 → trim → 길이 최대 80, 공백이면 null
-function stripTags(s: string) {
-  return s.replace(/<[^>]*>/g, "");
-}
-function sanitizeAssignee(input: unknown): string | null {
-  if (typeof input !== "string") return null;
-  const cleaned = stripTags(input).trim();
-  if (!cleaned) return null;
-  return cleaned.length > 80 ? cleaned.slice(0, 80) : cleaned;
-}
 
 type InquiryKind = "SEAT" | "PACKAGE";
 type InquiryStatus = "new" | "in_progress" | "done" | "canceled";
@@ -46,15 +32,7 @@ type InquiryRow = {
   phone?: string | null;
   email?: string | null;
   memo?: string | null;
-
-  /** 최종 확인 스냅샷(문자열/JSON 둘 다 허용) */
   cart_snapshot?: any;
-
-  /** 디바이스 판정 보조 필드(있으면 사용) */
-  device?: string | null;
-  meta?: any;
-  source_page?: string | null;
-  extra?: any;
 };
 
 const STATUS_OPTIONS: { value: InquiryStatus; label: string }[] = [
@@ -93,12 +71,6 @@ const COL = {
   email: "email",
   memo: "memo",
   cartSnapshot: "cart_snapshot",
-
-  /** 추가 (있으면 사용) */
-  device: "device",
-  meta: "meta",
-  sourcePage: "source_page",
-  extra: "extra",
 } as const;
 
 const TBL = { main: "inquiries", apartments: "inquiry_apartments" } as const;
@@ -132,6 +104,24 @@ function addSeen(id: string) {
 }
 
 /* =========================
+ *  Validation (Zod)
+ * ========================= */
+const InquiryStatusSchema = z.enum(["new", "in_progress", "done", "canceled"]);
+const MAX_ASSIGNEE_LEN = 80;
+const AssigneeSchema = z
+  .string()
+  .transform((s) => sanitizeAssignee(s))
+  .refine((s) => s.length <= MAX_ASSIGNEE_LEN, `담당자는 ${MAX_ASSIGNEE_LEN}자 이하여야 합니다.`);
+
+/** 제어문자 제거 + 공백 정리 */
+function sanitizeAssignee(input: string): string {
+  return String(input ?? "")
+    .replace(/[\u0000-\u001F\u007F]/g, "") // control chars
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/* =========================
  *  Page
  * ========================= */
 const InquiriesPage: React.FC = () => {
@@ -162,25 +152,41 @@ const InquiriesPage: React.FC = () => {
     return { fromIdx, toIdx: fromIdx + pageSize - 1 };
   }, [page, pageSize]);
 
-  // ----- 세션/role 확인 -----
+  // ----- 세션/role 확인 (DB RPC 기반 가드) -----
   useEffect(() => {
     let mounted = true;
+
     const run = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const role = (session?.user as any)?.app_metadata?.role;
-      if (mounted) {
-        setIsAdmin(role === "admin");
-        setSessionReady(true);
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (!session) {
+          if (mounted) {
+            setIsAdmin(false);
+            setSessionReady(true);
+          }
+          return;
+        }
+
+        const { data: ok, error } = await supabase.rpc("is_admin");
+        if (mounted) {
+          setIsAdmin(ok === true && !error);
+          setSessionReady(true);
+        }
+      } catch {
+        if (mounted) {
+          setIsAdmin(false);
+          setSessionReady(true);
+        }
       }
     };
-    run();
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
-      const role = (session?.user as any)?.app_metadata?.role;
-      setIsAdmin(role === "admin");
-      setSessionReady(true);
+    void run();
+
+    const { data: sub } = supabase.auth.onAuthStateChange(() => {
+      void run();
     });
 
     return () => sub?.subscription?.unsubscribe?.();
@@ -188,7 +194,7 @@ const InquiriesPage: React.FC = () => {
 
   // ----- 서버사이드 로드 -----
   useEffect(() => {
-    if (!sessionReady || !isAdmin) return;
+    if (!sessionReady || !isAdmin) return; // ✅ admin 확인 전에는 절대 SELECT 안 보냄
 
     let ignore = false;
     const load = async () => {
@@ -223,12 +229,6 @@ const InquiriesPage: React.FC = () => {
           email: d[COL.email],
           memo: d[COL.memo],
           cart_snapshot: d[COL.cartSnapshot],
-
-          // 추가 필드(있으면 사용)
-          device: d[COL.device],
-          meta: d[COL.meta],
-          source_page: d[COL.sourcePage],
-          extra: d[COL.extra],
         }));
 
         if (!ignore) {
@@ -384,16 +384,17 @@ const InquiriesPage: React.FC = () => {
 
                   <Td>{r.campaign_type || "—"}</Td>
 
-                  {/* 진행상황 인라인 수정 */}
+                  {/* 진행상황 인라인 수정 (✅ Zod로 허용값 검증) */}
                   <Td>
                     <select
                       value={r.status ?? "new"}
                       onChange={async (e) => {
-                        const prev = r.status ?? "new";
-                        const nextRaw = e.target.value as string;
-                        const parsed = StatusSchema.safeParse(nextRaw);
+                        const raw = e.target.value;
+                        const parsed = InquiryStatusSchema.safeParse(raw);
                         if (!parsed.success) {
-                          e.currentTarget.value = prev;
+                          // 잘못된 값이면 UI를 원래 값으로 되돌리고 메시지
+                          e.currentTarget.value = r.status ?? "new";
+                          setErr("허용되지 않는 진행상황입니다.");
                           return;
                         }
                         const next = parsed.data;
@@ -403,14 +404,14 @@ const InquiriesPage: React.FC = () => {
                           .update({ [COL.status]: next })
                           .eq(COL.id, r.id);
 
-                        if (!error) {
-                          setRows((prevRows) =>
-                            prevRows.map((row) => (row.id === r.id ? { ...row, status: next } : row)),
-                          );
-                        } else {
-                          setErr(error.message || "진행상황 저장 실패");
-                          e.currentTarget.value = prev;
+                        if (error) {
+                          setErr(error.message ?? "진행상황 변경에 실패했습니다.");
+                          // 서버 거부 시 되돌림
+                          e.currentTarget.value = r.status ?? "new";
+                          return;
                         }
+
+                        setRows((prev) => prev.map((row) => (row.id === r.id ? { ...row, status: next } : row)));
                       }}
                       className={"border rounded-full px-2 py-1 text-sm " + pillClassForStatus(r.status ?? "new")}
                     >
@@ -427,15 +428,12 @@ const InquiriesPage: React.FC = () => {
                     <select
                       value={validToTri(r.valid)}
                       onChange={async (e) => {
-                        const prev = validToTri(r.valid);
-                        const raw = e.target.value as string;
-                        const parsed = ValidTriSchema.safeParse(raw);
-                        if (!parsed.success) {
-                          e.currentTarget.value = prev;
+                        const v = e.target.value as ValidTri;
+                        if (!["-", "valid", "invalid"].includes(v)) {
+                          setErr("허용되지 않는 유효성 값입니다.");
+                          e.currentTarget.value = validToTri(r.valid);
                           return;
                         }
-                        const v = parsed.data;
-
                         const payload =
                           v === "-"
                             ? { [COL.valid]: null }
@@ -444,16 +442,18 @@ const InquiriesPage: React.FC = () => {
                               : { [COL.valid]: false };
 
                         const { error } = await (supabase as any).from(TBL.main).update(payload).eq(COL.id, r.id);
-                        if (!error) {
-                          setRows((prevRows) =>
-                            prevRows.map((row) =>
-                              row.id === r.id ? { ...row, valid: v === "-" ? null : v === "valid" } : row,
-                            ),
-                          );
-                        } else {
-                          setErr(error.message || "유효성 저장 실패");
-                          e.currentTarget.value = prev;
+
+                        if (error) {
+                          setErr(error.message ?? "유효성 변경에 실패했습니다.");
+                          e.currentTarget.value = validToTri(r.valid);
+                          return;
                         }
+
+                        setRows((prev) =>
+                          prev.map((row) =>
+                            row.id === r.id ? { ...row, valid: v === "-" ? null : v === "valid" } : row,
+                          ),
+                        );
                       }}
                       className={"border rounded-full px-2 py-1 text-sm " + pillClassForValid(validToTri(r.valid))}
                     >
@@ -465,28 +465,37 @@ const InquiriesPage: React.FC = () => {
                     </select>
                   </Td>
 
-                  {/* 담당자 인라인 수정 */}
+                  {/* 담당자 인라인 수정 (✅ Zod + sanitize + 길이 제한) */}
                   <Td>
                     <input
                       type="text"
                       defaultValue={r.assignee || ""}
                       onBlur={async (e) => {
-                        const prev = r.assignee || "";
-                        const sanitized = sanitizeAssignee(e.target.value);
-                        e.currentTarget.value = sanitized ?? "";
+                        const raw = e.target.value ?? "";
+                        const result = AssigneeSchema.safeParse(raw);
+                        if (!result.success) {
+                          setErr(result.error.issues?.[0]?.message ?? "담당자 입력값이 올바르지 않습니다.");
+                          // UI 되돌림
+                          e.currentTarget.value = r.assignee || "";
+                          return;
+                        }
+                        const clean = result.data;
+                        const nextVal = clean === "" ? null : clean;
+
                         const { error } = await (supabase as any)
                           .from(TBL.main)
-                          .update({ [COL.assignee]: sanitized })
+                          .update({ [COL.assignee]: nextVal })
                           .eq(COL.id, r.id);
-                        if (!error) {
-                          setRows((prevRows) =>
-                            prevRows.map((row) => (row.id === r.id ? { ...row, assignee: sanitized } : row)),
-                          );
-                        } else {
-                          setErr(error.message || "담당자 저장 실패");
-                          e.currentTarget.value = prev;
+
+                        if (error) {
+                          setErr(error.message ?? "담당자 업데이트에 실패했습니다.");
+                          e.currentTarget.value = r.assignee || "";
+                          return;
                         }
+
+                        setRows((prev) => prev.map((row) => (row.id === r.id ? { ...row, assignee: nextVal } : row)));
                       }}
+                      placeholder="담당자 입력(최대 80자)"
                       className="border rounded px-2 py-1 text-sm w-full"
                     />
                   </Td>
@@ -535,7 +544,7 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
   const [aptRows, setAptRows] = useState<{ apt_name: string; product_name: string }[]>([]);
   const [aptLoading, setAptLoading] = useState(false);
 
-  // inquiry_apartments 조회 (CSV 내보내기에서만 사용)
+  // inquiry_apartments 조회
   useEffect(() => {
     let ignore = false;
     (async () => {
@@ -556,30 +565,13 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
     };
   }, [row.id]);
 
-  /** cart_snapshot 문자열/JSON 안전 파서 */
-  const parsedSnap = useMemo(() => {
-    const snap = (row as any)?.cart_snapshot;
-    if (!snap) return null;
-    if (typeof snap === "string") {
-      try {
-        const trimmed = snap.trim();
-        if (trimmed === "null" || trimmed === "") return null;
-        return JSON.parse(trimmed);
-      } catch {
-        return null;
-      }
-    }
-    if (typeof snap === "object") return snap;
-    return null;
-  }, [row]);
-
-  // cart_snapshot 폴백 (표시 전용 단순 리스트 / CSV용)
+  // cart_snapshot 폴백
   const snapshotSets = useMemo(() => {
-    const items = (parsedSnap as any)?.items;
+    const items = (row as any)?.cart_snapshot?.items;
     if (!Array.isArray(items)) return [];
     return items.map((it: any) => ({
-      apt_name: it.apt_name ?? it.name ?? it.aptName ?? it.apt?.name ?? "",
-      months: Number(it.months ?? it.Months ?? it.period ?? it.duration ?? 0) || null,
+      apt_name: it.apt_name ?? it.name ?? "",
+      months: Number(it.months ?? it.Months ?? 0) || null,
       product_name:
         it.product_name ??
         it.productName ??
@@ -590,9 +582,9 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
         it.product_code ??
         "",
     }));
-  }, [parsedSnap]);
+  }, [row]);
 
-  // 표시 리스트(단지/개월/상품명) — 화면 표시는 제거, CSV 생성에만 사용
+  // 표시 리스트
   const listToRender: { apt_name: string; months: number | null; product_name: string }[] = useMemo(() => {
     if (aptRows.length === 0 && snapshotSets.length > 0) return snapshotSets;
 
@@ -613,151 +605,7 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
     return [];
   }, [aptRows, snapshotSets]);
 
-  // ====== 디바이스 표기 ======
-  const deviceLabel = useMemo(() => deriveDeviceLabel(row), [row]);
-
-  // ====== 최종 확인(금액) 스냅샷 파싱 ======
-  type FinalLine = {
-    apt_name: string;
-    product_name: string;
-    months: number;
-    baseMonthly: number | null; // 할인 전 월가(기준)
-    monthlyAfter: number | null; // 할인 후 월가
-    lineTotal: number; // 총광고료(할인 후 월×개월)
-  };
-
-  // 내부 유틸
-  const toNum = (v: any): number | null => {
-    const n = Number(v);
-    return isFinite(n) && !isNaN(n) ? n : null;
-  };
-  const pick = (o: any, keys: string[]) => {
-    for (const k of keys) {
-      const v = o?.[k];
-      if (v !== undefined && v !== null && v !== "") return v;
-    }
-    return undefined;
-  };
-
-  /** 모바일/PC 스냅샷 키 차이를 맞춰 단일 스키마로 변환 */
-  function normalizeSnapshotItems(snap: any): FinalLine[] {
-    if (!snap) return [];
-    const candidates: any[] =
-      (Array.isArray(snap?.receipt_v1?.items) && snap.receipt_v1.items) ||
-      (Array.isArray(snap?.items) && snap.items) ||
-      (Array.isArray(snap?.computedCart) && snap.computedCart) ||
-      (Array.isArray(snap?.cart?.items) && snap.cart.items) ||
-      [];
-
-    if (!Array.isArray(candidates) || candidates.length === 0) return [];
-
-    const lines: FinalLine[] = candidates.map((it: any) => {
-      const months = toNum(pick(it, ["months", "month", "Months", "period", "duration"])) ?? 0;
-
-      // 기준 월가(모바일의 priceMonthly는 '할인 후'로 쓰이는 경우가 있어 명시적으로 제외)
-      const baseMonthly =
-        toNum(
-          pick(it, [
-            "baseMonthly",
-            "base_monthly",
-            "monthlyBefore",
-            "monthly_base",
-            "basePriceMonthly",
-            "base_price_monthly",
-          ]),
-        ) ?? (months > 0 ? (toNum(pick(it, ["baseTotal", "base_total"])) ?? 0) / months : null);
-
-      // 할인 후 월가
-      let monthlyAfter =
-        toNum(
-          pick(it, [
-            "monthlyAfter",
-            "monthly_after",
-            "priceMonthlyAfter",
-            "discountedMonthly",
-            "discounted_monthly",
-            "finalMonthly",
-            "final_monthly",
-            "price_monthly",
-            "monthlyFee",
-            "monthly",
-          ]),
-        ) ?? null;
-
-      // 총액
-      let lineTotal =
-        toNum(
-          pick(it, [
-            "lineTotal",
-            "line_total",
-            "total",
-            "totalCost",
-            "line_total_after_discount",
-            "item_total_won",
-            "total_won",
-            "subtotal",
-            "final_total",
-          ]),
-        ) ?? 0;
-
-      if ((!lineTotal || lineTotal <= 0) && months > 0 && monthlyAfter != null) {
-        lineTotal = Math.round(monthlyAfter * months);
-      }
-      if ((monthlyAfter == null || monthlyAfter <= 0) && months > 0 && lineTotal > 0) {
-        monthlyAfter = Math.round(lineTotal / months);
-      }
-
-      const baseMonthlyEff =
-        baseMonthly != null && isFinite(baseMonthly) && baseMonthly > 0
-          ? baseMonthly
-          : months > 0
-            ? Math.round((toNum(pick(it, ["baseTotal", "base_total"])) ?? 0) / months)
-            : null;
-
-      return {
-        apt_name:
-          String(
-            pick(it, ["apt_name", "aptName", "name", "apt", "title", "apt_title"]) ??
-              (snap?.summary?.topAptLabel ? String(snap.summary.topAptLabel).replace(/\s*외.*$/, "") : ""),
-          ) || "",
-        product_name:
-          String(
-            pick(it, ["product_name", "productName", "mediaName", "media_name", "media", "product", "product_code"]),
-          ) || "",
-        months: Math.max(0, months || 0),
-        baseMonthly: baseMonthlyEff ?? null,
-        monthlyAfter: monthlyAfter ?? null,
-        lineTotal: Math.max(0, lineTotal || 0),
-      };
-    });
-
-    return lines.filter((l) => l.apt_name || l.product_name || l.lineTotal > 0 || l.months > 0);
-  }
-
-  const finalLines = useMemo<FinalLine[]>(() => normalizeSnapshotItems(parsedSnap), [parsedSnap]);
-
-  const totals = useMemo(() => {
-    const sum = finalLines.reduce(
-      (acc, l) => {
-        acc.total += l.lineTotal || 0;
-        return acc;
-      },
-      { total: 0 },
-    );
-    const vat = Math.round(sum.total * 0.1);
-    const grand = sum.total + vat;
-    return { total: sum.total, vat, grand };
-  }, [finalLines]);
-
-  function discountRate(baseMonthly: number | null, monthlyAfter: number | null): number | null {
-    if (baseMonthly == null || monthlyAfter == null) return null;
-    if (baseMonthly <= 0) return null;
-    const r = (baseMonthly - monthlyAfter) / baseMonthly;
-    if (!isFinite(r)) return null;
-    const clamped = Math.max(0, Math.min(1, r));
-    return clamped;
-  }
-
+  // CSV 내보내기
   function exportCSV() {
     const metaPairs: [string, any][] = [
       ["브랜드", row.company ?? ""],
@@ -774,21 +622,12 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
       "\n",
     );
 
-    const header = ["단지명", "상품명", "광고기간(개월)", "월가(기준)", "월가(할인후)", "총광고료"].join(",");
-    const rws = finalLines
-      .map((l) =>
-        [
-          safeCSV(l.apt_name),
-          safeCSV(l.product_name),
-          safeCSV(l.months),
-          safeCSV(l.baseMonthly ?? ""),
-          safeCSV(l.monthlyAfter ?? ""),
-          safeCSV(l.lineTotal),
-        ].join(","),
-      )
+    const itemsHeader = ["단지명", "광고기간(개월)", "상품명"].join(",");
+    const itemsLines = listToRender
+      .map((r) => [safeCSV(r.apt_name), safeCSV(r.months ?? ""), safeCSV(r.product_name)].join(","))
       .join("\n");
 
-    const full = metaLines + "\n\n" + header + "\n" + rws;
+    const full = metaLines + "\n\n" + itemsHeader + "\n" + itemsLines;
     const blob = new Blob(["\uFEFF" + full], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -830,77 +669,42 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
 
         <div className="p-5 space-y-5 overflow-y-auto h-[calc(100%-56px)]">
           <InfoItem label="문의일시" value={formatDateTime(row.created_at)} />
-          <InfoItem label="캠페인 유형" value={row.campaign_type || (row.extra?.campaign_type ?? "—")} />
-          {/* 추가: 유입경로, 디바이스 */}
-          <InfoItem label="유입경로" value={<SourceBadge value={row.inquiry_kind} />} />
-          <InfoItem label="디바이스" value={deviceLabel} />
+          <InfoItem label="캠페인 유형" value={row.campaign_type || "—"} />
           <InfoItem label="담당자명(광고주)" value={row.customer_name || "—"} />
           <InfoItem label="연락처" value={row.phone || "—"} />
           <InfoItem label="이메일주소" value={row.email || "—"} />
           <InfoItem label="요청사항" value={row.memo || "—"} />
 
-          {/* ===== 광고주 최종 확인(금액) ===== */}
           <div className="border-t border-gray-100 pt-4">
-            <div className="text-sm font-medium mb-2">광고주 최종 확인(금액)</div>
-            {finalLines.length === 0 ? (
-              <div className="text-sm text-gray-500">스냅샷 데이터 없음</div>
+            <div className="text-sm font-medium mb-2">선택 단지/광고기간/상품</div>
+
+            {aptLoading ? (
+              <div className="text-sm text-gray-500">불러오는 중…</div>
+            ) : listToRender.length === 0 ? (
+              <div className="text-sm text-gray-500">데이터 없음</div>
             ) : (
-              <div className="overflow-auto rounded-md border">
-                <table className="w-full text-sm min-w-[920px]">
+              <div className="max-h-60 overflow-auto rounded-md border">
+                <table className="w-full text-sm">
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-3 py-2 text-left">단지명</th>
+                      <th className="px-3 py-2 text-left">광고기간(개월)</th>
                       <th className="px-3 py-2 text-left">상품명</th>
-                      <th className="px-3 py-2 text-right">월광고료(기준)</th>
-                      <th className="px-3 py-2 text-right">월광고료(할인후)</th>
-                      <th className="px-3 py-2 text-right">광고기간</th>
-                      <th className="px-3 py-2 text-right">기준금액</th>
-                      <th className="px-3 py-2 text-right">할인율</th>
-                      <th className="px-3 py-2 text-right">총광고료 TOTAL</th>
-                      <th className="px-3 py-2 text-right">부가세</th>
-                      <th className="px-3 py-2 text-right">최종광고료(VAT포함)</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {finalLines.map((l, i) => {
-                      const baseTotal = (l.baseMonthly ?? 0) * (l.months ?? 0);
-                      const rate = discountRate(l.baseMonthly, l.monthlyAfter);
-                      const vat = Math.round(l.lineTotal * 0.1);
-                      const grand = l.lineTotal + vat;
-                      return (
-                        <tr key={i} className="border-t">
-                          <td className="px-3 py-2">{l.apt_name || "—"}</td>
-                          <td className="px-3 py-2">{l.product_name || "—"}</td>
-                          <td className="px-3 py-2 text-right">
-                            {l.baseMonthly != null ? fmtWon(l.baseMonthly) : "—"}
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            {l.monthlyAfter != null ? fmtWon(l.monthlyAfter) : "—"}
-                          </td>
-                          <td className="px-3 py-2 text-right">{l.months?.toLocaleString?.() ?? "—"}</td>
-                          <td className="px-3 py-2 text-right">{l.baseMonthly != null ? fmtWon(baseTotal) : "—"}</td>
-                          <td className="px-3 py-2 text-right">{rate != null ? fmtPercent(rate) : "—"}</td>
-                          <td className="px-3 py-2 text-right">{fmtWon(l.lineTotal)}</td>
-                          <td className="px-3 py-2 text-right">{fmtWon(vat)}</td>
-                          <td className="px-3 py-2 text-right">{fmtWon(grand)}</td>
-                        </tr>
-                      );
-                    })}
-                    {/* 합계 */}
-                    <tr className="border-t bg-gray-50 font-medium">
-                      <td className="px-3 py-2 text-right" colSpan={7}>
-                        합계
-                      </td>
-                      <td className="px-3 py-2 text-right">{fmtWon(totals.total)}</td>
-                      <td className="px-3 py-2 text-right">{fmtWon(totals.vat)}</td>
-                      <td className="px-3 py-2 text-right">{fmtWon(totals.grand)}</td>
-                    </tr>
+                    {listToRender.map((it, i) => (
+                      <tr key={i} className="border-t">
+                        <td className="px-3 py-2">{it.apt_name || "—"}</td>
+                        <td className="px-3 py-2">{it.months ?? "—"}</td>
+                        <td className="px-3 py-2">{it.product_name || "—"}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
             )}
           </div>
-          {/* ===== /추가 ===== */}
         </div>
       </div>
     </div>
@@ -991,39 +795,4 @@ function pillClassForValid(v: ValidTri): string {
     default:
       return "bg-gray-100 text-gray-600";
   }
-}
-
-/* ===== 추가 유틸: 디바이스 표기/포맷 ===== */
-function deriveDeviceLabel(row: InquiryRow): string {
-  // 1) device 필드 우선
-  const raw = (row.device ?? "").toString().toLowerCase();
-  if (raw) {
-    if (/(mobile|mobi|phone)/.test(raw)) return "모바일";
-    if (/(pc|desktop)/.test(raw)) return "PC";
-  }
-  // 2) meta / cart_snapshot.meta
-  const meta = row.meta || (row as any)?.cart_snapshot?.meta || {};
-  if (typeof meta?.isMobile === "boolean") return meta.isMobile ? "모바일" : "PC";
-  const ua = String(meta?.ua ?? meta?.userAgent ?? "");
-  if (ua) return /Mobile/i.test(ua) ? "모바일" : "PC";
-
-  // 3) source_page / extra 기반 추론
-  const sp = (row.source_page ?? "").toString().toLowerCase();
-  if (sp.includes("/mobile")) return "모바일";
-  if (sp.includes("/map") || sp.includes("/admin") || sp.includes("/desktop")) return "PC";
-
-  const step = (row.extra?.step_ui ?? "").toString().toLowerCase();
-  if (step.startsWith("mobile")) return "모바일";
-
-  // 4) 알 수 없음
-  return "—";
-}
-function fmtWon(n: number | null | undefined): string {
-  const v = Number(n ?? 0);
-  if (!isFinite(v)) return "—";
-  return v.toLocaleString("ko-KR") + "원";
-}
-function fmtPercent(r: number | null | undefined): string {
-  if (r == null || !isFinite(r)) return "—";
-  return Math.round(r * 1000) / 10 + "%";
 }

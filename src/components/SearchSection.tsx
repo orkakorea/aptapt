@@ -46,7 +46,7 @@ export const SearchSection: React.FC = () => {
 
         <button
           type="submit"
-          className="w-[71px] h-[71px] absolute z-[2] flex items-center justify-center cursor-pointer bg-[#6C2DFF] rounded-[10px] left-[1208px] top-[357px] max-md:w-[60px] max-md:h-[60px] max-md:left-[calc(85%_-_5px)] max-md:top-[280px] max-sm:w-[50px] max-sm:h-[50px] max-sm:left-[calc(92.5%_-_5px)] max-sm:top-[220px] hover:bg-[#5a24d9] active:scale-95 active:bg-[#4a1fbf] focus:outline-none focus:ring-2 focus:ring-[#6C2DFF] focus:ring-offset-2 transition-all duration-150"
+          className="w-[71px] h-[71px] absolute z-[2] flex items-center justify-center cursor-pointer bg-[#6C2DFF] rounded-[10px] left-[1208px] top-[357px] max-md:w-[60px] max-md:h-[60px] max-md:left-[calc(85%_-_5px)] max-md:top-[280px] max-sm:w-[50px] max-sm:h-[50px] max-sm:left-[calc(92.5%_-_5px)] max-sm:top-[220px] hover:bg-[#5a24d9] transition-colors"
           aria-label="검색"
         >
           <svg
