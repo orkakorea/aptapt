@@ -3,9 +3,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { z } from "zod";
 
-/* === 추가: 완료모달과 동일한 계산 유틸 임포트 (정책/월가 계산) === */
-import { calcMonthlyWithPolicy, normPolicyKey, DEFAULT_POLICY, rateFromRanges } from "@/core/pricing";
-
 /**
  * InquiriesPage (관리자 전용)
  * - 목록/검색/필터/페이지네이션
@@ -642,11 +639,9 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
     return undefined;
   };
 
-  /** === 핵심: 완료모달 로직과 동일한 정규화 파서 === */
+  /** 모바일/PC 스냅샷 키 차이를 맞춰 단일 스키마로 변환 */
   function normalizeSnapshotItems(snap: any): FinalLine[] {
     if (!snap) return [];
-
-    // ① 항목 배열 우선순위 (DB 스냅샷 신뢰 경로)
     const candidates: any[] =
       (Array.isArray(snap?.receipt_v1?.items) && snap.receipt_v1.items) ||
       (Array.isArray(snap?.items) && snap.items) ||
@@ -656,42 +651,24 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
 
     if (!Array.isArray(candidates) || candidates.length === 0) return [];
 
-    // 상단 라벨 폴백
-    const topAptFallback: string =
-      typeof snap?.summary?.topAptLabel === "string" ? String(snap.summary.topAptLabel).replace(/\s*외.*$/, "") : "";
-
     const lines: FinalLine[] = candidates.map((it: any) => {
-      // months 추출(문자/단위 혼입 대비)
-      const parseMonths = (value: any): number => {
-        if (value == null) return 0;
-        if (typeof value === "number" && isFinite(value)) return Math.max(0, Math.floor(value));
-        if (typeof value === "string") {
-          const num = parseInt(value.replace(/[^\d]/g, ""), 10);
-          return isNaN(num) ? 0 : num;
-        }
-        return 0;
-      };
+      const months = toNum(pick(it, ["months", "month", "Months", "period", "duration"])) ?? 0;
 
-      const months =
-        parseMonths(
-          pick(it, ["months", "month", "Months", "period", "duration"]) ?? pick(it, ["Months", "Period", "Duration"]),
-        ) || 0;
+      // 기준 월가(모바일의 priceMonthly는 '할인 후'로 쓰이는 경우가 있어 명시적으로 제외)
+      const baseMonthly =
+        toNum(
+          pick(it, [
+            "baseMonthly",
+            "base_monthly",
+            "monthlyBefore",
+            "monthly_base",
+            "basePriceMonthly",
+            "base_price_monthly",
+          ]),
+        ) ?? (months > 0 ? (toNum(pick(it, ["baseTotal", "base_total"])) ?? 0) / months : null);
 
-      // 기준 월가 후보 / 기준 총액 후보
-      const baseMonthlyRaw = toNum(
-        pick(it, ["baseMonthly", "base_monthly", "monthlyBefore", "basePriceMonthly", "priceMonthly"]),
-      );
-
-      const baseTotalField = toNum(pick(it, ["baseTotal", "base_total"]));
-      let baseTotal =
-        baseTotalField != null
-          ? baseTotalField
-          : baseMonthlyRaw != null && months > 0
-            ? Math.round(baseMonthlyRaw * months)
-            : 0;
-
-      // 할인후 월가 후보
-      let monthlyAfter: number | null =
+      // 할인 후 월가
+      let monthlyAfter =
         toNum(
           pick(it, [
             "monthlyAfter",
@@ -702,90 +679,54 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
             "finalMonthly",
             "final_monthly",
             "price_monthly",
-            "monthly",
             "monthlyFee",
+            "monthly",
           ]),
         ) ?? null;
 
-      // 라인 합계 후보
-      let lineTotal: number =
+      // 총액
+      let lineTotal =
         toNum(
           pick(it, [
             "lineTotal",
             "line_total",
             "total",
             "totalCost",
-            "final_total",
-            "subtotal",
+            "line_total_after_discount",
             "item_total_won",
             "total_won",
+            "subtotal",
+            "final_total",
           ]),
         ) ?? 0;
 
-      // 역산 로직(모달 동일)
-      if ((!lineTotal || lineTotal <= 0) && months > 0 && monthlyAfter != null && monthlyAfter > 0) {
+      if ((!lineTotal || lineTotal <= 0) && months > 0 && monthlyAfter != null) {
         lineTotal = Math.round(monthlyAfter * months);
       }
-      if ((!lineTotal || lineTotal <= 0) && months > 0 && baseMonthlyRaw != null && baseMonthlyRaw > 0) {
-        lineTotal = Math.round(baseMonthlyRaw * months);
+      if ((monthlyAfter == null || monthlyAfter <= 0) && months > 0 && lineTotal > 0) {
+        monthlyAfter = Math.round(lineTotal / months);
       }
 
-      // 표시용 기준 월가
       const baseMonthlyEff =
-        baseMonthlyRaw != null && baseMonthlyRaw > 0
-          ? baseMonthlyRaw
-          : months > 0 && baseTotal > 0
-            ? Math.round(baseTotal / months)
+        baseMonthly != null && isFinite(baseMonthly) && baseMonthly > 0
+          ? baseMonthly
+          : months > 0
+            ? Math.round((toNum(pick(it, ["baseTotal", "base_total"])) ?? 0) / months)
             : null;
-
-      // ───────────────────────────────────────────────────────────
-      // ELEVATOR TV 전용 규칙 강제 적용 (모달과 동일)
-      //   총액 = 기준금액 × (1-기간할인) × (1-사전보상할인[개월기준])
-      //   할인후월가 = 총액/개월
-      // ───────────────────────────────────────────────────────────
-      const productName =
-        String(
-          pick(it, ["product_name", "productName", "mediaName", "media_name", "media", "product", "product_code"]) ??
-            "",
-        ) || "";
-      const key = normPolicyKey(productName);
-
-      if (key === "ELEVATOR TV" && months > 0) {
-        if (!baseTotal || baseTotal <= 0) {
-          baseTotal = baseMonthlyEff != null && months > 0 ? baseMonthlyEff * months : 0;
-        }
-        const periodRate = rateFromRanges(DEFAULT_POLICY["ELEVATOR TV"].period, months);
-        const precompRate = months < 3 ? 0.03 : 0.05;
-        const tvTotal = Math.round((baseTotal || 0) * (1 - periodRate) * (1 - precompRate));
-        lineTotal = tvTotal;
-        monthlyAfter = months > 0 ? Math.round(tvTotal / months) : monthlyAfter;
-      } else {
-        // 비 TV 상품: 정책 폴백
-        const looksZeroDiscount = (() => {
-          if (!baseTotal || baseTotal <= 0 || !lineTotal || lineTotal <= 0) return true;
-          const r = 1 - lineTotal / baseTotal;
-          return !isFinite(r) || Math.abs(r) < 0.01;
-        })();
-
-        if (looksZeroDiscount && baseMonthlyEff != null && baseMonthlyEff > 0 && months > 0) {
-          const { monthly } = calcMonthlyWithPolicy(productName, months, baseMonthlyEff, undefined, 1);
-          if (monthly > 0 && monthly <= baseMonthlyEff) {
-            monthlyAfter = monthly;
-            lineTotal = Math.round(monthly * months);
-          }
-        }
-      }
 
       return {
         apt_name:
           String(
             pick(it, ["apt_name", "aptName", "name", "apt", "title", "apt_title"]) ??
-              (topAptFallback ? topAptFallback : ""),
+              (snap?.summary?.topAptLabel ? String(snap.summary.topAptLabel).replace(/\s*외.*$/, "") : ""),
           ) || "",
-        product_name: productName,
+        product_name:
+          String(
+            pick(it, ["product_name", "productName", "mediaName", "media_name", "media", "product", "product_code"]),
+          ) || "",
         months: Math.max(0, months || 0),
         baseMonthly: baseMonthlyEff ?? null,
-        monthlyAfter: monthlyAfter ?? (months > 0 && lineTotal > 0 ? Math.round(lineTotal / months) : null),
+        monthlyAfter: monthlyAfter ?? null,
         lineTotal: Math.max(0, lineTotal || 0),
       };
     });

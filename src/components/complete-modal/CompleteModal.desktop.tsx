@@ -10,7 +10,6 @@ import { isSeatReceipt } from "./types";
 import { saveFullContentAsPNG, saveFullContentAsPDF } from "@/core/utils/capture";
 // 정책 유틸
 import { calcMonthlyWithPolicy, normPolicyKey, DEFAULT_POLICY, rateFromRanges } from "@/core/pricing";
-import { supabase } from "@/integrations/supabase/client";
 
 /* =========================================================================
  * 공통 상수/유틸
@@ -141,70 +140,6 @@ function useBodyScrollLock(locked: boolean) {
       document.body.style.overflow = prev;
     };
   }, [locked]);
-}
-// === PNG Blob 캡처: html2canvas를 동적 임포트해서 root를 캡처 ===
-async function captureAsBlob(root: HTMLElement): Promise<Blob | null> {
-  const mod: any = await import("html2canvas");
-  const html2canvas = mod.default ?? mod;
-  const scale = window.devicePixelRatio || 1;
-
-  const canvas: HTMLCanvasElement = await html2canvas(root, {
-    backgroundColor: "#fff",
-    scale,
-    useCORS: true,
-    logging: false,
-    scrollX: 0,
-    scrollY: -window.scrollY,
-    windowWidth: document.documentElement.clientWidth,
-    windowHeight: document.documentElement.clientHeight,
-  });
-
-  return await new Promise<Blob | null>((resolve) => canvas.toBlob((b) => resolve(b), "image/png"));
-}
-
-// === Storage 업로드 + inquiries 레코드 업데이트 ===
-async function uploadReceiptImage(root: HTMLElement, data: any, device: "pc") {
-  const blob = await captureAsBlob(root);
-  if (!blob) return;
-
-  const inquiryId = data?.inquiry_id ?? data?.inquiryId ?? data?.id ?? data?.rowId ?? null;
-  const ticketCode = data?.ticketCode ?? inquiryId ?? String(Date.now());
-
-  // Storage 경로 (버킷: receipts)
-  const filePath = `inquiries/${inquiryId || ticketCode}/${ticketCode}_v1.png`;
-
-  const { error: upErr } = await supabase.storage.from("receipts").upload(filePath, blob, {
-    upsert: true,
-    contentType: "image/png",
-  });
-
-  if (upErr) {
-    console.warn("[receipt upload] storage error:", upErr);
-    return; // 업로드 실패해도 UX 방해하지 않음
-  }
-
-  // 테이블 업데이트(가능할 때만)
-  if (inquiryId) {
-    const box = root.getBoundingClientRect();
-    const meta = {
-      device,
-      width: Math.round(box.width * (window.devicePixelRatio || 1)),
-      height: Math.round(box.height * (window.devicePixelRatio || 1)),
-    };
-
-    const { error: updErr } = await (supabase as any)
-      .from("inquiries")
-      .update({
-        receipt_image_path: filePath,
-        receipt_uploaded_at: new Date().toISOString(),
-        receipt_meta: meta,
-      })
-      .eq("id", inquiryId);
-
-    if (updErr) {
-      console.warn("[receipt upload] db update error:", updErr);
-    }
-  }
 }
 
 /* =========================================================================
@@ -619,11 +554,6 @@ export default function CompleteModalDesktop({ open, onClose, data, confirmLabel
     const scrollContainers = Array.from(root.querySelectorAll<HTMLElement>("[data-capture-scroll]"));
     if (kind === "png") await saveFullContentAsPNG(root, `${data.ticketCode}_receipt`, scrollContainers);
     else await saveFullContentAsPDF(root, `${data.ticketCode}_receipt`, scrollContainers);
-    try {
-      await uploadReceiptImage(root, data, "pc");
-    } catch (e) {
-      console.warn("[receipt upload] unexpected error:", e);
-    }
   };
 
   const LINK_YT = "https://www.youtube.com/@ORKA_KOREA";
