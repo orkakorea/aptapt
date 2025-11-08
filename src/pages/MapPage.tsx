@@ -583,6 +583,13 @@ export default function MapPage() {
             lng,
             selectedInCart: selectedRowKeySetRef.current.has(rowKey),
           };
+          // ▼ Quick Add: 토글 모드면 상세 대신 담기/취소 실행 후 종료
+          if (quickModeRef.current) {
+            toggleCartByRowKey(rowKey); // 담기/취소
+            lastClickedRef.current = null; // 클릭 강조 상태 해제
+            applyStaticSeparationAll();
+            return; // ▼ 아래 'clicked' 이미지 로직 타지 않음
+          }
           setSelected(sel);
 
           // ✅ 상세 보강 RPC
@@ -773,6 +780,13 @@ export default function MapPage() {
             lng,
             selectedInCart: selectedRowKeySetRef.current.has(rowKey),
           };
+          // ▼ Quick Add: 토글 모드면 상세 대신 담기/취소 실행 후 종료
+          if (quickModeRef.current) {
+            toggleCartByRowKey(rowKey); // 담기/취소
+            lastClickedRef.current = null; // 클릭 강조 상태 해제
+            applyStaticSeparationAll();
+            return; // ▼ 아래 'clicked' 이미지 로직 타지 않음
+          }
           setSelected(sel);
 
           // ✅ 상세 보강 RPC
@@ -1104,6 +1118,9 @@ export default function MapPage() {
         focusByLatLng={focusByLatLng}
         cartStickyTopPx={64}
         cartStickyUntil="bulkMonthsApply"
+        /* ▼ 여기 추가 */
+        quickMode={quickMode}
+        onToggleQuick={() => setQuickMode((v) => !v)}
       />
 
       {/* 에러 토스트들 */}
