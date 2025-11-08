@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
-import QuoteModal, { QuoteLineItem } from "./QuoteModal";
+// src/components/MapChrome.tsx
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import QuoteModal, { type QuoteLineItem } from "./QuoteModal";
 import InquiryModal from "./InquiryModal";
 import { supabase } from "@/integrations/supabase/client";
 import LoginModal from "@/components/LoginModal";
@@ -30,9 +31,6 @@ type Props = {
   onCloseSelected?: () => void;
   onSearch?: (query: string) => void;
   initialQuery?: string;
-  // Quick Add (퀵담기) 표시/토글
-  quickMode?: boolean;
-  onToggleQuick?: () => void;
 
   // (구버전 호환)
   setMarkerState?: (name: string, state: "default" | "selected") => void;
@@ -202,8 +200,6 @@ export default function MapChrome({
   focusByRowKey,
   focusByLatLng,
   cartStickyTopPx = 64,
-  quickMode,
-  onToggleQuick,
 }: Props) {
   const [query, setQuery] = useState(initialQuery || "");
   useEffect(() => setQuery(initialQuery || ""), [initialQuery]);
@@ -216,6 +212,10 @@ export default function MapChrome({
   const [openPackageInquiry, setOpenPackageInquiry] = useState(false);
 
   const [statsMap, setStatsMap] = useState<Record<string, AptStats>>({});
+
+  // ✅ 1탭(카트) 스크롤 컨테이너 참조 & 최근 추가 하이라이트
+  const cartScrollRef = useRef<HTMLDivElement | null>(null);
+  const [flashId, setFlashId] = useState<string | null>(null);
 
   const fmtNum = (n?: number, unit = "") =>
     typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() + (unit ? " " + unit : "") : "—";
@@ -284,6 +284,25 @@ export default function MapChrome({
     return [nameKey, prodKey].join("||");
   };
 
+  // ✅ 1탭(카트)로 즉시 포커스/스크롤 & 하이라이트
+  const goCartNow = (highlightId?: string) => {
+    requestAnimationFrame(() => {
+      if (cartScrollRef.current) {
+        cartScrollRef.current.scrollTo({ top: 0, behavior: "smooth" });
+      }
+      const anchor = document.getElementById("bulkMonthsApply");
+      if (anchor && "scrollIntoView" in anchor) {
+        try {
+          anchor.scrollIntoView({ block: "start", behavior: "smooth" });
+        } catch {}
+      }
+      if (highlightId) {
+        setFlashId(highlightId);
+        window.setTimeout(() => setFlashId((v) => (v === highlightId ? null : v)), 1600);
+      }
+    });
+  };
+
   const addSelectedToCart = () => {
     if (!selected) return;
     const id = makeIdFromSelected(selected);
@@ -292,7 +311,7 @@ export default function MapChrome({
     setCart((prev) => {
       const exists = prev.find((x) => x.id === id);
       if (exists) {
-        return prev.map((x) =>
+        const next = prev.map((x) =>
           x.id === id
             ? {
                 ...x,
@@ -306,6 +325,7 @@ export default function MapChrome({
               }
             : x,
         );
+        return next;
       }
       const defaultMonths = prev.length > 0 ? prev[0].months : 1;
       const newItem: CartItem = {
@@ -338,6 +358,10 @@ export default function MapChrome({
 
     if (selected.rowKey) setMarkerStateByRowKey?.(selected.rowKey, "selected", true);
     else setMarkerState?.(selected.name, "selected");
+
+    // ✅ 상세 패널은 닫고(시야 확보), 1탭(카트)로 포커스 이동 + 하이라이트
+    onCloseSelected?.();
+    goCartNow(id);
   };
 
   const removeItem = (id: string) => {
@@ -366,7 +390,7 @@ export default function MapChrome({
       if (selected.rowKey) setMarkerStateByRowKey?.(selected.rowKey, "default");
       else setMarkerState?.(selected.name, "default");
     } else {
-      addSelectedToCart();
+      addSelectedToCart(); // 내부에서 1탭으로 이동 + 하이라이트
     }
   };
 
@@ -434,28 +458,7 @@ export default function MapChrome({
       <div className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-[#E5E7EB] z-[60]">
         <div className="h-full flex items-center justify-between px-6">
           <div className="text-xl font-bold text.black">응답하라 입주민이여</div>
-
-          {/* ▼ 오른쪽 스택: 퀵담기 토글 + 로그인 */}
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onToggleQuick}
-              aria-pressed={!!quickMode}
-              disabled={!onToggleQuick}
-              className={`h-8 px-3 rounded-md text-sm border transition
-        ${
-          quickMode
-            ? "bg-[#6C2DFF] text-white border-[#6C2DFF] hover:bg-[#5b23ff]"
-            : "bg-white text-[#6C2DFF] border-[#6C2DFF] hover:bg-[#F4F0FB]"
-        }
-        ${!onToggleQuick ? "opacity-60 cursor-not-allowed" : ""}`}
-              title="+ 마커 클릭 시 카트 담기/취소로 바로 동작"
-            >
-              {quickMode ? "퀵담기 ON" : "퀵담기 OFF"}
-            </button>
-
-            <LoginModal />
-          </div>
+          <LoginModal />
         </div>
       </div>
 
@@ -500,7 +503,11 @@ export default function MapChrome({
           <button
             disabled={cart.length === 0}
             onClick={() => cart.length > 0 && setOpenSeatInquiry(true)}
-            className={`h-10 rounded-md border text-sm font-medium ${cart.length > 0 ? "bg-[#6C2DFF] text-white border-[#6C2DFF]" : "bg.white text.black border-[#E5E7EB] cursor-default pointer-events-none"}`}
+            className={`h-10 rounded-md border text-sm font-medium ${
+              cart.length > 0
+                ? "bg-[#6C2DFF] text-white border-[#6C2DFF]"
+                : "bg.white text.black border-[#E5E7EB] cursor-default pointer-events-none"
+            }`}
           >
             구좌(T.O) 문의하기
           </button>
@@ -514,18 +521,11 @@ export default function MapChrome({
 
           <div className="rounded-2xl border border-[#E5E7EB] bg-white flex-1 min-h-0 overflow-hidden">
             {cart.length === 0 ? (
-              /* ✅ 보라 아이콘 + 2줄 문구 중앙 배치 */
+              /* 빈 상태 */
               <div className="relative h-full">
                 <div className="absolute inset-0 grid place-items-center p-6">
                   <div className="w-full max-w-[320px] min-h-[200px] grid place-items-center text-center">
-                    {/* 아이콘 */}
-                    <img
-                      src="/atp.png" // ← public/atp.png 파일을 이렇게 참조
-                      alt="아파트 아이콘"
-                      className="w-16 h-16 mb-3 object-contain"
-                    />
-
-                    {/* 문구 */}
+                    <img src="/atp.png" alt="아파트 아이콘" className="w-16 h-16 mb-3 object-contain" />
                     <div className="text-x1 text-[#6B7280] font-semibold leading-relaxed">
                       <span className="block">광고를 원하는</span>
                       <span className="block">아파트 단지를 담아주세요!</span>
@@ -534,8 +534,8 @@ export default function MapChrome({
                 </div>
               </div>
             ) : (
-              <div className="h-full overflow-y-auto">
-                {/* ✅ sticky 헤더: 총 n건 + 일괄적용 */}
+              <div ref={cartScrollRef} className="h-full overflow-y-auto">
+                {/* sticky 헤더: 총 n건 + 일괄적용 */}
                 <div
                   className="sticky top-0 z-10 bg-white/95 backdrop-blur px-5 pt-5 pb-2 border-b border-[#F3F4F6]"
                   id="bulkMonthsApply"
@@ -560,6 +560,7 @@ export default function MapChrome({
                     <CartItemCard
                       key={item.id}
                       item={item}
+                      highlight={flashId === item.id}
                       onChangeMonths={updateMonths}
                       onRemove={removeItem}
                       onTitleClick={() => focusFromCart(item)}
@@ -654,7 +655,9 @@ export default function MapChrome({
 
               {/* 즉시 토글 */}
               <button
-                className={`mt-1 h-12 w-full rounded-xl font-semibold transition-colors ${inCart ? "bg-[#E5E7EB] text-[#6B7280]" : "bg-[#6C2DFF] text-white"}`}
+                className={`mt-1 h-12 w-full rounded-xl font-semibold transition-colors ${
+                  inCart ? "bg-[#E5E7EB] text-[#6B7280]" : "bg-[#6C2DFF] text-white"
+                }`}
                 onClick={onClickAddOrCancel}
               >
                 {inCart ? "담기취소" : "아파트 담기"}
@@ -723,11 +726,12 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 /** ===== CartItem 카드 ===== */
 type CartItemCardProps = {
   item: CartItem;
+  highlight?: boolean;
   onChangeMonths: (id: string, months: number) => void;
   onRemove: (id: string) => void;
   onTitleClick: () => void;
 };
-function CartItemCard({ item, onChangeMonths, onRemove, onTitleClick }: CartItemCardProps) {
+function CartItemCard({ item, highlight, onChangeMonths, onRemove, onTitleClick }: CartItemCardProps) {
   const rule = item.productKey ? DEFAULT_POLICY[item.productKey] : undefined;
   const periodRate = findRate(rule?.period, item.months);
   const preRate = item.productKey === "ELEVATOR TV" ? findRate(rule?.precomp, item.months) : 0;
@@ -736,10 +740,15 @@ function CartItemCard({ item, onChangeMonths, onRemove, onTitleClick }: CartItem
   const discountCombined = 1 - (1 - preRate) * (1 - periodRate);
 
   return (
-    <div className="rounded-2xl border border-[#E5E7EB] bg-white p-4">
+    <div
+      className={
+        "rounded-2xl border bg-white p-4 transition-shadow " +
+        (highlight ? "border-[#6C2DFF] shadow-[0_0_0_3px_rgba(108,45,255,0.15)]" : "border-[#E5E7EB]")
+      }
+    >
       <div className="flex items-start justify-between">
         <div className="min-w-0">
-          {/* ✅ 아파트명 클릭 → 지도 포커스 */}
+          {/* 아파트명 클릭 → 지도 포커스 */}
           <button
             onClick={onTitleClick}
             className="font-semibold text-black leading-tight truncate hover:underline text-left"

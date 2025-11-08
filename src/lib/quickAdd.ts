@@ -195,7 +195,7 @@ export default function getQuickImageFactory(maps: KakaoMapsNS, opts?: FactoryOp
     get(o: GetOpts) {
       if (o.quickOn) {
         // 선택(=담김) 상태면 마이너스, 아니면 플러스
-        o.selected ? baseYellow() : quickPlus();
+        return o.selected ? quickMinus() : quickPlus();
       }
       // 일반 모드
       if (o.selected || o.inCart) return baseYellow();
