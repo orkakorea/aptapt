@@ -195,10 +195,6 @@ export default function MapPage() {
   const quickModeRef = useRef<boolean>(false);
   const [quickMode, setQuickMode] = useState(false);
 
-  // ✅ 선택 스냅샷 참조 (이벤트 payload에 사용)
-  const selectedRef = useRef<SelectedAptX | null>(null);
-  const lastSelectedSnapRef = useRef<SelectedAptX | null>(null);
-
   const [selected, setSelected] = useState<SelectedAptX | null>(null);
   const [initialQ, setInitialQ] = useState("");
   const [kakaoError, setKakaoError] = useState<string | null>(null);
@@ -207,12 +203,6 @@ export default function MapPage() {
   useEffect(() => {
     quickModeRef.current = quickMode;
   }, [quickMode]);
-
-  // ✅ selected → ref 동기화 (이벤트용 스냅샷 보존)
-  useEffect(() => {
-    selectedRef.current = selected ?? null;
-    if (selected) lastSelectedSnapRef.current = selected;
-  }, [selected]);
 
   /* ---------- 정렬/우선순위 ---------- */
   const orderAndApplyZIndex = useCallback((arr: KMarker[]) => {
@@ -289,7 +279,7 @@ export default function MapPage() {
           lineHeight: `${sz}px`,
           textAlign: "center",
           borderRadius: "999px",
-          background: "rgba(108, 45, 255, 0.18)`,
+          background: "rgba(108, 45, 255, 0.18)",
           border: "1px solid rgba(108, 45, 255, 0.35)",
           color: "#6C2DFF",
           fontWeight: "700",
@@ -397,7 +387,6 @@ export default function MapPage() {
     (rowKey?: string | null) => !!rowKey && selectedRowKeySetRef.current.has(rowKey),
     [],
   );
-
   const addToCartByRowKey = useCallback(
     (rowKey: string) => {
       selectedRowKeySetRef.current.add(rowKey);
@@ -405,22 +394,10 @@ export default function MapPage() {
       setSelected((p) => (p && p.rowKey === rowKey ? { ...p, selectedInCart: true } : p));
       applyGroupPrioritiesForRowKey(rowKey);
       applyStaticSeparationAll();
-
-      // ✅ 스냅샷 포함해서 브로드캐스트 (합계/견적 연동)
-      const snap = selectedRef.current ?? lastSelectedSnapRef.current ?? null;
-      window.dispatchEvent(
-        new CustomEvent("orka:cart:changed", {
-          detail: {
-            rowKey,
-            selected: true,
-            selectedSnapshot: snap,
-          },
-        }),
-      );
+      window.dispatchEvent(new CustomEvent("orka:cart:changed", { detail: { rowKey, selected: true } }));
     },
     [applyGroupPrioritiesForRowKey, applyStaticSeparationAll, setMarkerStateByRowKey],
   );
-
   const removeFromCartByRowKey = useCallback(
     (rowKey: string) => {
       selectedRowKeySetRef.current.delete(rowKey);
@@ -428,22 +405,10 @@ export default function MapPage() {
       setSelected((p) => (p && p.rowKey === rowKey ? { ...p, selectedInCart: false } : p));
       applyGroupPrioritiesForRowKey(rowKey);
       applyStaticSeparationAll();
-
-      // ✅ 스냅샷 포함해서 브로드캐스트 (제거도 동일 포맷)
-      const snap = selectedRef.current ?? lastSelectedSnapRef.current ?? null;
-      window.dispatchEvent(
-        new CustomEvent("orka:cart:changed", {
-          detail: {
-            rowKey,
-            selected: false,
-            selectedSnapshot: snap,
-          },
-        }),
-      );
+      window.dispatchEvent(new CustomEvent("orka:cart:changed", { detail: { rowKey, selected: false } }));
     },
     [applyGroupPrioritiesForRowKey, applyStaticSeparationAll, setMarkerStateByRowKey],
   );
-
   const toggleCartByRowKey = useCallback(
     (rowKey: string) => {
       if (selectedRowKeySetRef.current.has(rowKey)) removeFromCartByRowKey(rowKey);
@@ -752,9 +717,7 @@ export default function MapPage() {
       const rows2 = (data2 ?? []) as PlaceRow[];
       rows2.forEach((row) => {
         if (row.lat == null || row.lng == null) return;
-        const key = `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(7)}|${rowIdOf(row) != null ? String(
-          rowIdOf(row),
-        ) : ""}|${String(getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "")}|${String(getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "")}`;
+        const key = `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(7)}|${rowIdOf(row) != null ? String(rowIdOf(row)) : ""}|${String(getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "")}|${String(getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "")}`;
         if (markerCacheRef.current.has(key)) return;
 
         const lat = Number(row.lat),
@@ -829,6 +792,7 @@ export default function MapPage() {
             selectedInCart: selectedRowKeySetRef.current.has(rowKey),
           };
           setSelected(sel);
+          // React가 selected를 커밋한 뒤에 카트 토글 신호를 보내도록 한 틱 지연
           setTimeout(() => {
             if (quickModeRef.current) {
               toggleCartByRowKey(rowKey);
