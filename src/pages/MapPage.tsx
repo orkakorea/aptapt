@@ -190,9 +190,18 @@ export default function MapPage() {
   const userOverlayElRef = useRef<HTMLDivElement | null>(null);
   const [geoError, setGeoError] = useState<string | null>(null);
 
+  // ✅ Quick Add 모드 상태
+  const quickModeRef = useRef<boolean>(false);
+  const [quickMode, setQuickMode] = useState(false);
+
   const [selected, setSelected] = useState<SelectedAptX | null>(null);
   const [initialQ, setInitialQ] = useState("");
   const [kakaoError, setKakaoError] = useState<string | null>(null);
+
+  // Sync quickMode state to ref
+  useEffect(() => {
+    quickModeRef.current = quickMode;
+  }, [quickMode]);
 
   /* ---------- 정렬/우선순위 ---------- */
   const orderAndApplyZIndex = useCallback((arr: KMarker[]) => {
