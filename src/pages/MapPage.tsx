@@ -1,992 +1,1227 @@
-// src/components/MapChrome.tsx
-import React, { useEffect, useMemo, useState } from "react";
-import QuoteModal, { QuoteLineItem } from "./QuoteModal";
-import InquiryModal from "./InquiryModal";
+// src/pages/MapPage.tsx
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import LoginModal from "@/components/LoginModal";
+import MapChrome, { SelectedApt } from "../components/MapChrome";
+import { LocateFixed, Zap } from "lucide-react";
+// ✅ PC 내 위치 버튼 아이콘
 
-/** ===== 타입 ===== */
-export type SelectedApt = {
-  rowKey?: string;
-  rowId?: string;
-  name: string;
-  address?: string;
-  productName?: string;
-  installLocation?: string;
-  monitors?: number;
-  monthlyImpressions?: number;
-  costPerPlay?: number;
-  hours?: string;
-  households?: number;
-  residents?: number;
-  monthlyFee?: number;
-  monthlyFeeY1?: number;
-  imageUrl?: string;
-  lat: number;
-  lng: number;
-};
+type KakaoNS = typeof window & { kakao: any };
+const FALLBACK_KAKAO_KEY = "a53075efe7a2256480b8650cec67ebae";
 
-type Props = {
-  selected?: SelectedApt | null;
-  onCloseSelected?: () => void;
-  onSearch?: (query: string) => void;
-  initialQuery?: string;
-  // Quick Add (퀵담기) 표시/토글
-  quickMode?: boolean;
-  onToggleQuick?: () => void;
+/* =========================================================================
+   ① 마커 이미지 유틸
+   ------------------------------------------------------------------------- */
+const PIN_PURPLE_URL = "/makers/pin-purple@2x.png"; // 기본
+const PIN_YELLOW_URL = "/makers/pin-yellow@2x.png"; // 담김(선택)
+const PIN_CLICKED_URL = "/makers/pin-purple@3x.png"; // 클릭 강조(선택 아님일 때만)
 
-  // (구버전 호환)
-  setMarkerState?: (name: string, state: "default" | "selected") => void;
+const PIN_SIZE = 51;
+const PIN_OFFSET = { x: PIN_SIZE / 2, y: PIN_SIZE };
 
-  // (신버전) 행(rowKey) 단위 마커 토글
-  setMarkerStateByRowKey?: (rowKey: string, state: "default" | "selected", forceYellowNow?: boolean) => void;
+const SEARCH_PIN_URL = "/pin.png";
+const SEARCH_PIN_SIZE = 51;
+const SEARCH_PIN_OFFSET = { x: SEARCH_PIN_SIZE / 2, y: SEARCH_PIN_SIZE };
 
-  // 카트 고정/제어용(옵션 — MapPage에서 전달)
-  isRowKeySelected?: (rowKey?: string | null) => boolean;
-  addToCartByRowKey?: (rowKey: string) => void;
-  removeFromCartByRowKey?: (rowKey: string) => void;
-  toggleCartByRowKey?: (rowKey: string) => void;
-
-  // 카트에서 단지 클릭 시 지도 포커스
-  focusByRowKey?: (rowKey: string, opts?: { level?: number }) => void | Promise<void>;
-  focusByLatLng?: (lat: number, lng: number, opts?: { level?: number }) => void | Promise<void>;
-
-  cartStickyTopPx?: number;
-  cartStickyUntil?: string;
-};
-
-/** ===== 정적 에셋 & 유틸 ===== */
-const PRIMARY_ASSET_BASE = (import.meta as any).env?.VITE_ASSET_BASE || "/products/";
-const FALLBACK_ASSET_BASE = (import.meta as any).env?.VITE_ASSET_BASE_FALLBACK || "";
-const PLACEHOLDER = "/placeholder.svg";
-
-const norm = (s?: string) => (s ? s.replace(/\s+/g, "").toLowerCase() : "");
-const keyName = (s: string) => s.trim().replace(/\s+/g, "").toLowerCase();
-
-function resolveProductFile(productName?: string, installLocation?: string): string | undefined {
-  const pn = norm(productName);
-  const loc = norm(installLocation);
-  if (pn.includes("townbord") || pn.includes("townboard") || pn.includes("타운보드")) {
-    if (loc.includes("ev내부")) return "townbord-a.png";
-    if (loc.includes("ev대기공간")) return "townbord-b.png";
-  }
-  if (pn.includes("mediameet") || pn.includes("media-meet") || pn.includes("미디어")) {
-    if (loc.includes("ev내부")) return "media-meet-a.png";
-    if (loc.includes("ev대기공간")) return "media-meet-b.png";
-    return "media-meet-a.png";
-  }
-  if (pn.includes("엘리베이터tv") || pn.includes("elevatortv") || pn.includes("elevator")) return "elevator-tv.png";
-  if (pn.includes("hipost") || pn.includes("hi-post") || pn.includes("하이포스트")) return "hi-post.png";
-  if (pn.includes("spaceliving") || pn.includes("스페이스") || pn.includes("living")) return "space-living.png";
-  return undefined;
+function markerImages(maps: any) {
+  const { MarkerImage, Size, Point } = maps;
+  const opt = { offset: new Point(PIN_OFFSET.x, PIN_OFFSET.y) };
+  const sz = new Size(PIN_SIZE, PIN_SIZE);
+  const purple = new MarkerImage(PIN_PURPLE_URL, sz, opt);
+  const yellow = new MarkerImage(PIN_YELLOW_URL, sz, opt);
+  const clicked = new MarkerImage(PIN_CLICKED_URL, sz, opt);
+  return { purple, yellow, clicked };
+}
+function buildSearchMarkerImage(maps: any) {
+  const { MarkerImage, Size, Point } = maps;
+  return new MarkerImage(SEARCH_PIN_URL, new Size(SEARCH_PIN_SIZE, SEARCH_PIN_SIZE), {
+    offset: new Point(SEARCH_PIN_OFFSET.x, SEARCH_PIN_OFFSET.y),
+  });
 }
 
-/** ===== 할인 정책 ===== */
-type RangeRule = { min: number; max: number; rate: number };
-type ProductRules = { precomp?: RangeRule[]; period: RangeRule[] };
-type DiscountPolicy = Record<string, ProductRules>;
-const DEFAULT_POLICY: DiscountPolicy = {
-  "ELEVATOR TV": {
-    precomp: [
-      { min: 1, max: 2, rate: 0.03 },
-      { min: 3, max: 12, rate: 0.05 },
-    ],
-    period: [
-      { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.15 },
-      { min: 12, max: 12, rate: 0.2 },
-    ],
-  },
-  TOWNBORD_S: {
-    period: [
-      { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.15 },
-      { min: 12, max: 12, rate: 0.2 },
-    ],
-  },
-  TOWNBORD_L: {
-    period: [
-      { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.2 },
-      { min: 12, max: 12, rate: 0.3 },
-    ],
-  },
-  "MEDIA MEET": {
-    period: [
-      { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.2 },
-      { min: 12, max: 12, rate: 0.3 },
-    ],
-  },
-  "SPACE LIVING": {
-    period: [
-      { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.2 },
-      { min: 12, max: 12, rate: 0.3 },
-    ],
-  },
-  "HI-POST": {
-    period: [
-      { min: 1, max: 5, rate: 0 },
-      { min: 6, max: 11, rate: 0.05 },
-      { min: 12, max: 12, rate: 0.1 },
-    ],
-  },
-};
-function findRate(rules: RangeRule[] | undefined, months: number): number {
-  if (!rules || !Number.isFinite(months)) return 0;
-  return rules.find((r) => months >= r.min && months <= r.max)?.rate ?? 0;
-}
-function classifyProductForPolicy(productName?: string, installLocation?: string): keyof DiscountPolicy | undefined {
-  const pn = norm(productName);
-  const loc = norm(installLocation);
-  if (!pn) return undefined;
-  if (
-    pn.includes("townbord_l") ||
-    pn.includes("townboard_l") ||
-    /\btownbord[-_\s]?l\b/.test(pn) ||
-    /\btownboard[-_\s]?l\b/.test(pn)
-  )
-    return "TOWNBORD_L";
-  if (
-    pn.includes("townbord_s") ||
-    pn.includes("townboard_s") ||
-    /\btownbord[-_\s]?s\b/.test(pn) ||
-    /\btownboard[-_\s]?s\b/.test(pn)
-  )
-    return "TOWNBORD_S";
-  if (pn.includes("elevatortv") || pn.includes("엘리베이터tv") || pn.includes("elevator")) return "ELEVATOR TV";
-  if (pn.includes("mediameet") || pn.includes("media-meet") || pn.includes("미디어")) return "MEDIA MEET";
-  if (pn.includes("spaceliving") || pn.includes("스페이스") || pn.includes("living")) return "SPACE LIVING";
-  if (pn.includes("hipost") || pn.includes("hi-post") || pn.includes("하이포스트")) return "HI-POST";
-  if (pn.includes("townbord") || pn.includes("townboard") || pn.includes("타운보드")) {
-    if (loc.includes("ev내부")) return "TOWNBORD_L";
-    if (loc.includes("ev대기공간")) return "TOWNBORD_S";
-    return "TOWNBORD_S";
+/* =========================================================================
+   ② Kakao SDK 로더/정리
+   ------------------------------------------------------------------------- */
+function cleanupKakaoScripts() {
+  const candidates = Array.from(document.scripts).filter((s) => s.src.includes("dapi.kakao.com/v2/maps/sdk.js"));
+  candidates.forEach((s) => s.parentElement?.removeChild(s));
+  const w = window as any;
+  if (w.kakao) {
+    try {
+      delete w.kakao;
+    } catch {
+      w.kakao = undefined;
+    }
   }
-  return undefined;
 }
+function loadKakao(): Promise<any> {
+  const w = window as any;
+  if (w.kakao?.maps && typeof w.kakao.maps.LatLng === "function") return Promise.resolve(w.kakao);
+  if (w.__kakaoLoadingPromise) return w.__kakaoLoadingPromise;
 
-/** ===== Cart 타입 ===== */
-type CartItem = {
-  id: string;
-  rowKey?: string;
-  name: string;
-  productKey?: keyof DiscountPolicy;
-  productName?: string;
-  baseMonthly?: number;
-  months: number;
-  lat?: number;
-  lng?: number;
-  /** 내부 상태: 정보 미충분 → fetch 보강 필요 */
-  hydrated?: boolean;
-};
+  const envKey = (import.meta as any).env?.VITE_KAKAO_JS_KEY as string | undefined;
+  const key = envKey && envKey.trim() ? envKey : FALLBACK_KAKAO_KEY;
 
-/** ===== Supabase 캐시 ===== */
-type AptStats = { households?: number; residents?: number; monthlyImpressions?: number; monitors?: number };
+  cleanupKakaoScripts();
 
-/** ===== 내부 유틸(행키 파서 & 보강) ===== */
-function parseRowKey(rowKey?: string): { placeId?: string } {
-  if (!rowKey) return {};
-  // 형태1) id:123
-  const m = /^id:([^|]+)$/i.exec(rowKey.trim());
-  if (m) return { placeId: m[1] };
-  return {};
-}
-
-/** ===== 컴포넌트 ===== */
-export default function MapChrome({
-  selected,
-  onCloseSelected,
-  onSearch,
-  initialQuery,
-  setMarkerState,
-  setMarkerStateByRowKey,
-  isRowKeySelected,
-  addToCartByRowKey,
-  removeFromCartByRowKey,
-  toggleCartByRowKey,
-  focusByRowKey,
-  focusByLatLng,
-  cartStickyTopPx = 64,
-  quickMode,
-  onToggleQuick,
-}: Props) {
-  const [query, setQuery] = useState(initialQuery || "");
-  useEffect(() => setQuery(initialQuery || ""), [initialQuery]);
-
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [applyAll, setApplyAll] = useState(true);
-
-  const [openQuote, setOpenQuote] = useState(false);
-  const [openSeatInquiry, setOpenSeatInquiry] = useState(false);
-  const [openPackageInquiry, setOpenPackageInquiry] = useState(false);
-
-  const [statsMap, setStatsMap] = useState<Record<string, AptStats>>({});
-
-  // 최신 selected를 안전하게 참조하기 위한 ref
-  const selectedRef = React.useRef<SelectedApt | null>(selected);
-  useEffect(() => {
-    selectedRef.current = selected ?? null;
-  }, [selected]);
-
-  /** ====== Supabase로 카트아이템 보강 ====== */
-  async function hydrateCartItemByRowKey(rowKey: string, hint?: SelectedApt) {
-    setCart((prev) => {
-      const idx = prev.findIndex((x) => x.rowKey === rowKey);
-      if (idx < 0) return prev;
-
-      const it = prev[idx];
-      // 힌트로 먼저 보강
-      let next: CartItem = { ...it };
-      if (hint) {
-        next = {
-          ...next,
-          name: hint.name ?? next.name,
-          productName: hint.productName ?? next.productName,
-          productKey: next.productKey ?? classifyProductForPolicy(hint.productName, hint.installLocation),
-          baseMonthly: Number.isFinite(hint.monthlyFee!) ? hint.monthlyFee : next.baseMonthly,
-          lat: hint.lat ?? next.lat,
-          lng: hint.lng ?? next.lng,
-        };
-      }
-      const place = parseRowKey(rowKey);
-      // 이미 충분하면 패스
-      if (next.baseMonthly && next.productName) {
-        next.hydrated = true;
-        const copy = prev.slice();
-        copy[idx] = next;
-        return copy;
-      }
-
-      // placeId가 없으면 일단 힌트까지만 반영
-      if (!place.placeId) {
-        const copy = prev.slice();
-        copy[idx] = next;
-        return copy;
-      }
-
-      // 비동기 호출: 완료 시 상태 반영
-      (async () => {
-        const { data, error } = await (supabase as any).rpc("get_public_place_detail", {
-          p_place_id: place.placeId,
-        });
-        if (error) {
-          console.warn("[hydrateCartItemByRowKey] detail RPC error:", error.message);
-          return;
-        }
-        const d = data?.[0];
-        if (!d) return;
-
-        setCart((cur) => {
-          const j = cur.findIndex((x) => x.rowKey === rowKey);
-          if (j < 0) return cur;
-          const curItem = cur[j];
-          const updated: CartItem = {
-            ...curItem,
-            name: (hint?.name ?? curItem.name) || d.name || curItem.name,
-            productName: hint?.productName ?? curItem.productName ?? d.product_name ?? curItem.productName,
-            productKey:
-              curItem.productKey ??
-              classifyProductForPolicy(hint?.productName ?? d.product_name, d.install_location ?? d.installLocation),
-            baseMonthly:
-              Number.isFinite(curItem.baseMonthly as number) && (curItem.baseMonthly as number) > 0
-                ? curItem.baseMonthly
-                : (d.monthly_fee ?? curItem.baseMonthly),
-            lat: curItem.lat ?? d.lat ?? hint?.lat,
-            lng: curItem.lng ?? d.lng ?? hint?.lng,
-            hydrated: true,
-          };
-          const out = cur.slice();
-          out[j] = updated;
-          return out;
-        });
-
-        // statsMap도 보강
-        const key = keyName(hint?.name ?? d.name ?? "");
-        if (key) {
-          setStatsMap((prev) => ({
-            ...prev,
-            [key]: {
-              households: d.households ?? prev[key]?.households,
-              residents: d.residents ?? prev[key]?.residents,
-              monthlyImpressions: d.monthly_impressions ?? prev[key]?.monthlyImpressions,
-              monitors: d.monitors ?? prev[key]?.monitors,
-            },
-          }));
-        }
-      })();
-
-      const copy = prev.slice();
-      copy[idx] = next;
-      return copy;
-    });
-  }
-
-  /** ============================================================
-   *  지도(MapPage) → 카트: 담기/취소 이벤트 수신
-   *  - payload.selectedSnapshot 이 오면 최우선 사용
-   *  - 없으면 현재 상세(selectedRef)에서 보강
-   *  - 없거나 부족하면 rowKey를 기반으로 Supabase RPC로 보강
-   * ============================================================ */
-  type CartChangedDetail = { rowKey: string; selected: boolean; selectedSnapshot?: SelectedApt | null };
-  useEffect(() => {
-    const onCartChanged = (ev: Event) => {
-      const { detail } = ev as CustomEvent<CartChangedDetail>;
-      if (!detail) return;
-
-      const { rowKey, selected: shouldSelect, selectedSnapshot } = detail;
-      const snap =
-        selectedSnapshot ?? (selectedRef.current && selectedRef.current.rowKey === rowKey ? selectedRef.current : null);
-
-      setCart((prev) => {
-        const already = prev.some((x) => x.rowKey === rowKey);
-        if (shouldSelect) {
-          if (already) {
-            // 이미 있으면 보강만 시도
-            setTimeout(() => hydrateCartItemByRowKey(rowKey, snap ?? undefined), 0);
-            return prev;
-          }
-
-          // snap이 있으면 즉시 생성, 없으면 placeholder 후 보강
-          const name = snap?.name ?? "(이름 불러오는 중)";
-          const productName = snap?.productName ?? undefined;
-          const baseMonthly = snap?.monthlyFee ?? undefined;
-          const id = [
-            String(name ?? "")
-              .replace(/\s+/g, "")
-              .toLowerCase(),
-            String(productName ?? "")
-              .replace(/\s+/g, "")
-              .toLowerCase(),
-          ].join("||");
-          const productKey = classifyProductForPolicy(snap?.productName, snap?.installLocation);
-          const defaultMonths = prev.length > 0 ? prev[0].months : 1;
-
-          const newItem: CartItem = {
-            id,
-            rowKey,
-            name,
-            productKey,
-            productName,
-            baseMonthly,
-            months: defaultMonths,
-            lat: snap?.lat,
-            lng: snap?.lng,
-            hydrated: Boolean(snap?.monthlyFee && snap?.productName),
-          };
-
-          // statsMap을 스냅샷으로 선반영
-          if (snap?.name) {
-            const k = keyName(snap.name);
-            setStatsMap((prevStats) => ({
-              ...prevStats,
-              [k]: {
-                households: snap.households ?? prevStats[k]?.households,
-                residents: snap.residents ?? prevStats[k]?.residents,
-                monthlyImpressions: snap.monthlyImpressions ?? prevStats[k]?.monthlyImpressions,
-                monitors: snap.monitors ?? prevStats[k]?.monitors,
-              },
-            }));
-          }
-
-          // 보강 예약
-          setTimeout(() => hydrateCartItemByRowKey(rowKey, snap ?? undefined), 0);
-
-          // 스티키 헤더로 살짝 스크롤 유도
-          setTimeout(() => {
-            document.getElementById("bulkMonthsApply")?.scrollIntoView({ behavior: "smooth", block: "start" });
-          }, 0);
-
-          return [newItem, ...prev];
-        } else {
-          return prev.filter((x) => x.rowKey !== rowKey);
-        }
+  w.__kakaoLoadingPromise = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.id = "kakao-maps-sdk";
+    s.charset = "utf-8";
+    s.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${key}&autoload=false&libraries=services,clusterer`;
+    s.onload = () => {
+      if (!w.kakao?.maps) return reject(new Error("kakao maps namespace missing"));
+      w.kakao.maps.load(() => {
+        if (typeof w.kakao.maps.LatLng !== "function") return reject(new Error("LatLng constructor not ready"));
+        resolve(w.kakao);
       });
     };
+    s.onerror = () => reject(new Error("Failed to load Kakao Maps SDK"));
+    document.head.appendChild(s);
+  });
+  return w.__kakaoLoadingPromise;
+}
 
-    window.addEventListener("orka:cart:changed", onCartChanged as EventListener);
-    return () => window.removeEventListener("orka:cart:changed", onCartChanged as EventListener);
-  }, []);
+/* =========================================================================
+   ③ 헬퍼
+   ------------------------------------------------------------------------- */
+function readQuery() {
+  const u = new URL(window.location.href);
+  return (u.searchParams.get("q") || "").trim();
+}
+function writeQuery(v: string) {
+  const u = new URL(window.location.href);
+  if (v) u.searchParams.set("q", v);
+  else u.searchParams.delete("q");
+  window.history.replaceState(null, "", u.toString());
+}
+function toNumLoose(v: any): number | undefined {
+  if (v == null) return undefined;
+  if (typeof v === "number") return Number.isFinite(v) ? v : undefined;
+  const cleaned = String(v).replace(/[^0-9.-]/g, "");
+  if (!cleaned) return undefined;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : undefined;
+}
+function getField(obj: any, keys: string[]): any {
+  for (const k of keys) if (k in obj && obj[k] != null && obj[k] !== "") return obj[k];
+  return undefined;
+}
+function expandBounds(bounds: any, pad = 0.05) {
+  const sw = bounds.getSouthWest();
+  const ne = bounds.getNorthEast();
+  return { minLat: sw.getLat() - pad, maxLat: ne.getLat() + pad, minLng: sw.getLng() - pad, maxLng: ne.getLng() + pad };
+}
+// raw_places.id 또는 RPC place_id 모두 수용
+const rowIdOf = (r: any) => r?.id ?? r?.place_id ?? r?.placeId ?? r?.placeID ?? null;
 
-  /** ===== 포맷터 ===== */
-  const fmtNum = (n?: number, unit = "") =>
-    typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() + (unit ? " " + unit : "") : "—";
-  const fmtWon = (n?: number) => (typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() : "—");
+/* =========================================================================
+   ④ 타입/키 유틸
+   ------------------------------------------------------------------------- */
+type PlaceRow = {
+  id?: number | string;
+  place_id?: number | string;
+  lat?: number | null;
+  lng?: number | null;
+  [key: string]: any;
+};
+type KMarker = any & { __key?: string; __basePos?: any; __row?: PlaceRow };
 
-  /** ===== 섬네일/요약 ===== */
-  const matchedFile = resolveProductFile(selected?.productName, selected?.installLocation);
-  const initialThumb = selected?.imageUrl || (matchedFile ? PRIMARY_ASSET_BASE + matchedFile : PLACEHOLDER);
+const monthlyFeeOf = (row: PlaceRow): number =>
+  toNumLoose(getField(row, ["월광고료", "월 광고료", "월 광고비", "월비용", "월요금", "month_fee", "monthlyFee"])) ?? 0;
 
-  const computedY1 = useMemo(() => {
-    if (typeof selected?.monthlyFeeY1 === "number" && Number.isFinite(selected.monthlyFeeY1))
-      return selected.monthlyFeeY1;
-    const base = selected?.monthlyFee;
-    const key = classifyProductForPolicy(selected?.productName, selected?.installLocation);
-    if (!base || !key) return undefined;
-    const periodRate = findRate(DEFAULT_POLICY[key].period, 12);
-    const preRate = key === "ELEVATOR TV" ? findRate(DEFAULT_POLICY[key].precomp, 12) : 0;
-    return Math.round(base * (1 - preRate) * (1 - periodRate));
+const groupKeyFromRow = (row: PlaceRow) => `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(7)}`;
+
+const buildRowKeyFromRow = (row: PlaceRow) => {
+  const lat = Number(row.lat),
+    lng = Number(row.lng);
+  const idPart = rowIdOf(row) != null ? String(rowIdOf(row)) : "";
+  const productName = String(
+    getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "",
+  );
+  const installLocation = String(getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "");
+  return idPart ? `id:${idPart}` : `xy:${lat.toFixed(7)},${lng.toFixed(7)}|p:${productName}|loc:${installLocation}`;
+};
+
+/* =========================================================================
+   ⑤ ‘정적 분리(항상 나란히)’ 레이아웃
+   ------------------------------------------------------------------------- */
+function layoutMarkersSideBySide(map: any, group: KMarker[]) {
+  if (!group || group.length <= 1) return;
+  const proj = map.getProjection();
+  const center = group[0].__basePos;
+  const cpt = proj.containerPointFromCoords(center);
+  const N = group.length,
+    GAP = 26,
+    totalW = GAP * (N - 1),
+    startX = cpt.x - totalW / 2,
+    y = cpt.y;
+  for (let i = 0; i < N; i++) {
+    const pt = new (window as any).kakao.maps.Point(startX + i * GAP, y);
+    const pos = proj.coordsFromContainerPoint(pt);
+    group[i].setPosition(pos);
+  }
+}
+
+/* =========================================================================
+   ⑥ 메인 컴포넌트
+   ------------------------------------------------------------------------- */
+type SelectedAptX = SelectedApt & { selectedInCart?: boolean };
+
+export default function MapPage() {
+  const mapRef = useRef<HTMLDivElement | null>(null);
+  const mapObjRef = useRef<any>(null);
+  const clustererRef = useRef<any>(null);
+  const placesRef = useRef<any>(null);
+
+  const searchPinRef = useRef<any>(null);
+  const radiusCircleRef = useRef<any>(null);
+  const radiusLabelRef = useRef<any>(null);
+  const radiusLabelElRef = useRef<HTMLDivElement | null>(null);
+
+  const markerCacheRef = useRef<Map<string, KMarker>>(new Map());
+  const keyIndexRef = useRef<Record<string, KMarker[]>>({});
+  const groupsRef = useRef<Map<string, KMarker[]>>(new Map());
+  const selectedRowKeySetRef = useRef<Set<string>>(new Set());
+  const lastReqIdRef = useRef<number>(0);
+
+  const lastClickedRef = useRef<KMarker | null>(null);
+
+  // ✅ 내 위치 오버레이용 ref/state (PC 버튼)
+  const userOverlayRef = useRef<any>(null);
+  const userOverlayElRef = useRef<HTMLDivElement | null>(null);
+  const [geoError, setGeoError] = useState<string | null>(null);
+
+  // ✅ Quick Add 모드 상태
+  const quickModeRef = useRef<boolean>(false);
+  const [quickMode, setQuickMode] = useState(false);
+  // ▼ 프로그램적으로 마커 클릭을 트리거할 때(카트→지도 포커스) 퀵담기 자동 토글을 1회 억제
+  const suppressQuickRef = useRef(false);
+
+  // ✅ 선택 스냅샷 참조 (이벤트 payload에 사용)
+  const selectedRef = useRef<SelectedAptX | null>(null);
+  const lastSelectedSnapRef = useRef<SelectedAptX | null>(null);
+
+  const [selected, setSelected] = useState<SelectedAptX | null>(null);
+  // ▼ 선택된 단지 스냅샷(카트 이벤트에 같이 실어 보냄)
+  const selectedSnapRef = useRef<SelectedAptX | null>(null);
+  useEffect(() => {
+    selectedSnapRef.current = selected;
   }, [selected]);
 
-  /** ===== 총 합계 (보강 후 자동 반영) ===== */
-  const cartTotal = useMemo(() => {
-    return cart.reduce((sum, item) => {
-      const rule = item.productKey ? DEFAULT_POLICY[item.productKey] : undefined;
-      const periodRate = findRate(rule?.period, item.months);
-      const preRate = item.productKey === "ELEVATOR TV" ? findRate(rule?.precomp, item.months) : 0;
-      const monthlyAfter = Math.round((item.baseMonthly ?? 0) * (1 - preRate) * (1 - periodRate));
-      return sum + monthlyAfter * item.months;
-    }, 0);
-  }, [cart]);
+  const [initialQ, setInitialQ] = useState("");
+  const [kakaoError, setKakaoError] = useState<string | null>(null);
 
-  const runSearch = () => {
-    const q = query.trim();
-    if (!q) return;
-    onSearch?.(q);
-  };
+  // Sync quickMode state to ref
+  useEffect(() => {
+    quickModeRef.current = quickMode;
+  }, [quickMode]);
 
-  /** ===== 통계 보강 ===== */
-  async function fetchStatsByNames(names: string[]) {
-    const uniq = Array.from(new Set(names.filter(Boolean)));
-    if (!uniq.length) return;
-    const { data, error } = await supabase
-      .from("raw_places")
-      .select("단지명, 세대수, 거주인원, 송출횟수, 모니터수량")
-      .in("단지명", uniq);
+  // ✅ selected → ref 동기화 (이벤트용 스냅샷 보존)
+  useEffect(() => {
+    selectedRef.current = selected ?? null;
+    if (selected) lastSelectedSnapRef.current = selected;
+  }, [selected]);
+
+  /* ---------- 정렬/우선순위 ---------- */
+  const orderAndApplyZIndex = useCallback((arr: KMarker[]) => {
+    if (!arr || arr.length <= 1) return arr;
+    const sorted = arr.slice().sort((a, b) => {
+      const ra = a.__row as PlaceRow,
+        rb = b.__row as PlaceRow;
+      const aRowKey = buildRowKeyFromRow(ra),
+        bRowKey = buildRowKeyFromRow(rb);
+      const aSel = selectedRowKeySetRef.current.has(aRowKey) ? 1 : 0;
+      const bSel = selectedRowKeySetRef.current.has(bRowKey) ? 1 : 0;
+      if (aSel !== bSel) return bSel - aSel;
+      const aFee = monthlyFeeOf(ra),
+        bFee = monthlyFeeOf(rb);
+      if (aFee !== bFee) return bFee - aFee;
+      return 0;
+    });
+    const TOP = 100000;
+    for (let i = 0; i < sorted.length; i++)
+      try {
+        sorted[i].setZIndex?.(TOP - i);
+      } catch {}
+    arr.length = 0;
+    sorted.forEach((m) => arr.push(m));
+    return arr;
+  }, []);
+  const applyGroupPrioritiesMap = useCallback(
+    (groups: Map<string, KMarker[]>) => {
+      groups.forEach((list) => orderAndApplyZIndex(list));
+    },
+    [orderAndApplyZIndex],
+  );
+  const applyGroupPrioritiesForRowKey = useCallback(
+    (rowKey: string) => {
+      const list = keyIndexRef.current[rowKey];
+      if (!list || !list.length) return;
+      const row = list[0].__row as PlaceRow;
+      const gk = groupKeyFromRow(row);
+      const group = groupsRef.current.get(gk);
+      if (group && group.length) orderAndApplyZIndex(group);
+    },
+    [orderAndApplyZIndex],
+  );
+
+  const applyStaticSeparationAll = useCallback(() => {
+    const map = mapObjRef.current;
+    if (!map || !(window as any).kakao?.maps) return;
+    groupsRef.current.forEach((group) => layoutMarkersSideBySide(map, group));
+  }, []);
+
+  /* ---------- 지도 초기화 ---------- */
+  useEffect(() => {
+    let resizeHandler: any;
+    let map: any;
+    cleanupKakaoScripts();
+    loadKakao()
+      .then((kakao) => {
+        setKakaoError(null);
+        if (!mapRef.current) return;
+        mapRef.current.style.minHeight = "300px";
+        mapRef.current.style.minWidth = "300px";
+        const center = new kakao.maps.LatLng(37.5665, 126.978);
+        map = new kakao.maps.Map(mapRef.current, { center, level: 6 });
+        mapObjRef.current = map;
+        (window as any).kakaoMap = map;
+        (window as any).__kakaoMap = map;
+
+        placesRef.current = new kakao.maps.services.Places();
+
+        const SIZES = [34, 44, 54];
+        const clusterStyles = SIZES.map((sz) => ({
+          width: `${sz}px`,
+          height: `${sz}px`,
+          lineHeight: `${sz}px`,
+          textAlign: "center",
+          borderRadius: "999px",
+          background: "rgba(108, 45, 255, 0.18)",
+          border: "1px solid rgba(108, 45, 255, 0.35)",
+          color: "#6C2DFF",
+          fontWeight: "700",
+          fontSize: "13px",
+        }));
+        clustererRef.current = new kakao.maps.MarkerClusterer({
+          map,
+          averageCenter: true,
+          minLevel: 6,
+          disableClickZoom: true,
+          gridSize: 80,
+          styles: clusterStyles,
+        });
+
+        kakao.maps.event.addListener(map, "zoom_changed", applyStaticSeparationAll);
+        kakao.maps.event.addListener(map, "idle", async () => {
+          await loadMarkersInBounds();
+          applyStaticSeparationAll();
+        });
+
+        setTimeout(() => map && map.relayout(), 0);
+        (async () => {
+          await loadMarkersInBounds();
+          applyStaticSeparationAll();
+        })();
+
+        const q0 = readQuery();
+        setInitialQ(q0);
+        if (q0) runPlaceSearch(q0);
+
+        resizeHandler = () => {
+          if (!map) return;
+          map.relayout();
+          applyStaticSeparationAll();
+        };
+        window.addEventListener("resize", resizeHandler);
+      })
+      .catch((err) => {
+        console.error("[KakaoMap] load error:", err);
+        setKakaoError(err?.message || String(err));
+      });
+
+    return () => {
+      window.removeEventListener("resize", resizeHandler);
+      const w = window as any;
+      if (w.kakaoMap === mapObjRef.current) w.kakaoMap = null;
+      if (w.__kakaoMap === mapObjRef.current) w.__kakaoMap = null;
+      try {
+        radiusCircleRef.current?.setMap(null);
+      } catch {}
+      try {
+        radiusLabelRef.current?.setMap(null);
+      } catch {}
+      try {
+        searchPinRef.current?.setMap?.(null);
+      } catch {}
+      // ✅ 내 위치 오버레이 정리
+      try {
+        userOverlayRef.current?.setMap(null);
+      } catch {}
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applyStaticSeparationAll]);
+
+  useEffect(() => {
+    const m = mapObjRef.current;
+    if ((window as any).kakao?.maps && m)
+      setTimeout(() => {
+        m.relayout();
+        applyStaticSeparationAll();
+      }, 0);
+  }, [selected, applyStaticSeparationAll]);
+
+  /* ---------- 마커 색 전환(행 키) ---------- */
+  const setMarkerStateByRowKey = useCallback(
+    (rowKey: string, state: "default" | "selected", forceYellowNow = false) => {
+      if (!rowKey) return;
+      const maps = (window as KakaoNS).kakao?.maps;
+      if (!maps) return;
+      const imgs = markerImages(maps);
+      if (state === "selected") selectedRowKeySetRef.current.add(rowKey);
+      else selectedRowKeySetRef.current.delete(rowKey);
+
+      const list = keyIndexRef.current[rowKey];
+      if (list?.length) {
+        list.forEach((mk) => {
+          const shouldBeYellow = state === "selected" || selectedRowKeySetRef.current.has(rowKey);
+          if (forceYellowNow || shouldBeYellow) {
+            mk.setImage(imgs.yellow);
+            if (lastClickedRef.current === mk) lastClickedRef.current = null;
+          } else mk.setImage(imgs.purple);
+        });
+        setSelected((prev) =>
+          prev && prev.rowKey === rowKey ? { ...prev, selectedInCart: state === "selected" } : prev,
+        );
+        applyGroupPrioritiesForRowKey(rowKey);
+        applyStaticSeparationAll();
+      }
+    },
+    [applyGroupPrioritiesForRowKey, applyStaticSeparationAll],
+  );
+
+  /* ---------- 카트 제어 헬퍼 ---------- */
+  const isRowKeySelected = useCallback(
+    (rowKey?: string | null) => !!rowKey && selectedRowKeySetRef.current.has(rowKey),
+    [],
+  );
+
+  const addToCartByRowKey = useCallback(
+    (rowKey: string) => {
+      selectedRowKeySetRef.current.add(rowKey);
+      setMarkerStateByRowKey(rowKey, "selected", true);
+      setSelected((p) => (p && p.rowKey === rowKey ? { ...p, selectedInCart: true } : p));
+      applyGroupPrioritiesForRowKey(rowKey);
+      applyStaticSeparationAll();
+
+      // ✅ 스냅샷 포함해서 브로드캐스트 (합계/견적 연동)
+      const snap = selectedRef.current ?? lastSelectedSnapRef.current ?? null;
+      window.dispatchEvent(
+        new CustomEvent("orka:cart:changed", {
+          detail: { rowKey, selected: true, selectedSnapshot: selectedSnapRef.current ?? null },
+        }),
+      );
+    },
+    [applyGroupPrioritiesForRowKey, applyStaticSeparationAll, setMarkerStateByRowKey],
+  );
+
+  const removeFromCartByRowKey = useCallback(
+    (rowKey: string) => {
+      selectedRowKeySetRef.current.delete(rowKey);
+      setMarkerStateByRowKey(rowKey, "default");
+      setSelected((p) => (p && p.rowKey === rowKey ? { ...p, selectedInCart: false } : p));
+      applyGroupPrioritiesForRowKey(rowKey);
+      applyStaticSeparationAll();
+
+      // ✅ 스냅샷 포함해서 브로드캐스트 (제거도 동일 포맷)
+      const snap = selectedRef.current ?? lastSelectedSnapRef.current ?? null;
+      window.dispatchEvent(
+        new CustomEvent("orka:cart:changed", {
+          detail: { rowKey, selected: false, selectedSnapshot: selectedSnapRef.current ?? null },
+        }),
+      );
+    },
+    [applyGroupPrioritiesForRowKey, applyStaticSeparationAll, setMarkerStateByRowKey],
+  );
+
+  const toggleCartByRowKey = useCallback(
+    (rowKey: string) => {
+      if (selectedRowKeySetRef.current.has(rowKey)) removeFromCartByRowKey(rowKey);
+      else addToCartByRowKey(rowKey);
+    },
+    [addToCartByRowKey, removeFromCartByRowKey],
+  );
+
+  /* ---------- 포커스(카트에서 단지 클릭 시) ---------- */
+  const focusByRowKey = useCallback(
+    async (rowKey: string, opts?: { level?: number }) => {
+      const kakao = (window as KakaoNS).kakao;
+      const maps = kakao?.maps;
+      const map = mapObjRef.current;
+      if (!maps || !map || !rowKey) return;
+      const list = keyIndexRef.current[rowKey];
+      if (list?.length) {
+        const mk = list[0];
+        const pos = mk.getPosition?.() || mk.__basePos;
+        if (opts?.level != null) map.setLevel(opts.level);
+        map.setCenter(pos);
+        suppressQuickRef.current = true; // ← 이번 클릭은 퀵담기 자동토글 금지
+        maps.event.trigger(mk, "click"); // ← 마커 클릭과 동일 동작
+        applyStaticSeparationAll();
+      }
+    },
+    [applyStaticSeparationAll],
+  );
+
+  const focusByLatLng = useCallback(
+    async (lat: number, lng: number, opts?: { level?: number }) => {
+      const kakao = (window as KakaoNS).kakao;
+      const maps = kakao?.maps;
+      const map = mapObjRef.current;
+      if (!maps || !map || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      const latlng = new maps.LatLng(lat, lng);
+      if (opts?.level != null) map.setLevel(opts.level);
+      map.setCenter(latlng);
+      await loadMarkersInBounds(); // 로드 후 가장 가까운 마커 트리거
+      let best: KMarker | null = null;
+      let bestDist = Infinity;
+      markerCacheRef.current.forEach((mk) => {
+        const r = mk.__row as PlaceRow;
+        const dlat = Number(r.lat) - lat;
+        const dlng = Number(r.lng) - lng;
+        const ds = dlat * dlat + dlng * dlng;
+        if (ds < bestDist) {
+          bestDist = ds;
+          best = mk;
+        }
+      });
+      if (best) {
+        suppressQuickRef.current = true; // ← 이번 클릭은 퀵담기 자동토글 금지
+        maps.event.trigger(best, "click");
+        applyStaticSeparationAll();
+      }
+    },
+    [applyStaticSeparationAll],
+  );
+
+  /* ---------- 바운드 내 마커 로드 ---------- */
+  async function loadMarkersInBounds() {
+    const kakao = (window as KakaoNS).kakao;
+    const maps = kakao?.maps;
+    const map = mapObjRef.current;
+    const clusterer = clustererRef.current;
+    if (!maps || !map || !clusterer) return;
+
+    const bounds = map.getBounds();
+    if (!bounds) return;
+    const sw = bounds.getSouthWest(),
+      ne = bounds.getNorthEast();
+
+    const reqId = Date.now();
+    lastReqIdRef.current = reqId;
+
+    const { data, error } = await (supabase as any).rpc("get_public_map_places", {
+      min_lat: sw.getLat(),
+      max_lat: ne.getLat(),
+      min_lng: sw.getLng(),
+      max_lng: ne.getLng(),
+      limit_n: 5000,
+    });
+
+    console.log("[map] RPC NOW:", (data ?? []).length, error?.message);
+
+    if (reqId !== lastReqIdRef.current) return;
     if (error) {
-      console.error("[Supabase] fetch error:", error);
+      console.error("Supabase rpc(get_public_map_places) error:", error.message);
       return;
     }
-    const map: Record<string, AptStats> = {};
-    (data || []).forEach((row: any) => {
-      const k = keyName(row["단지명"] || "");
-      if (!k) return;
-      map[k] = {
-        households: row["세대수"] != null ? Number(row["세대수"]) : undefined,
-        residents: row["거주인원"] != null ? Number(row["거주인원"]) : undefined,
-        monthlyImpressions: row["송출횟수"] != null ? Number(row["송출횟수"]) : undefined,
-        monitors: row["모니터수량"] != null ? Number(row["모니터수량"]) : undefined,
-      };
-    });
-    setStatsMap((prev) => ({ ...prev, ...map }));
-  }
 
-  /* ===== 담기/삭제 (2탭 버튼) ===== */
-  const makeIdFromSelected = (s: SelectedApt) => {
-    const nk = (v?: string) => (v ? v.replace(/\s+/g, "").toLowerCase() : "");
-    const nameKey = nk(s.name || s.address || "");
-    const prodKey = nk(s.productName || "");
-    return [nameKey, prodKey].join("||");
-  };
+    const rows = (data ?? []) as PlaceRow[];
+    const imgs = markerImages(maps);
 
-  const addSelectedToCart = () => {
-    if (!selected) return;
-    const id = makeIdFromSelected(selected);
-    const productKey = classifyProductForPolicy(selected.productName, selected.installLocation);
-
-    setCart((prev) => {
-      const exists = prev.find((x) => x.id === id);
-      if (exists) {
-        return prev.map((x) =>
-          x.id === id
-            ? {
-                ...x,
-                rowKey: selected.rowKey ?? x.rowKey,
-                name: selected.name,
-                productKey,
-                productName: selected.productName,
-                baseMonthly: selected.monthlyFee,
-                lat: selected.lat,
-                lng: selected.lng,
-                hydrated: true,
-              }
-            : x,
-        );
-      }
-      const defaultMonths = prev.length > 0 ? prev[0].months : 1;
-      const newItem: CartItem = {
-        id,
-        rowKey: selected.rowKey,
-        name: selected.name,
-        productKey,
-        productName: selected.productName,
-        baseMonthly: selected.monthlyFee,
-        months: defaultMonths,
-        lat: selected.lat,
-        lng: selected.lng,
-        hydrated: true,
-      };
-      return [newItem, ...prev];
-    });
-
-    if (selected?.name) {
-      const k = keyName(selected.name);
-      setStatsMap((prev) => ({
-        ...prev,
-        [k]: {
-          households: selected.households ?? prev[k]?.households,
-          residents: selected.residents ?? prev[k]?.residents,
-          monthlyImpressions: selected.monthlyImpressions ?? prev[k]?.monthlyImpressions,
-          monitors: selected.monitors ?? prev[k]?.monitors,
-        },
-      }));
-      fetchStatsByNames([selected.name]);
-    }
-
-    if (selected.rowKey) setMarkerStateByRowKey?.(selected.rowKey, "selected", true);
-    else setMarkerState?.(selected.name, "selected");
-  };
-
-  const removeItem = (id: string) => {
-    setCart((prev) => {
-      const removed = prev.find((x) => x.id === id);
-      const next = prev.filter((x) => x.id !== id);
-      if (removed?.rowKey && !next.some((x) => x.rowKey === removed.rowKey))
-        setMarkerStateByRowKey?.(removed.rowKey, "default");
-      else if (removed?.name && !next.some((x) => x.name === removed.name)) setMarkerState?.(removed.name, "default");
-      return next;
-    });
-  };
-
-  const updateMonths = (id: string, months: number) => {
-    if (applyAll) setCart((prev) => prev.map((x) => ({ ...x, months })));
-    else setCart((prev) => prev.map((x) => (x.id === id ? { ...x, months } : x)));
-  };
-
-  /* ===== 2탭 버튼 즉시 토글 ===== */
-  const inCart =
-    !!selected &&
-    (selected.rowKey
-      ? cart.some((c) => c.rowKey === selected.rowKey)
-      : cart.some((c) => c.id === makeIdFromSelected(selected)));
-
-  const onClickAddOrCancel = () => {
-    if (!selected) return;
-    const id = makeIdFromSelected(selected);
-    if (inCart) {
-      removeItem(id);
-      if (selected.rowKey) setMarkerStateByRowKey?.(selected.rowKey, "default");
-      else setMarkerState?.(selected.name, "default");
-    } else {
-      addSelectedToCart();
-    }
-  };
-
-  /* ===== 카트 아파트명 클릭 → 지도 포커스 & 2탭 ===== */
-  const focusFromCart = (item: CartItem) => {
-    if (item.rowKey && focusByRowKey) focusByRowKey(item.rowKey, { level: 4 });
-    else if (item.lat != null && item.lng != null && focusByLatLng) focusByLatLng(item.lat, item.lng, { level: 4 });
-  };
-
-  /** ===== 견적 모달 열릴 때 미보강 아이템 보강 ===== */
-  useEffect(() => {
-    if (!openQuote) return;
-    const need = cart.filter((c) => !c.hydrated || !c.baseMonthly || !c.productName);
-    if (!need.length) return;
-    need.forEach((c) => hydrateCartItemByRowKey(c.rowKey!, selectedRef.current ?? undefined));
-    const names = cart.map((c) => c.name).filter(Boolean);
-    if (names.length) fetchStatsByNames(names);
-  }, [openQuote]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  /** ===== 견적서 빌더 ===== */
-  function yyyy_mm_dd(d: Date) {
-    const y = d.getFullYear();
-    const m = `${d.getMonth() + 1}`.padStart(2, "0");
-    const dd = `${d.getDate()}`.padStart(2, "0");
-    return `${y}-${m}-${dd}`;
-  }
-  function addMonths(date: Date, months: number) {
-    const d = new Date(date.getTime());
-    d.setMonth(d.getMonth() + months);
-    return d;
-  }
-  const buildQuoteItems = (): QuoteLineItem[] => {
-    const today = new Date();
-    return cart.map((c) => {
-      const s = statsMap[keyName(c.name)];
-      return {
-        id: c.id,
-        name: c.name,
-        months: c.months,
-        startDate: yyyy_mm_dd(today),
-        endDate: yyyy_mm_dd(addMonths(today, c.months)),
-        mediaName: c.productName,
-        baseMonthly: c.baseMonthly,
-        productKeyHint: c.productKey,
-        households: s?.households,
-        residents: s?.residents,
-        monthlyImpressions: s?.monthlyImpressions,
-        monitors: s?.monitors,
-      };
-    });
-  };
-  const buildSeatPrefill = () => {
-    const first = cart[0];
-    const aptName = selected?.name ?? first?.name ?? null;
-    const prodName = selected?.productName ?? first?.productName ?? null;
-    const monthsMax = cart.length ? Math.max(...cart.map((c) => c.months ?? 0)) : null;
-    return {
-      apt_id: aptName,
-      apt_name: aptName,
-      product_code: prodName ?? undefined,
-      product_name: prodName ?? undefined,
-      cart_snapshot: cart.length ? { items: cart, months: monthsMax, cartTotal } : undefined,
+    const nowKeys = new Set<string>();
+    const groups = new Map<string, KMarker[]>();
+    const keyOf = (row: PlaceRow) => {
+      const lat = Number(row.lat),
+        lng = Number(row.lng);
+      const idPart = rowIdOf(row) != null ? String(rowIdOf(row)) : "";
+      const prod = String(
+        getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "",
+      );
+      const loc = String(getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "");
+      return `${lat.toFixed(7)},${lng.toFixed(7)}|${idPart}|${prod}|${loc}`;
     };
-  };
 
-  const LEFT_W = 360;
-  const RIGHT_W = 360;
+    keyIndexRef.current = {};
+    const toAdd: KMarker[] = [];
+    const newMarkers: KMarker[] = [];
+
+    rows.forEach((row) => {
+      if (row.lat == null || row.lng == null) return;
+      const key = keyOf(row);
+      const rowKey = buildRowKeyFromRow(row);
+      nowKeys.add(key);
+
+      let mk = markerCacheRef.current.get(key);
+      const lat = Number(row.lat),
+        lng = Number(row.lng);
+      const pos = new maps.LatLng(lat, lng);
+      const nameText = String(getField(row, ["단지명", "name", "아파트명"]) || "");
+
+      if (!mk) {
+        const isSelected = selectedRowKeySetRef.current.has(rowKey);
+        mk = new maps.Marker({ position: pos, title: nameText, image: isSelected ? imgs.yellow : imgs.purple });
+        mk.__key = key;
+        mk.__basePos = pos;
+        mk.__row = row;
+
+        maps.event.addListener(mk, "click", () => {
+          const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
+          const address = getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
+          const productName =
+            getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "";
+          const installLocation = getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "";
+          const households = toNumLoose(
+            getField(row, ["세대수", "세대 수", "세대", "가구수", "가구 수", "세대수(가구)", "households"]),
+          );
+          const residents = toNumLoose(
+            getField(row, ["거주인원", "거주 인원", "인구수", "총인구", "입주민수", "거주자수", "residents"]),
+          );
+          const monitors = toNumLoose(
+            getField(row, ["모니터수량", "모니터 수량", "모니터대수", "엘리베이터TV수", "monitors"]),
+          );
+          const monthlyImpressions = toNumLoose(
+            getField(row, ["월송출횟수", "월 송출횟수", "월 송출 횟수", "월송출", "노출수(월)", "monthlyImpressions"]),
+          );
+          const monthlyFee = toNumLoose(
+            getField(row, ["월광고료", "월 광고료", "월 광고비", "월비용", "월요금", "month_fee", "monthlyFee"]),
+          );
+          const monthlyFeeY1 = toNumLoose(
+            getField(row, [
+              "1년 계약 시 월 광고료",
+              "1년계약시월광고료",
+              "연간월광고료",
+              "할인 월 광고료",
+              "연간_월광고료",
+              "monthlyFeeY1",
+            ]),
+          );
+          const costPerPlay = toNumLoose(getField(row, ["1회당 송출비용", "송출 1회당 비용", "costPerPlay"]));
+          const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
+          const imageUrl = getField(row, ["imageUrl", "image_url", "이미지", "썸네일", "thumbnail"]) || undefined;
+
+          const sel: SelectedAptX = {
+            rowKey,
+            rowId: rowIdOf(row) != null ? String(rowIdOf(row)) : undefined,
+            name,
+            address,
+            productName,
+            installLocation,
+            households,
+            residents,
+            monitors,
+            monthlyImpressions,
+            costPerPlay,
+            hours,
+            monthlyFee,
+            monthlyFeeY1,
+            imageUrl,
+            lat,
+            lng,
+            selectedInCart: selectedRowKeySetRef.current.has(rowKey),
+          };
+
+          if (quickModeRef.current && !suppressQuickRef.current) {
+            // 퀵담기 ON + 사용자 직접 클릭 → 담기/취소만 수행하고 종료
+            toggleCartByRowKey(rowKey);
+            lastClickedRef.current = null;
+            applyStaticSeparationAll();
+            return; // 아래 클릭 강조 로직은 스킵
+          }
+          // (포커스에서 유도한 클릭이면 여기서 억제 플래그만 해제하고 상세를 연다)
+          suppressQuickRef.current = false;
+          setSelected(sel);
+          // React가 selected를 커밋한 뒤에 카트 토글 신호를 보내도록 한 틱 지연
+          setTimeout(() => {
+            if (quickModeRef.current) {
+              toggleCartByRowKey(rowKey);
+              lastClickedRef.current = null;
+              applyStaticSeparationAll();
+            }
+          }, 0);
+
+          // ✅ 상세 보강 RPC
+          (() => {
+            const pid = rowIdOf(row);
+            if (!pid) return;
+            (async () => {
+              const { data: detail, error: dErr } = await (supabase as any).rpc("get_public_place_detail", {
+                p_place_id: pid,
+              });
+              if (!dErr && detail?.length) {
+                const d = detail[0];
+                setSelected((prev) =>
+                  prev && prev.rowKey === rowKey
+                    ? {
+                        ...prev,
+                        households: d.households ?? prev.households,
+                        residents: d.residents ?? prev.residents,
+                        monitors: d.monitors ?? prev.monitors,
+                        monthlyImpressions: d.monthly_impressions ?? prev.monthlyImpressions,
+                        costPerPlay: d.cost_per_play ?? prev.costPerPlay,
+                        hours: d.hours ?? prev.hours,
+                        address: d.address ?? prev.address,
+                        installLocation: d.install_location ?? d.installLocation ?? prev.installLocation,
+                        monthlyFee: d.monthly_fee ?? prev.monthlyFee,
+                        monthlyFeeY1: d.monthly_fee_y1 ?? prev.monthlyFeeY1,
+                        lat: d.lat ?? prev.lat,
+                        lng: d.lng ?? prev.lng,
+                        imageUrl: d.image_url ?? prev.imageUrl,
+                      }
+                    : prev,
+                );
+              } else if (dErr) {
+                console.warn("[RPC] get_public_place_detail error:", dErr.message);
+              }
+            })();
+          })();
+
+          const isAlreadySelected = selectedRowKeySetRef.current.has(rowKey);
+          if (isAlreadySelected) {
+            mk.setImage(imgs.yellow);
+            if (lastClickedRef.current && lastClickedRef.current !== mk) {
+              const prev = lastClickedRef.current;
+              const prevRowKey = buildRowKeyFromRow(prev.__row as PlaceRow);
+              prev.setImage(selectedRowKeySetRef.current.has(prevRowKey) ? imgs.yellow : imgs.purple);
+            }
+            lastClickedRef.current = null;
+          } else {
+            if (lastClickedRef.current && lastClickedRef.current !== mk) {
+              const prev = lastClickedRef.current;
+              const prevRowKey = buildRowKeyFromRow(prev.__row as PlaceRow);
+              prev.setImage(selectedRowKeySetRef.current.has(prevRowKey) ? imgs.yellow : imgs.purple);
+            }
+            mk.setImage(imgs.clicked);
+            lastClickedRef.current = mk;
+          }
+          applyStaticSeparationAll();
+        });
+
+        markerCacheRef.current.set(key, mk);
+        toAdd.push(mk);
+      } else {
+        mk.setPosition(pos);
+        if (mk.getTitle?.() !== nameText) mk.setTitle?.(nameText);
+        const isSelected = selectedRowKeySetRef.current.has(rowKey);
+        let imgToUse = isSelected ? imgs.yellow : imgs.purple;
+        if (!isSelected && lastClickedRef.current && lastClickedRef.current.__key === key) imgToUse = imgs.clicked;
+        mk.setImage(imgToUse);
+      }
+
+      if (!keyIndexRef.current[rowKey]) keyIndexRef.current[rowKey] = [];
+      keyIndexRef.current[rowKey].push(mk);
+
+      const gk = groupKeyFromRow(row);
+      if (!groups.has(gk)) groups.set(gk, []);
+      groups.get(gk)!.push(mk);
+
+      newMarkers.push(mk);
+    });
+
+    if (toAdd.length) clustererRef.current.addMarkers(toAdd);
+
+    const toRemove: KMarker[] = [];
+    markerCacheRef.current.forEach((mk, key) => {
+      if (!nowKeys.has(key)) {
+        toRemove.push(mk);
+        markerCacheRef.current.delete(key);
+      }
+    });
+    if (toRemove.length) clustererRef.current.removeMarkers(toRemove);
+    if (lastClickedRef.current && toRemove.includes(lastClickedRef.current)) lastClickedRef.current = null;
+
+    applyGroupPrioritiesMap(groups);
+    groupsRef.current = groups;
+
+    // 확장 조회
+    if (!newMarkers.length) {
+      const pad = expandBounds(bounds, 0.12);
+      const { data: data2, error: err2 } = await (supabase as any).rpc("get_public_map_places", {
+        min_lat: pad.minLat,
+        max_lat: pad.maxLat,
+        min_lng: pad.minLng,
+        max_lng: pad.maxLng,
+        limit_n: 5000,
+      });
+      console.log("[map] RPC EXPANDED:", (data2 ?? []).length, err2?.message);
+
+      if (err2) {
+        console.warn("[MapPage] expanded select error:", err2.message);
+        return;
+      }
+      if (reqId !== lastReqIdRef.current) return;
+
+      const rows2 = (data2 ?? []) as PlaceRow[];
+      rows2.forEach((row) => {
+        if (row.lat == null || row.lng == null) return;
+        const key = `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(7)}|${
+          rowIdOf(row) != null ? String(rowIdOf(row)) : ""
+        }|${String(getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "")}|${String(getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "")}`;
+        if (markerCacheRef.current.has(key)) return;
+
+        const lat = Number(row.lat),
+          lng = Number(row.lng);
+        const pos = new maps.LatLng(lat, lng);
+        const nameText = String(getField(row, ["단지명", "name", "아파트명"]) || "");
+        const rowKey = buildRowKeyFromRow(row);
+        const isSelected = selectedRowKeySetRef.current.has(rowKey);
+
+        const mk: KMarker = new maps.Marker({
+          position: pos,
+          title: nameText,
+          image: isSelected ? imgs.yellow : imgs.purple,
+        });
+        mk.__key = key;
+        mk.__basePos = pos;
+        mk.__row = row;
+
+        maps.event.addListener(mk, "click", () => {
+          const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
+          const address = getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
+          const productName =
+            getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "";
+          const installLocation = getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "";
+          const households = toNumLoose(
+            getField(row, ["세대수", "세대 수", "세대", "가구수", "가구 수", "세대수(가구)", "households"]),
+          );
+          const residents = toNumLoose(
+            getField(row, ["거주인원", "거주 인원", "인구수", "총인구", "입주민수", "거주자수", "residents"]),
+          );
+          const monitors = toNumLoose(
+            getField(row, ["모니터수량", "모니터 수량", "모니터대수", "엘리베이터TV수", "monitors"]),
+          );
+          const monthlyImpressions = toNumLoose(
+            getField(row, ["월송출횟수", "월 송출횟수", "월 송출 횟수", "월송출", "노출수(월)", "monthlyImpressions"]),
+          );
+          const monthlyFee = toNumLoose(
+            getField(row, ["월광고료", "월 광고료", "월 광고비", "월비용", "월요금", "month_fee", "monthlyFee"]),
+          );
+          const monthlyFeeY1 = toNumLoose(
+            getField(row, [
+              "1년 계약 시 월 광고료",
+              "1년계약시월광고료",
+              "연간월광고료",
+              "할인 월 광고료",
+              "연간_월광고료",
+              "monthlyFeeY1",
+            ]),
+          );
+          const costPerPlay = toNumLoose(getField(row, ["1회당 송출비용", "송출 1회당 비용", "costPerPlay"]));
+          const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
+          const imageUrl = getField(row, ["imageUrl", "image_url", "이미지", "썸네일", "thumbnail"]) || undefined;
+
+          const sel: SelectedAptX = {
+            rowKey,
+            rowId: rowIdOf(row) != null ? String(rowIdOf(row)) : undefined,
+            name,
+            address,
+            productName,
+            installLocation,
+            households,
+            residents,
+            monitors,
+            monthlyImpressions,
+            costPerPlay,
+            hours,
+            monthlyFee,
+            monthlyFeeY1,
+            imageUrl,
+            lat,
+            lng,
+            selectedInCart: selectedRowKeySetRef.current.has(rowKey),
+          };
+          setSelected(sel);
+          setTimeout(() => {
+            if (quickModeRef.current) {
+              toggleCartByRowKey(rowKey);
+              lastClickedRef.current = null;
+              applyStaticSeparationAll();
+            }
+          }, 0);
+
+          // ✅ 상세 보강 RPC
+          (() => {
+            const pid = rowIdOf(row);
+            if (!pid) return;
+            (async () => {
+              const { data: detail, error: dErr } = await (supabase as any).rpc("get_public_place_detail", {
+                p_place_id: pid,
+              });
+              if (!dErr && detail?.length) {
+                const d = detail[0];
+                setSelected((prev) =>
+                  prev && prev.rowKey === rowKey
+                    ? {
+                        ...prev,
+                        households: d.households ?? prev.households,
+                        residents: d.residents ?? prev.residents,
+                        monitors: d.monitors ?? prev.monitors,
+                        monthlyImpressions: d.monthly_impressions ?? prev.monthlyImpressions,
+                        costPerPlay: d.cost_per_play ?? prev.costPerPlay,
+                        hours: d.hours ?? prev.hours,
+                        address: d.address ?? prev.address,
+                        installLocation: d.install_location ?? d.installLocation ?? prev.installLocation,
+                        monthlyFee: d.monthly_fee ?? prev.monthlyFee,
+                        monthlyFeeY1: d.monthly_fee_y1 ?? prev.monthlyFeeY1,
+                        lat: d.lat ?? prev.lat,
+                        lng: d.lng ?? prev.lng,
+                        imageUrl: d.image_url ?? prev.imageUrl,
+                      }
+                    : prev,
+                );
+              } else if (dErr) {
+                console.warn("[RPC] get_public_place_detail error:", dErr.message);
+              }
+            })();
+          })();
+
+          const isAlreadySelected = selectedRowKeySetRef.current.has(rowKey);
+          if (isAlreadySelected) {
+            mk.setImage(imgs.yellow);
+            if (lastClickedRef.current && lastClickedRef.current !== mk) {
+              const prevRowKey = buildRowKeyFromRow(lastClickedRef.current.__row as PlaceRow);
+              lastClickedRef.current.setImage(selectedRowKeySetRef.current.has(prevRowKey) ? imgs.yellow : imgs.purple);
+            }
+            lastClickedRef.current = null;
+          } else {
+            if (lastClickedRef.current && lastClickedRef.current !== mk) {
+              const prevRowKey = buildRowKeyFromRow(lastClickedRef.current.__row as PlaceRow);
+              lastClickedRef.current.setImage(selectedRowKeySetRef.current.has(prevRowKey) ? imgs.yellow : imgs.purple);
+            }
+            mk.setImage(imgs.clicked);
+            lastClickedRef.current = mk;
+          }
+          applyStaticSeparationAll();
+        });
+
+        markerCacheRef.current.set(key, mk);
+
+        let imgToUse = isSelected ? imgs.yellow : imgs.purple;
+        if (!isSelected && lastClickedRef.current && lastClickedRef.current.__key === key) imgToUse = imgs.clicked;
+        mk.setImage(imgToUse);
+
+        if (!keyIndexRef.current[rowKey]) keyIndexRef.current[rowKey] = [];
+        keyIndexRef.current[rowKey].push(mk);
+        clustererRef.current.addMarker(mk);
+      });
+
+      const groups2 = new Map<string, KMarker[]>();
+      markerCacheRef.current.forEach((m) => {
+        const r = m.__row as PlaceRow;
+        const gk = groupKeyFromRow(r);
+        if (!groups2.has(gk)) groups2.set(gk, []);
+        groups2.get(gk)!.push(m);
+      });
+      applyGroupPrioritiesMap(groups2);
+      groupsRef.current = groups2;
+    }
+
+    applyStaticSeparationAll();
+  }
+
+  /* ---------- 반경 UI ---------- */
+  function clearRadiusUI() {
+    try {
+      radiusCircleRef.current?.setMap(null);
+    } catch {}
+    try {
+      radiusLabelRef.current?.setMap(null);
+    } catch {}
+    try {
+      searchPinRef.current?.setMap?.(null);
+    } catch {}
+    radiusCircleRef.current = null;
+    radiusLabelRef.current = null;
+    searchPinRef.current = null;
+    radiusLabelElRef.current = null;
+  }
+  function ensureRadiusLabelContent(onClose: () => void) {
+    if (radiusLabelElRef.current) return radiusLabelElRef.current;
+    const root = document.createElement("div");
+    root.style.position = "relative";
+    root.style.pointerEvents = "none";
+    const chip = document.createElement("div");
+    chip.textContent = "1km";
+    chip.style.padding = "6px 10px";
+    chip.style.borderRadius = "999px";
+    chip.style.background = "#FFD400";
+    chip.style.color = "#222";
+    chip.style.fontSize = "12px";
+    chip.style.fontWeight = "700";
+    chip.style.boxShadow = "0 2px 6px rgba(0,0,0,0.15)";
+    chip.style.whiteSpace = "nowrap";
+    chip.style.userSelect = "none";
+    const btn = document.createElement("button");
+    btn.setAttribute("type", "button");
+    btn.setAttribute("aria-label", "1km 범위 닫기");
+    btn.style.position = "absolute";
+    btn.style.top = "-8px";
+    btn.style.right = "-8px";
+    btn.style.width = "22px";
+    btn.style.height = "22px";
+    btn.style.borderRadius = "999px";
+    btn.style.background = "#FFFFFF";
+    btn.style.border = "2px solid #FFD400"; // ✅ 문자열 수정
+    btn.style.boxShadow = "0 2px 6px rgba(0,0,0,0.15)";
+    btn.style.display = "flex";
+    btn.style.alignItems = "center";
+    btn.style.justifyContent = "center";
+    btn.style.fontSize = "14px";
+    btn.style.lineHeight = "1";
+    btn.style.color = "#222";
+    btn.style.cursor = "pointer";
+    btn.style.pointerEvents = "auto";
+    btn.textContent = "×";
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      onClose();
+    });
+    root.appendChild(chip);
+    root.appendChild(btn);
+    radiusLabelElRef.current = root;
+    return root;
+  }
+  function drawSearchOverlays(latlng: any) {
+    const kakao = (window as KakaoNS).kakao;
+    if (!kakao?.maps || !mapObjRef.current) return;
+    const map = mapObjRef.current;
+    if (!radiusCircleRef.current) {
+      radiusCircleRef.current = new kakao.maps.Circle({
+        map,
+        center: latlng,
+        radius: 1000,
+        strokeWeight: 2,
+        strokeColor: "#FFD400",
+        strokeOpacity: 0.6,
+        strokeStyle: "solid",
+        fillColor: "#FFD400",
+        fillOpacity: 0.11,
+        zIndex: -1000,
+      });
+    } else {
+      radiusCircleRef.current.setOptions({
+        center: latlng,
+        radius: 1000,
+        strokeColor: "#FFD400",
+        fillColor: "#FFD400",
+        fillOpacity: 0.11,
+      });
+      radiusCircleRef.current.setZIndex?.(-1000);
+      radiusCircleRef.current.setMap(map);
+    }
+    const labelContent = ensureRadiusLabelContent(clearRadiusUI);
+    if (!radiusLabelRef.current) {
+      radiusLabelRef.current = new kakao.maps.CustomOverlay({
+        map,
+        position: latlng,
+        content: labelContent,
+        yAnchor: 1.6,
+        zIndex: 1000000,
+      });
+    } else {
+      radiusLabelRef.current.setContent(labelContent);
+      radiusLabelRef.current.setPosition(latlng);
+      radiusLabelRef.current.setZIndex?.(1000000);
+      radiusLabelRef.current.setMap(map);
+    }
+    const searchImg = buildSearchMarkerImage(kakao.maps);
+    if (!searchPinRef.current) {
+      searchPinRef.current = new kakao.maps.Marker({
+        map,
+        position: latlng,
+        image: searchImg,
+        zIndex: 500000,
+        clickable: false,
+      });
+    } else {
+      searchPinRef.current.setPosition(latlng);
+      searchPinRef.current.setImage(searchImg);
+      searchPinRef.current.setZIndex?.(500000);
+      searchPinRef.current.setMap(map);
+    }
+  }
+
+  /* ---------- 검색 ---------- */
+  function runPlaceSearch(query: string) {
+    const kakao = (window as KakaoNS).kakao;
+    const places = placesRef.current;
+    if (!places) return;
+    places.keywordSearch(query, (results: any[], status: string) => {
+      if (status !== kakao.maps.services.Status.OK || !results?.length) return;
+      const first = results[0];
+      const lat = Number(first.y),
+        lng = Number(first.x);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      const latlng = new kakao.maps.LatLng(lat, lng);
+      mapObjRef.current.setLevel(4);
+      mapObjRef.current.setCenter(latlng);
+      drawSearchOverlays(latlng);
+      loadMarkersInBounds().then(() => applyStaticSeparationAll());
+    });
+  }
+  function handleSearch(q: string) {
+    writeQuery(q);
+    runPlaceSearch(q);
+  }
+  function closeSelected() {
+    setSelected(null);
+  }
+
+  /* ---------- ✅ PC: 내 위치 버튼 구현 ---------- */
+  const ensureUserOverlay = useCallback((lat: number, lng: number) => {
+    const kakao = (window as KakaoNS).kakao;
+    if (!kakao?.maps || !mapObjRef.current) return;
+    const map = mapObjRef.current;
+
+    // 오버레이용 엘리먼트(작은 보라 점)
+    if (!userOverlayElRef.current) {
+      const el = document.createElement("div");
+      el.style.width = "14px";
+      el.style.height = "14px";
+      el.style.borderRadius = "999px";
+      el.style.background = "#6F4BF2";
+      el.style.boxShadow = "0 0 0 3px rgba(111,75,242,0.25), 0 0 0 6px rgba(111,75,242,0.12)";
+      el.style.border = "2px solid #FFFFFF";
+      el.style.pointerEvents = "none";
+      userOverlayElRef.current = el;
+    }
+
+    const latlng = new kakao.maps.LatLng(lat, lng);
+
+    if (!userOverlayRef.current) {
+      userOverlayRef.current = new kakao.maps.CustomOverlay({
+        map,
+        position: latlng,
+        content: userOverlayElRef.current!,
+        yAnchor: 0.5,
+        xAnchor: 0.5,
+        zIndex: 999999,
+      });
+    } else {
+      userOverlayRef.current.setPosition(latlng);
+      userOverlayRef.current.setMap(map);
+      userOverlayRef.current.setZIndex?.(999999);
+    }
+  }, []);
+
+  const goMyLocation = useCallback(() => {
+    if (!("geolocation" in navigator)) {
+      setGeoError("이 브라우저는 위치 기능을 지원하지 않아요.");
+      setTimeout(() => setGeoError(null), 3000);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const kakao = (window as KakaoNS).kakao;
+        if (!kakao?.maps || !mapObjRef.current) return;
+        const { latitude, longitude } = pos.coords;
+        const latlng = new kakao.maps.LatLng(latitude, longitude);
+        mapObjRef.current.setLevel(5);
+        mapObjRef.current.setCenter(latlng);
+        ensureUserOverlay(latitude, longitude);
+      },
+      (err) => {
+        const msg =
+          err.code === err.PERMISSION_DENIED
+            ? "위치 권한이 거부되었어요. 브라우저 설정을 확인해주세요."
+            : "내 위치를 가져오지 못했어요.";
+        setGeoError(msg);
+        setTimeout(() => setGeoError(null), 3000);
+      },
+      { enableHighAccuracy: true, maximumAge: 60_000, timeout: 10_000 },
+    );
+  }, [ensureUserOverlay]);
+
+  const mapLeftClass = selected ? "md:left-[720px]" : "md:left-[360px]";
+  const MapChromeAny = MapChrome as any;
 
   return (
-    <>
-      {/* 상단 바 */}
-      <div className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-[#E5E7EB] z-[60]">
-        <div className="h-full flex items-center justify-between px-6">
-          <div className="text-xl font-bold text-black">응답하라 입주민이여</div>
-          <LoginModal />
+    <div className="w-screen h-[100dvh] bg-white">
+      <div ref={mapRef} className={`fixed top-16 left-0 right-0 bottom-0 z-[10] ${mapLeftClass}`} aria-label="map" />
+
+      {/* ▼ 지도 우상단 고정 오버레이 */}
+      <div className="fixed top-[84px] right-4 z-[70] pointer-events-none">
+        <div className="flex flex-col items-end gap-2">
+          {/* 퀵담기 버튼 + 툴팁 */}
+          <div className="relative group pointer-events-auto">
+            <button
+              type="button"
+              onClick={() => setQuickMode((v) => !v)}
+              aria-label="빠른담기"
+              aria-pressed={quickMode}
+              className={`w-12 h-12 rounded-full shadow-lg flex items-center justify-center transition
+          ${quickMode ? "bg-[#FFD400] text-[#6F4BF2]" : "bg-[#6F4BF2] text-white"}
+          hover:brightness-110 active:scale-95`}
+            >
+              <Zap className="w-6 h-6" />
+            </button>
+            {/* 툴팁: 빠른담기 */}
+            <div
+              className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2
+                   rounded-md bg-[#111827] text-white text-xs px-2 py-1 shadow-md
+                   opacity-0 scale-95 transition
+                   group-hover:opacity-100 group-hover:scale-100 group-focus-within:opacity-100"
+            >
+              빠른담기
+            </div>
+          </div>
+
+          {/* 내 위치 버튼 */}
+          <button
+            type="button"
+            onClick={goMyLocation}
+            aria-label="내 위치로 이동"
+            title="내 위치로 이동"
+            className="w-12 h-12 rounded-full shadow-lg bg-[#6F4BF2] text-white
+                 flex items-center justify-center hover:brightness-110 active:scale-95 transition pointer-events-auto"
+          >
+            <LocateFixed className="w-6 h-6" />
+          </button>
         </div>
       </div>
 
-      {/* 1탭: 카트 */}
-      <aside className="hidden md:flex fixed top-16 bottom-0 left-0 w-[360px] z-[60] bg-white border-r border-[#E5E7EB]">
-        <div className="flex flex-col h-full w-full px-5 py-5 gap-3">
-          <div className="flex gap-2">
-            <button
-              className="flex-1 h-9 rounded-md border border-[#6C2DFF] text-sm text-[#6C2DFF] hover:bg-[#F4F0FB]"
-              onClick={() => setOpenPackageInquiry(true)}
-            >
-              시·군·구·동 단위 / 패키지 문의
-            </button>
-            <a
-              href="tel:031-1551-0810"
-              className="h-9 px-3 rounded-md bg-[#6C2DFF] flex items-center justify-center text-sm text-white font-semibold"
-            >
-              1551-0810
-            </a>
-          </div>
+      <MapChromeAny
+        selected={selected}
+        onCloseSelected={closeSelected}
+        onSearch={handleSearch}
+        initialQuery={initialQ}
+        setMarkerStateByRowKey={setMarkerStateByRowKey}
+        isRowKeySelected={isRowKeySelected}
+        addToCartByRowKey={addToCartByRowKey}
+        removeFromCartByRowKey={removeFromCartByRowKey}
+        toggleCartByRowKey={toggleCartByRowKey}
+        /* 🔎 카트에서 단지 클릭 → 지도 이동 + 2탭 오픈 */
+        focusByRowKey={focusByRowKey}
+        focusByLatLng={focusByLatLng}
+        cartStickyTopPx={64}
+        cartStickyUntil="bulkMonthsApply"
+        /* ▼ 여기 추가 */
+        quickMode={quickMode}
+        onToggleQuick={() => setQuickMode((v) => !v)}
+      />
 
-          <div className="relative">
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && runSearch()}
-              className="w-full h-10 rounded-md border border-[#E5E7EB] pl-3 pr-10 text-sm placeholder:text-[#757575] outline-none"
-              placeholder="지역명, 아파트 이름, 단지명, 건물명"
-            />
-            <button
-              onClick={runSearch}
-              className="absolute right-1 top-1/2 -translate-y-1/2 inline-flex h-8 w-8 items-center justify-center rounded-md bg-[#6C2DFF]"
-              aria-label="검색"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <circle cx="11" cy="11" r="7" stroke="white" strokeWidth="2" />
-                <path d="M20 20L17 17" stroke="white" strokeWidth="2" strokeLinecap="round" />
-              </svg>
-            </button>
-          </div>
-
-          <button
-            disabled={cart.length === 0}
-            onClick={() => cart.length > 0 && setOpenSeatInquiry(true)}
-            className={`h-10 rounded-md border text-sm font-medium ${
-              cart.length > 0
-                ? "bg-[#6C2DFF] text-white border-[#6C2DFF]"
-                : "bg.white text.black border-[#E5E7EB] cursor-default pointer-events-none"
-            }`}
-          >
-            구좌(T.O) 문의하기
-          </button>
-
-          <div className="space-y-2">
-            <div className="text-sm font-semibold">총 비용</div>
-            <div className="h-10 rounded-[10px] bg-[#F4F0FB] flex items-center px-3 text-sm text-[#6C2DFF] font-bold">
-              {fmtWon(cartTotal)}원 <span className="ml-1 text-[11px] font-normal">(VAT별도)</span>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-[#E5E7EB] bg-white flex-1 min-h-0 overflow-hidden">
-            {cart.length === 0 ? (
-              /* ✅ 보라 아이콘 + 2줄 문구 중앙 배치 */
-              <div className="relative h-full">
-                <div className="absolute inset-0 grid place-items-center p-6">
-                  <div className="w-full max-w-[320px] min-h-[200px] grid place-items-center text-center">
-                    {/* 아이콘 */}
-                    <img src="/atp.png" alt="아파트 아이콘" className="w-16 h-16 mb-3 object-contain" />
-
-                    {/* 문구 */}
-                    <div className="text-x1 text-[#6B7280] font-semibold leading-relaxed">
-                      <span className="block">광고를 원하는</span>
-                      <span className="block">아파트 단지를 담아주세요!</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="h-full overflow-y-auto">
-                {/* ✅ sticky 헤더: 총 n건 + 일괄적용 */}
-                <div
-                  className="sticky top-0 z-10 bg-white/95 backdrop-blur px-5 pt-5 pb-2 border-b border-[#F3F4F6]"
-                  id="bulkMonthsApply"
-                >
-                  <div className="flex items-center justify-between text-xs text-[#757575]">
-                    <span>총 {cart.length}건</span>
-                    <label className="flex items-center gap-1 cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={applyAll}
-                        onChange={(e) => setApplyAll(e.target.checked)}
-                        className="accent-[#6C2DFF]"
-                      />
-                      <span className={applyAll ? "text-[#6C2DFF] font-medium" : ""}>광고기간 일괄적용</span>
-                    </label>
-                  </div>
-                </div>
-
-                {/* 리스트 */}
-                <div className="px-5 pb-4 space-y-3">
-                  {cart.map((item) => (
-                    <CartItemCard
-                      key={item.id}
-                      item={item}
-                      onChangeMonths={updateMonths}
-                      onRemove={removeItem}
-                      onTitleClick={() => focusFromCart(item)}
-                    />
-                  ))}
-                </div>
-
-                {/* 하단 버튼 */}
-                <div className="sticky bottom-0 bg-white/95 backdrop-blur px-5 pt-3 pb-5 border-t border-[#F3F4F6]">
-                  <button
-                    type="button"
-                    className="h-11 w-full rounded-xl border border-[#6C2DFF] text-[#6C2DFF] font-semibold hover:bg-[#F4F0FB]"
-                    onClick={() => setOpenQuote(true)}
-                  >
-                    상품견적 자세히보기
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
+      {/* 에러 토스트들 */}
+      {kakaoError && (
+        <div className="fixed bottom-4 right-4 z-[100] rounded-lg bg-red-600 text-white px-3 py-2 text-sm shadow">
+          Kakao SDK 로드 오류: {kakaoError}
         </div>
-      </aside>
-
-      {/* 2탭: 상세 */}
-      {selected && (
-        <aside
-          className="hidden md:block fixed top-16 left-[360px] z-[60] w-[360px] pointer-events-none"
-          style={{ bottom: 0 }}
-        >
-          <div className="h-full px-6 py-5 max-h-[calc(100vh-4rem)] overflow-y-auto">
-            <div className="pointer-events-auto flex flex-col gap-4">
-              <div className="rounded-2xl overflow-hidden border border-[#E5E7EB] bg-[#F3F4F6]">
-                <div className="relative w-full aspect-[4/3]">
-                  <img
-                    src={initialThumb}
-                    alt={selected.productName || ""}
-                    onError={(e) => {
-                      const img = e.currentTarget;
-                      const mf = resolveProductFile(selected?.productName, selected?.installLocation);
-                      if (
-                        mf &&
-                        FALLBACK_ASSET_BASE &&
-                        !img.src.startsWith(FALLBACK_ASSET_BASE) &&
-                        !img.src.endsWith(PLACEHOLDER)
-                      ) {
-                        img.onerror = null;
-                        img.src = FALLBACK_ASSET_BASE + mf;
-                        return;
-                      }
-                      if (!img.src.endsWith(PLACEHOLDER)) {
-                        img.onerror = null;
-                        img.src = PLACEHOLDER;
-                      }
-                    }}
-                    className="absolute inset-0 w-full h-full object-cover"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="text-xl font-bold text-black whitespace-pre-wrap break-words">{selected.name}</div>
-                  <div className="mt-1 text-sm text-[#6B7280]">
-                    {fmtNum(selected.households, "세대")} · {fmtNum(selected.residents, "명")}
-                  </div>
-                </div>
-                <button
-                  onClick={onCloseSelected}
-                  className="ml-3 inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB]"
-                  aria-label="닫기"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" fill="none">
-                    <path d="M6 6L18 18M6 18L18 6" strokeWidth="2" strokeLinecap="round" />
-                  </svg>
-                </button>
-              </div>
-
-              <div className="rounded-2xl bg-[#F6F7FB] h-14 px-5 flex items-center justify-between">
-                <div className="text-[#6B7280]">월 광고료</div>
-                <div className="text-lg font-semibold text-black">
-                  {fmtWon(selected.monthlyFee)}{" "}
-                  <span className="align-baseline text-[11px] text-[#111827] font-normal">(VAT별도)</span>
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-[#7C3AED] bg-[#F4F0FB] h-14 px-4 flex items-center justify-between text-[#7C3AED]">
-                <span className="text-sm font-medium">1년 계약 시 월 광고료</span>
-                <span className="text-base font-bold">
-                  {fmtWon(computedY1)} <span className="align-baseline text-[11px] font-medium">(VAT별도)</span>
-                </span>
-              </div>
-
-              {/* 즉시 토글 */}
-              <button
-                className={`mt-1 h-12 w-full rounded-xl font-semibold transition-colors ${
-                  inCart ? "bg-[#E5E7EB] text-[#6B7280]" : "bg-[#6C2DFF] text-white"
-                }`}
-                onClick={onClickAddOrCancel}
-              >
-                {inCart ? "담기취소" : "아파트 담기"}
-              </button>
-
-              <div className="rounded-2xl border border-[#E5E7EB] bg-white overflow-hidden">
-                <div className="px-4 py-3 text-base font-semibold text-black border-b border-[#F3F4F6]">상세정보</div>
-                <dl className="px-4 py-2 text-sm">
-                  <Row label="상품명">
-                    <span className="text-[#6C2DFF] font-semibold whitespace-pre-wrap break-words">
-                      {selected.productName || "—"}
-                    </span>
-                  </Row>
-                  <Row label="설치 위치">
-                    <span className="whitespace-pre-wrap break-words">
-                      {selected.installLocation ?? (selected as any)?.install_location ?? "—"}
-                    </span>
-                  </Row>
-                  <Row label="모니터 수량">{fmtNum(selected.monitors, "대")}</Row>
-                  <Row label="월 송출횟수">{fmtNum(selected.monthlyImpressions, "회")}</Row>
-                  <Row label="송출 1회당 비용">{fmtNum(selected.costPerPlay, "원")}</Row>
-                  <Row label="운영 시간">
-                    <span className="whitespace-pre-wrap break-words">{selected.hours || "—"}</span>
-                  </Row>
-                  <Row label="주소">
-                    <span className="whitespace-pre-wrap break-words">{selected.address || "—"}</span>
-                  </Row>
-                </dl>
-              </div>
-            </div>
-          </div>
-        </aside>
       )}
-
-      {/* 모달 */}
-      <QuoteModal
-        open={openQuote}
-        items={buildQuoteItems()}
-        onClose={() => setOpenQuote(false)}
-        onSubmitInquiry={() => {
-          setOpenQuote(false);
-          setTimeout(() => setOpenSeatInquiry(true), 0);
-        }}
-      />
-      <InquiryModal
-        open={openSeatInquiry}
-        mode="SEAT"
-        prefill={buildSeatPrefill()}
-        onClose={() => setOpenSeatInquiry(false)}
-      />
-      <InquiryModal open={openPackageInquiry} mode="PACKAGE" onClose={() => setOpenPackageInquiry(false)} />
-    </>
-  );
-}
-
-/** ===== 공용 Row ===== */
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-start justify-between py-3 border-b border-[#F4F0F6] last:border-b-0">
-      <dt className="text-[#6B7280]">{label}</dt>
-      <dd className="text-black text-right leading-relaxed max-w-[60%] whitespace-pre-wrap break-words">{children}</dd>
-    </div>
-  );
-}
-
-/** ===== CartItem 카드 ===== */
-type CartItemCardProps = {
-  item: CartItem;
-  onChangeMonths: (id: string, months: number) => void;
-  onRemove: (id: string) => void;
-  onTitleClick: () => void;
-};
-function CartItemCard({ item, onChangeMonths, onRemove, onTitleClick }: CartItemCardProps) {
-  const rule = item.productKey ? DEFAULT_POLICY[item.productKey] : undefined;
-  const periodRate = findRate(rule?.period, item.months);
-  const preRate = item.productKey === "ELEVATOR TV" ? findRate(rule?.precomp, item.months) : 0;
-  const monthlyAfter = Math.round((item.baseMonthly ?? 0) * (1 - preRate) * (1 - periodRate));
-  const total = monthlyAfter * item.months;
-  const discountCombined = 1 - (1 - preRate) * (1 - periodRate);
-
-  return (
-    <div className="rounded-2xl border border-[#E5E7EB] bg-white p-4">
-      <div className="flex items-start justify-between">
-        <div className="min-w-0">
-          {/* ✅ 아파트명 클릭 → 지도 포커스 */}
-          <button
-            onClick={onTitleClick}
-            className="font-semibold text-black leading-tight truncate hover:underline text-left"
-            title="지도로 이동하여 상세보기"
-          >
-            {item.name}
-          </button>
-          <div className="text-xs text-[#6B7280] mt-0.5 truncate">{item.productName || "—"}</div>
+      {geoError && (
+        <div className="fixed bottom-4 right-4 z-[100] rounded-lg bg-red-600 text-white px-3 py-2 text-sm shadow">
+          {geoError}
         </div>
-        <button
-          className="ml-3 inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB]"
-          onClick={() => onRemove(item.id)}
-          aria-label="삭제"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" stroke="currentColor" fill="none">
-            <path d="M6 6L18 18M6 18L18 6" strokeWidth="2" strokeLinecap="round" />
-          </svg>
-        </button>
-      </div>
-
-      <div className="mt-3 flex items-center justify-between whitespace-nowrap">
-        <span className="text-sm text-[#6B7280]">광고기간</span>
-        <select
-          className="h-9 w-[120px] rounded-md border border-[#E5E7EB] bg-white px-2 text-sm"
-          value={item.months}
-          onChange={(e) => onChangeMonths(item.id, Number(e.target.value))}
-        >
-          {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-            <option key={m} value={m}>
-              {m}개월
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="mt-3 flex items-center justify-between">
-        <div className="text-[#6B7280] text-[13px]">월광고료</div>
-        <div className="text-sm font-semibold text-black whitespace-nowrap">{monthlyAfter.toLocaleString()}원</div>
-      </div>
-
-      <div className="mt-2 flex items-center justify-between">
-        <div className="text-[#6B7280] text-[13px]">총광고료</div>
-        <div className="text-right whitespace-nowrap">
-          {discountCombined > 0 ? (
-            <span className="inline-flex items-center rounded-md bg-[#F4F0FB] text-[#6C2DFF] text-[11px] font-semibold px-2 py-[2px] mr-2 align-middle">
-              {(Math.round(discountCombined * 1000) / 10).toFixed(1).replace(/\.0$/, "")}%할인
-            </span>
-          ) : null}
-          <span className="text-[#6C2DFF] text-base font-bold align-middle">{total.toLocaleString()}원</span>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
