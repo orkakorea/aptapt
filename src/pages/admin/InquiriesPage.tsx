@@ -3,6 +3,9 @@ import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { z } from "zod";
 
+/* === 추가: 완료모달과 동일한 계산 유틸 임포트 (정책/월가 계산) === */
+import { calcMonthlyWithPolicy, normPolicyKey, DEFAULT_POLICY, rateFromRanges } from "@/core/pricing";
+
 /**
  * InquiriesPage (관리자 전용)
  * - 목록/검색/필터/페이지네이션
@@ -563,7 +566,7 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
     if (typeof snap === "string") {
       try {
         const trimmed = snap.trim();
-        if (trimmed === "" || trimmed.toLowerCase() === "null") return null;
+        if (trimmed === "null" || trimmed === "") return null;
         return JSON.parse(trimmed);
       } catch {
         return null;
@@ -573,21 +576,13 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
     return null;
   }, [row]);
 
-  /** receipt_v1 메타(있으면 최우선 신뢰) */
-  const receiptV1 = (parsedSnap as any)?.receipt_v1 ?? null;
-
   // cart_snapshot 폴백 (표시 전용 단순 리스트 / CSV용)
   const snapshotSets = useMemo(() => {
-    const items =
-      (Array.isArray(receiptV1?.items) && receiptV1.items) ||
-      (Array.isArray((parsedSnap as any)?.items) && (parsedSnap as any).items) ||
-      (Array.isArray((parsedSnap as any)?.computedCart) && (parsedSnap as any).computedCart) ||
-      (Array.isArray((parsedSnap as any)?.cart?.items) && (parsedSnap as any).cart.items) ||
-      [];
+    const items = (parsedSnap as any)?.items;
     if (!Array.isArray(items)) return [];
     return items.map((it: any) => ({
       apt_name: it.apt_name ?? it.name ?? it.aptName ?? it.apt?.name ?? "",
-      months: toSafeInt(it.months ?? it.Months ?? it.period ?? it.duration) ?? null,
+      months: Number(it.months ?? it.Months ?? it.period ?? it.duration ?? 0) || null,
       product_name:
         it.product_name ??
         it.productName ??
@@ -598,7 +593,7 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
         it.product_code ??
         "",
     }));
-  }, [parsedSnap, receiptV1]);
+  }, [parsedSnap]);
 
   // 표시 리스트(단지/개월/상품명) — 화면 표시는 제거, CSV 생성에만 사용
   const listToRender: { apt_name: string; months: number | null; product_name: string }[] = useMemo(() => {
@@ -631,165 +626,186 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
     months: number;
     baseMonthly: number | null; // 할인 전 월가(기준)
     monthlyAfter: number | null; // 할인 후 월가
-    lineTotal: number; // 총광고료(할인 후 월×개월) — 표시단에서 통일된 라운딩 적용
+    lineTotal: number; // 총광고료(할인 후 월×개월)
   };
 
-  /** 모바일/PC 차이를 흡수하는 정규화 파서 (표시/CSV 공용) */
+  // 내부 유틸
+  const toNum = (v: any): number | null => {
+    const n = Number(v);
+    return isFinite(n) && !isNaN(n) ? n : null;
+  };
+  const pick = (o: any, keys: string[]) => {
+    for (const k of keys) {
+      const v = o?.[k];
+      if (v !== undefined && v !== null && v !== "") return v;
+    }
+    return undefined;
+  };
+
+  /** === 핵심: 완료모달 로직과 동일한 정규화 파서 === */
   function normalizeSnapshotItems(snap: any): FinalLine[] {
     if (!snap) return [];
 
-    // 1) 소스 우선순위: receipt_v1 → items → computedCart → cart.items
-    const rv1Items = Array.isArray(snap?.receipt_v1?.items) ? snap.receipt_v1.items : null;
-    const legacyItems =
-      (!rv1Items && Array.isArray(snap?.items) && snap.items) ||
-      (!rv1Items && Array.isArray(snap?.computedCart) && snap.computedCart) ||
-      (!rv1Items && Array.isArray(snap?.cart?.items) && snap.cart.items) ||
-      null;
+    // ① 항목 배열 우선순위 (DB 스냅샷 신뢰 경로)
+    const candidates: any[] =
+      (Array.isArray(snap?.receipt_v1?.items) && snap.receipt_v1.items) ||
+      (Array.isArray(snap?.items) && snap.items) ||
+      (Array.isArray(snap?.computedCart) && snap.computedCart) ||
+      (Array.isArray(snap?.cart?.items) && snap.cart.items) ||
+      [];
 
-    // 디바이스 힌트 (모바일 특성 키 해석에 사용)
-    const meta = snap?.receipt_v1?.meta || snap?.meta || {};
-    const metaDevice = String(meta?.device ?? "").toLowerCase();
-    const isMobileHint =
-      metaDevice === "mobile" ||
-      (typeof meta?.isMobile === "boolean" ? meta.isMobile : false) ||
-      /mobile/i.test(String(meta?.ua ?? meta?.userAgent ?? ""));
+    if (!Array.isArray(candidates) || candidates.length === 0) return [];
 
-    // 유틸
-    const pick = (o: any, keys: string[]) => {
-      for (const k of keys) {
-        const v = o?.[k];
-        if (v !== undefined && v !== null && v !== "") return v;
+    // 상단 라벨 폴백
+    const topAptFallback: string =
+      typeof snap?.summary?.topAptLabel === "string" ? String(snap.summary.topAptLabel).replace(/\s*외.*$/, "") : "";
+
+    const lines: FinalLine[] = candidates.map((it: any) => {
+      // months 추출(문자/단위 혼입 대비)
+      const parseMonths = (value: any): number => {
+        if (value == null) return 0;
+        if (typeof value === "number" && isFinite(value)) return Math.max(0, Math.floor(value));
+        if (typeof value === "string") {
+          const num = parseInt(value.replace(/[^\d]/g, ""), 10);
+          return isNaN(num) ? 0 : num;
+        }
+        return 0;
+      };
+
+      const months =
+        parseMonths(
+          pick(it, ["months", "month", "Months", "period", "duration"]) ?? pick(it, ["Months", "Period", "Duration"]),
+        ) || 0;
+
+      // 기준 월가 후보 / 기준 총액 후보
+      const baseMonthlyRaw = toNum(
+        pick(it, ["baseMonthly", "base_monthly", "monthlyBefore", "basePriceMonthly", "priceMonthly"]),
+      );
+
+      const baseTotalField = toNum(pick(it, ["baseTotal", "base_total"]));
+      let baseTotal =
+        baseTotalField != null
+          ? baseTotalField
+          : baseMonthlyRaw != null && months > 0
+            ? Math.round(baseMonthlyRaw * months)
+            : 0;
+
+      // 할인후 월가 후보
+      let monthlyAfter: number | null =
+        toNum(
+          pick(it, [
+            "monthlyAfter",
+            "monthly_after",
+            "priceMonthlyAfter",
+            "discountedMonthly",
+            "discounted_monthly",
+            "finalMonthly",
+            "final_monthly",
+            "price_monthly",
+            "monthly",
+            "monthlyFee",
+          ]),
+        ) ?? null;
+
+      // 라인 합계 후보
+      let lineTotal: number =
+        toNum(
+          pick(it, [
+            "lineTotal",
+            "line_total",
+            "total",
+            "totalCost",
+            "final_total",
+            "subtotal",
+            "item_total_won",
+            "total_won",
+          ]),
+        ) ?? 0;
+
+      // 역산 로직(모달 동일)
+      if ((!lineTotal || lineTotal <= 0) && months > 0 && monthlyAfter != null && monthlyAfter > 0) {
+        lineTotal = Math.round(monthlyAfter * months);
       }
-      return undefined;
-    };
+      if ((!lineTotal || lineTotal <= 0) && months > 0 && baseMonthlyRaw != null && baseMonthlyRaw > 0) {
+        lineTotal = Math.round(baseMonthlyRaw * months);
+      }
 
-    // 2) RV1이면 거의 그대로 맵핑 (+표시단 라운딩 규칙 적용)
-    if (rv1Items) {
-      return (rv1Items as any[]).map((it) => {
-        const months = clampMinInt(toSafeInt(it.months), 0);
-        const baseMonthly = toSafeMoney(it.baseMonthly);
-        const monthlyAfter = toSafeMoney(it.monthlyAfter);
-        const lineTotal =
-          months > 0 && monthlyAfter != null
-            ? Math.round(months * monthlyAfter)
-            : clampMinInt(toSafeInt(it.lineTotal), 0);
+      // 표시용 기준 월가
+      const baseMonthlyEff =
+        baseMonthlyRaw != null && baseMonthlyRaw > 0
+          ? baseMonthlyRaw
+          : months > 0 && baseTotal > 0
+            ? Math.round(baseTotal / months)
+            : null;
 
-        return {
-          apt_name:
-            String(
-              pick(it, ["apt_name", "aptName", "name", "apt", "title", "apt_title"]) ??
-                (snap?.summary?.topAptLabel ? String(snap.summary.topAptLabel).replace(/\s*외.*$/, "") : ""),
-            ) || "",
-          product_name:
-            String(pick(it, ["product_name", "productName", "mediaName", "media_name", "media", "product"])) || "",
-          months,
-          baseMonthly,
-          monthlyAfter,
-          lineTotal,
-        };
-      });
-    }
+      // ───────────────────────────────────────────────────────────
+      // ELEVATOR TV 전용 규칙 강제 적용 (모달과 동일)
+      //   총액 = 기준금액 × (1-기간할인) × (1-사전보상할인[개월기준])
+      //   할인후월가 = 총액/개월
+      // ───────────────────────────────────────────────────────────
+      const productName =
+        String(
+          pick(it, ["product_name", "productName", "mediaName", "media_name", "media", "product", "product_code"]) ??
+            "",
+        ) || "";
+      const key = normPolicyKey(productName);
 
-    // 3) 레거시 소스 정규화
-    const candidates: any[] = Array.isArray(legacyItems) ? legacyItems : [];
-    if (candidates.length === 0) return [];
-
-    return candidates
-      .map((it) => {
-        const months = clampMinInt(toSafeInt(pick(it, ["months", "month", "Months", "period", "duration"])), 0);
-
-        // 기준 월가
-        let baseMonthly =
-          toSafeMoney(
-            pick(it, [
-              "baseMonthly",
-              "base_monthly",
-              "monthlyBefore",
-              "monthly_base",
-              "basePriceMonthly",
-              "base_price_monthly",
-            ]),
-          ) ?? null;
-
-        if ((baseMonthly == null || baseMonthly <= 0) && months > 0) {
-          const baseTotal = toSafeMoney(pick(it, ["baseTotal", "base_total"]));
-          if (baseTotal != null) baseMonthly = Math.round(baseTotal / Math.max(1, months));
+      if (key === "ELEVATOR TV" && months > 0) {
+        if (!baseTotal || baseTotal <= 0) {
+          baseTotal = baseMonthlyEff != null && months > 0 ? baseMonthlyEff * months : 0;
         }
+        const periodRate = rateFromRanges(DEFAULT_POLICY["ELEVATOR TV"].period, months);
+        const precompRate = months < 3 ? 0.03 : 0.05;
+        const tvTotal = Math.round((baseTotal || 0) * (1 - periodRate) * (1 - precompRate));
+        lineTotal = tvTotal;
+        monthlyAfter = months > 0 ? Math.round(tvTotal / months) : monthlyAfter;
+      } else {
+        // 비 TV 상품: 정책 폴백
+        const looksZeroDiscount = (() => {
+          if (!baseTotal || baseTotal <= 0 || !lineTotal || lineTotal <= 0) return true;
+          const r = 1 - lineTotal / baseTotal;
+          return !isFinite(r) || Math.abs(r) < 0.01;
+        })();
 
-        // 할인 후 월가
-        let monthlyAfter =
-          toSafeMoney(
-            pick(it, [
-              "monthlyAfter",
-              "monthly_after",
-              "priceMonthlyAfter",
-              "discountedMonthly",
-              "discounted_monthly",
-              "finalMonthly",
-              "final_monthly",
-            ]),
-          ) ?? null;
-
-        // 모바일 계열 힌트: monthlyFee / price_monthly를 할인후 월가로 간주
-        if (monthlyAfter == null && isMobileHint) {
-          const mobileOnlyMonthly = toSafeMoney(pick(it, ["monthlyFee", "price_monthly", "monthly"]));
-          if (mobileOnlyMonthly != null) monthlyAfter = mobileOnlyMonthly;
+        if (looksZeroDiscount && baseMonthlyEff != null && baseMonthlyEff > 0 && months > 0) {
+          const { monthly } = calcMonthlyWithPolicy(productName, months, baseMonthlyEff, undefined, 1);
+          if (monthly > 0 && monthly <= baseMonthlyEff) {
+            monthlyAfter = monthly;
+            lineTotal = Math.round(monthly * months);
+          }
         }
+      }
 
-        // 라인 합계
-        let lineTotal =
-          toSafeMoney(
-            pick(it, [
-              "lineTotal",
-              "line_total",
-              "total",
-              "totalCost",
-              "line_total_after_discount",
-              "item_total_won",
-              "total_won",
-              "subtotal",
-              "final_total",
-            ]),
-          ) ?? 0;
-
-        // 역산 보정
-        if ((!lineTotal || lineTotal <= 0) && months > 0 && monthlyAfter != null) {
-          lineTotal = Math.round(months * monthlyAfter);
-        }
-        if ((monthlyAfter == null || monthlyAfter <= 0) && months > 0 && lineTotal > 0) {
-          monthlyAfter = Math.round(lineTotal / Math.max(1, months));
-        }
-
-        // 이름들
-        const aptName =
+      return {
+        apt_name:
           String(
             pick(it, ["apt_name", "aptName", "name", "apt", "title", "apt_title"]) ??
-              (snap?.summary?.topAptLabel ? String(snap.summary.topAptLabel).replace(/\s*외.*$/, "") : ""),
-          ) || "";
-        const productName =
-          String(
-            pick(it, ["product_name", "productName", "mediaName", "media_name", "media", "product", "product_code"]),
-          ) || "";
+              (topAptFallback ? topAptFallback : ""),
+          ) || "",
+        product_name: productName,
+        months: Math.max(0, months || 0),
+        baseMonthly: baseMonthlyEff ?? null,
+        monthlyAfter: monthlyAfter ?? (months > 0 && lineTotal > 0 ? Math.round(lineTotal / months) : null),
+        lineTotal: Math.max(0, lineTotal || 0),
+      };
+    });
 
-        return {
-          apt_name: aptName,
-          product_name: productName,
-          months,
-          baseMonthly: baseMonthly != null && baseMonthly > 0 ? baseMonthly : null,
-          monthlyAfter: monthlyAfter != null && monthlyAfter > 0 ? monthlyAfter : null,
-          lineTotal: clampMinInt(lineTotal, 0),
-        };
-      })
-      .filter((l) => l.apt_name || l.product_name || l.lineTotal > 0 || l.months > 0);
+    return lines.filter((l) => l.apt_name || l.product_name || l.lineTotal > 0 || l.months > 0);
   }
 
   const finalLines = useMemo<FinalLine[]>(() => normalizeSnapshotItems(parsedSnap), [parsedSnap]);
 
   const totals = useMemo(() => {
-    const total = finalLines.reduce((acc, l) => acc + (l.lineTotal || 0), 0);
-    const vat = Math.round(total * 0.1);
-    const grand = total + vat;
-    return { total, vat, grand };
+    const sum = finalLines.reduce(
+      (acc, l) => {
+        acc.total += l.lineTotal || 0;
+        return acc;
+      },
+      { total: 0 },
+    );
+    const vat = Math.round(sum.total * 0.1);
+    const grand = sum.total + vat;
+    return { total: sum.total, vat, grand };
   }, [finalLines]);
 
   function discountRate(baseMonthly: number | null, monthlyAfter: number | null): number | null {
@@ -811,7 +827,6 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
       ["연락처", row.phone ?? ""],
       ["이메일주소", row.email ?? ""],
       ["요청사항", row.memo ?? ""],
-      ["디바이스", deviceLabel],
     ];
 
     const metaLines = [["항목", "값"].join(","), ...metaPairs.map(([k, v]) => [safeCSV(k), safeCSV(v)].join(","))].join(
@@ -1037,41 +1052,9 @@ function pillClassForValid(v: ValidTri): string {
   }
 }
 
-/* ===== 추가 유틸: 숫자/머니/디바이스 표기 ===== */
-function toSafeInt(v: any): number | null {
-  if (v === null || v === undefined || v === "") return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? Math.trunc(n) : null;
-}
-function toSafeMoney(v: any): number | null {
-  if (v === null || v === undefined || v === "") return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? Math.round(n) : null;
-}
-function clampMinInt(n: number | null, min: number): number {
-  const v = Number(n ?? 0);
-  if (!Number.isFinite(v)) return min;
-  return v < min ? min : Math.trunc(v);
-}
-
+/* ===== 추가 유틸: 디바이스 표기/포맷 ===== */
 function deriveDeviceLabel(row: InquiryRow): string {
-  // 0) cart_snapshot.receipt_v1.meta.device 최우선
-  try {
-    let cs: any = (row as any)?.cart_snapshot;
-    if (typeof cs === "string") {
-      const t = cs.trim();
-      if (t && t.toLowerCase() !== "null") cs = JSON.parse(t);
-      else cs = null;
-    }
-    const m = cs?.receipt_v1?.meta || cs?.meta;
-    const dev = String(m?.device ?? "").toLowerCase();
-    if (dev === "mobile") return "모바일";
-    if (dev === "desktop" || dev === "pc") return "PC";
-  } catch {
-    // ignore
-  }
-
-  // 1) device 필드
+  // 1) device 필드 우선
   const raw = (row.device ?? "").toString().toLowerCase();
   if (raw) {
     if (/(mobile|mobi|phone)/.test(raw)) return "모바일";
@@ -1079,8 +1062,8 @@ function deriveDeviceLabel(row: InquiryRow): string {
   }
   // 2) meta / cart_snapshot.meta
   const meta = row.meta || (row as any)?.cart_snapshot?.meta || {};
-  if (typeof (meta as any)?.isMobile === "boolean") return (meta as any).isMobile ? "모바일" : "PC";
-  const ua = String((meta as any)?.ua ?? (meta as any)?.userAgent ?? "");
+  if (typeof meta?.isMobile === "boolean") return meta.isMobile ? "모바일" : "PC";
+  const ua = String(meta?.ua ?? meta?.userAgent ?? "");
   if (ua) return /Mobile/i.test(ua) ? "모바일" : "PC";
 
   // 3) source_page / extra 기반 추론
@@ -1094,7 +1077,6 @@ function deriveDeviceLabel(row: InquiryRow): string {
   // 4) 알 수 없음
   return "—";
 }
-
 function fmtWon(n: number | null | undefined): string {
   const v = Number(n ?? 0);
   if (!isFinite(v)) return "—";
