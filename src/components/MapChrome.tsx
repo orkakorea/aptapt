@@ -216,6 +216,12 @@ export default function MapChrome({
   const [openPackageInquiry, setOpenPackageInquiry] = useState(false);
 
   const [statsMap, setStatsMap] = useState<Record<string, AptStats>>({});
+  // 이벤트 수신 시 최신 selected를 안전하게 읽기 위함
+  const selectedRef = React.useRef<SelectedApt | null>(selected);
+  useEffect(() => {
+    selectedRef.current = selected ?? null;
+  }, [selected]);
+
   // 퀵담기 신호 수신 시, 최신 selected를 정확히 읽기 위한 ref
   const selectedRef = React.useRef<SelectedApt | null>(selected);
   useEffect(() => {
@@ -461,6 +467,87 @@ export default function MapChrome({
     if (applyAll) setCart((prev) => prev.map((x) => ({ ...x, months })));
     else setCart((prev) => prev.map((x) => (x.id === id ? { ...x, months } : x)));
   };
+  /* ===== Quick Add 이벤트 수신 (카트/2탭/통계 동기화) [START] ===== */
+  useEffect(() => {
+    function onCartChanged(ev: Event) {
+      const { rowKey, selected, selectedSnapshot } = (ev as CustomEvent).detail || {};
+      const ss = (selectedSnapshot ?? null) as SelectedApt | null;
+      if (!rowKey) return;
+
+      // ① 카트 동기화
+      setCart((prev) => {
+        if (selected) {
+          if (!ss) return prev; // 스냅샷 없으면 추가 불가
+          const id = makeIdFromSelected(ss);
+          const productKey = classifyProductForPolicy(ss.productName, ss.installLocation);
+          const baseMonthly = ss.monthlyFee;
+          const exists = prev.find((x) => x.id === id);
+          const monthsDefault = prev.length ? prev[0].months : 1;
+
+          if (exists) {
+            return prev.map((x) =>
+              x.id === id
+                ? {
+                    ...x,
+                    rowKey: ss.rowKey ?? x.rowKey,
+                    name: ss.name,
+                    productKey,
+                    productName: ss.productName,
+                    baseMonthly,
+                    lat: ss.lat,
+                    lng: ss.lng,
+                  }
+                : x,
+            );
+          }
+          return [
+            {
+              id,
+              rowKey: ss.rowKey,
+              name: ss.name,
+              productKey,
+              productName: ss.productName,
+              baseMonthly,
+              months: monthsDefault,
+              lat: ss.lat,
+              lng: ss.lng,
+            },
+            ...prev,
+          ];
+        } else {
+          // 선택 해제: rowKey 기준 제거 (스냅샷 없어도 동작)
+          const next = prev.filter((x) => x.rowKey !== rowKey);
+          // 혹시 rowKey가 없는 항목이었다면 스냅샷 이름으로도 보조 제거
+          if (ss?.name) return next.filter((x) => x.name !== ss.name);
+          return next;
+        }
+      });
+
+      // ② 2탭 상세 선택 상태 반영
+      setSelected((p) => (p && p.rowKey === rowKey ? { ...p, selectedInCart: !!selected } : p));
+
+      // ③ statsMap 보강 (스냅샷 값으로 먼저 채우고, 부족하면 fetch)
+      if (ss?.name) {
+        const k = keyName(ss.name);
+        setStatsMap((prev) => ({
+          ...prev,
+          [k]: {
+            households: ss.households ?? prev[k]?.households,
+            residents: ss.residents ?? prev[k]?.residents,
+            monthlyImpressions: ss.monthlyImpressions ?? prev[k]?.monthlyImpressions,
+            monitors: ss.monitors ?? prev[k]?.monitors,
+          },
+        }));
+        if (ss.households == null || ss.residents == null || ss.monthlyImpressions == null || ss.monitors == null) {
+          fetchStatsByNames([ss.name]);
+        }
+      }
+    }
+
+    window.addEventListener("orka:cart:changed", onCartChanged as any);
+    return () => window.removeEventListener("orka:cart:changed", onCartChanged as any);
+  }, [fetchStatsByNames]);
+  /* ===== Quick Add 이벤트 수신 (카트/2탭/통계 동기화) [END] ===== */
 
   /* ===== 2탭 버튼 즉시 토글 ===== */
   const inCart =
