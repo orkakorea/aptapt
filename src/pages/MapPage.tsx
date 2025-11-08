@@ -593,13 +593,6 @@ export default function MapPage() {
             lng,
             selectedInCart: selectedRowKeySetRef.current.has(rowKey),
           };
-          // ▼ Quick Add: 토글 모드면 상세 대신 담기/취소 실행 후 종료
-          if (quickModeRef.current) {
-            toggleCartByRowKey(rowKey); // 담기/취소
-            lastClickedRef.current = null; // 클릭 강조 상태 해제
-            applyStaticSeparationAll();
-            return; // ▼ 아래 'clicked' 이미지 로직 타지 않음
-          }
           setSelected(sel);
           // React가 selected를 커밋한 뒤에 카트 토글 신호를 보내도록 한 틱 지연
           setTimeout(() => {
@@ -798,13 +791,6 @@ export default function MapPage() {
             lng,
             selectedInCart: selectedRowKeySetRef.current.has(rowKey),
           };
-          // ▼ Quick Add: 토글 모드면 상세 대신 담기/취소 실행 후 종료
-          if (quickModeRef.current) {
-            toggleCartByRowKey(rowKey); // 담기/취소
-            lastClickedRef.current = null; // 클릭 강조 상태 해제
-            applyStaticSeparationAll();
-            return; // ▼ 아래 'clicked' 이미지 로직 타지 않음
-          }
           setSelected(sel);
           // React가 selected를 커밋한 뒤에 카트 토글 신호를 보내도록 한 틱 지연
           setTimeout(() => {
