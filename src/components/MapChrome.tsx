@@ -909,6 +909,7 @@ type CartItemCardProps = {
   onTitleClick: () => void;
 };
 function CartItemCard({ item, onChangeMonths, onRemove, onTitleClick }: CartItemCardProps) {
+  const displayMonthly = item.baseMonthly ?? 0; // ← 2탭(상세)의 월광고료 원값 그대로 표시용
   const rule = item.productKey ? DEFAULT_POLICY[item.productKey] : undefined;
   const periodRate = findRate(rule?.period, item.months);
   const preRate = item.productKey === "ELEVATOR TV" ? findRate(rule?.precomp, item.months) : 0;
@@ -957,7 +958,7 @@ function CartItemCard({ item, onChangeMonths, onRemove, onTitleClick }: CartItem
 
       <div className="mt-3 flex items-center justify-between">
         <div className="text-[#6B7280] text:[13px]">월광고료</div>
-        <div className="text-sm font-semibold text-black whitespace-nowrap">{monthlyAfter.toLocaleString()}원</div>
+        <div className="text-sm font-semibold text-black whitespace-nowrap">{displayMonthly.toLocaleString()}원</div>
       </div>
 
       <div className="mt-2 flex items-center justify-between">
