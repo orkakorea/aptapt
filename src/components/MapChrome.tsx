@@ -3,7 +3,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import QuoteModal, { QuoteLineItem } from "./QuoteModal";
 import InquiryModal from "./InquiryModal";
 import { supabase } from "@/integrations/supabase/client";
-import LoginModal from "@/components/LoginModal";
 
 /** ===== 타입 ===== */
 export type SelectedApt = {
@@ -641,7 +640,6 @@ export default function MapChrome({
       <div className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-[#E5E7EB] z-[60]">
         <div className="h-full flex items-center justify-between px-6">
           <div className="text-xl font-bold text-black">응답하라 입주민이여</div>
-          <LoginModal />
         </div>
       </div>
 
