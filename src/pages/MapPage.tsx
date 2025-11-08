@@ -196,12 +196,6 @@ export default function MapPage() {
   const [quickMode, setQuickMode] = useState(false);
 
   const [selected, setSelected] = useState<SelectedAptX | null>(null);
-  // 이벤트에 현재 선택 스냅샷을 실어 보내기 위함
-const selectedRef = useRef<SelectedAptX | null>(null);
-useEffect(() => {
-  selectedRef.current = selected;
-}, [selected]);
-  const lastSelectedSnapRef = useRef<SelectedAptX | null>(null);
   const [initialQ, setInitialQ] = useState("");
   const [kakaoError, setKakaoError] = useState<string | null>(null);
 
@@ -400,19 +394,10 @@ useEffect(() => {
       setSelected((p) => (p && p.rowKey === rowKey ? { ...p, selectedInCart: true } : p));
       applyGroupPrioritiesForRowKey(rowKey);
       applyStaticSeparationAll();
-      window.dispatchEvent(
-        new CustomEvent("orka:cart:changed", {
-          detail: {
-            rowKey,
-            selected: true,
-            selectedSnapshot: selectedRef.current ?? lastSelectedSnapRef.current ?? null,
-          },
-        })
-      );
+      window.dispatchEvent(new CustomEvent("orka:cart:changed", { detail: { rowKey, selected: true } }));
     },
-    [setMarkerStateByRowKey, applyGroupPrioritiesForRowKey, applyStaticSeparationAll]
+    [applyGroupPrioritiesForRowKey, applyStaticSeparationAll, setMarkerStateByRowKey],
   );
-
   const removeFromCartByRowKey = useCallback(
     (rowKey: string) => {
       selectedRowKeySetRef.current.delete(rowKey);
@@ -420,19 +405,10 @@ useEffect(() => {
       setSelected((p) => (p && p.rowKey === rowKey ? { ...p, selectedInCart: false } : p));
       applyGroupPrioritiesForRowKey(rowKey);
       applyStaticSeparationAll();
-      window.dispatchEvent(
-        new CustomEvent("orka:cart:changed", {
-          detail: {
-            rowKey,
-            selected: false,
-            selectedSnapshot: selectedRef.current ?? lastSelectedSnapRef.current ?? null,
-          },
-        })
-      );
+      window.dispatchEvent(new CustomEvent("orka:cart:changed", { detail: { rowKey, selected: false } }));
     },
-    [setMarkerStateByRowKey, applyGroupPrioritiesForRowKey, applyStaticSeparationAll]
+    [applyGroupPrioritiesForRowKey, applyStaticSeparationAll, setMarkerStateByRowKey],
   );
-
   const toggleCartByRowKey = useCallback(
     (rowKey: string) => {
       if (selectedRowKeySetRef.current.has(rowKey)) removeFromCartByRowKey(rowKey);
