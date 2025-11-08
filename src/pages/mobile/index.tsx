@@ -122,15 +122,15 @@ export default function MapMobilePageV2() {
   }, [sheetOpen, recalcSheetMax]);
 
   /** =========================
-   * 🔥 퀵담기 상태/레퍼런스 & 1회 억제 플래그
+   * 퀵담기(모바일)
    * ========================= */
-  const [quickMode, setQuickMode] = useState(false);
   const quickModeRef = useRef(false);
+  const [quickMode, setQuickMode] = useState(false);
   useEffect(() => {
     quickModeRef.current = quickMode;
   }, [quickMode]);
 
-  // 카트에서 특정 단지로 "포커스만" 할 때 자동 토글을 1회 막기 위한 플래그
+  /** 카트에서 단지 클릭 시 1회용으로 퀵토글을 억제하는 플래그 */
   const suppressQuickToggleOnceRef = useRef(false);
 
   /** =========================
@@ -138,8 +138,7 @@ export default function MapMobilePageV2() {
    * ========================= */
   const isInCart = useCallback((rowKey?: string | null) => !!rowKey && cart.some((c) => c.rowKey === rowKey), [cart]);
 
-  // 선택된 apt를 인자로 받아 즉시 담는 헬퍼(선택 state에 의존하지 않음)
-  const addAptToCart = useCallback((apt: SelectedApt) => {
+  const addAptToCartQuick = useCallback((apt: SelectedApt) => {
     const monthsDefault = Math.max(1, Number(lastMonthsRef.current || 1));
     const next: CartItem = {
       rowKey: apt.rowKey,
@@ -152,32 +151,40 @@ export default function MapMobilePageV2() {
     setCart((prev) => [next, ...prev.filter((c) => c.rowKey !== next.rowKey)]);
   }, []);
 
-  const removeFromCart = useCallback((rowKey: string) => {
-    setCart((prev) => prev.filter((c) => c.rowKey !== rowKey));
-  }, []);
-
   const markers = useMarkers({
     kakao,
     map,
     clusterer,
     onSelect: (apt) => {
-      // 기본 선택/시트 열기
+      // 최신 상세 캐시
+      if (apt?.rowKey) detailByRowKeyRef.current.set(apt.rowKey, apt);
+
+      // ① 카트에서 포커스만 하려고 들어온 1회 케이스: 자동 담기/취소/차단 없이 시트만 연다
+      if (suppressQuickToggleOnceRef.current) {
+        suppressQuickToggleOnceRef.current = false;
+        setSelected(apt);
+        setActiveTab("detail");
+        setSheetOpen(true);
+        recalcSheetMax();
+        return;
+      }
+
+      // ② 퀵담기 ON: 시트 자동 오픈 없이 담기/취소만 수행
+      if (quickModeRef.current) {
+        setSelected(apt); // 상태만 갱신(시트는 건드리지 않음)
+        if (isInCart(apt.rowKey)) {
+          setCart((prev) => prev.filter((c) => c.rowKey !== apt.rowKey));
+        } else {
+          addAptToCartQuick(apt);
+        }
+        return; // 시트 자동 오픈 금지
+      }
+
+      // ③ 일반 모드: 상세 탭 + 시트 오픈
       setSelected(apt);
       setActiveTab("detail");
       setSheetOpen(true);
       recalcSheetMax();
-
-      // ✅ 카운터 등 최신 상세를 rowKey 맵에 캐시
-      if (apt?.rowKey) detailByRowKeyRef.current.set(apt.rowKey, apt);
-
-      // ✅ 퀵담기 모드: 마커 탭 시 즉시 담기/취소 (단, 카트에서 "포커스만" 한 경우 1회 억제)
-      const suppress = suppressQuickToggleOnceRef.current;
-      suppressQuickToggleOnceRef.current = false; // 소모
-
-      if (quickModeRef.current && !suppress && apt?.rowKey) {
-        if (isInCart(apt.rowKey)) removeFromCart(apt.rowKey);
-        else addAptToCart(apt);
-      }
     },
     externalSelectedRowKeys: selectedRowKeys,
   });
@@ -263,8 +270,13 @@ export default function MapMobilePageV2() {
   }, [searchQ, search]);
 
   /** =========================
-   * 카트 조작 (UI에서 사용하는 것들)
+   * 카트 조작
    * ========================= */
+  const isInCartSelected = useCallback(
+    (rowKey?: string | null) => !!rowKey && cart.some((c) => c.rowKey === rowKey),
+    [cart],
+  );
+
   // ✅ 담기 시 "마지막 개월수"로 기본 설정 (없으면 1개월)
   const addSelectedToCart = useCallback(() => {
     if (!selected) return;
@@ -279,6 +291,10 @@ export default function MapMobilePageV2() {
     };
     setCart((prev) => [next, ...prev.filter((c) => c.rowKey !== next.rowKey)]);
   }, [selected]);
+
+  const removeFromCart = useCallback((rowKey: string) => {
+    setCart((prev) => prev.filter((c) => c.rowKey !== rowKey));
+  }, []);
 
   const [applyAll, setApplyAll] = useState(true);
 
@@ -363,10 +379,10 @@ export default function MapMobilePageV2() {
 
   const totalCost = useMemo(() => computedCart.reduce((s, c) => s + c._total, 0), [computedCart]);
 
-  /** 장바구니 → 특정 단지로 이동 (퀵담기 억제 1회 세팅) */
+  /** 장바구니 → 특정 단지로 이동 */
   const goToRowKey = useCallback(
     (rk: string) => {
-      // ✅ 카트에서 포커스만 할 때 자동 토글이 발동하지 않도록 1회 억제
+      // ✅ 다음 onSelect 한 번만 "퀵담기 토글/자동오픈" 모두 억제하고 포커스만 하도록
       suppressQuickToggleOnceRef.current = true;
       markers.selectByRowKey(rk);
       setActiveTab("detail");
@@ -542,23 +558,7 @@ export default function MapMobilePageV2() {
       {/* 우측 버튼 스택 */}
       <div className="fixed z-[35] right-3 top-[64px] pointer-events-none">
         <div className="flex flex-col gap-2 pointer-events-auto">
-          {/* 🔥 퀵담기 토글 */}
-          <button
-            onClick={() => setQuickMode((v) => !v)}
-            className={`w-11 h-11 rounded-full flex items-center justify-center shadow transition ${
-              quickMode ? "text-[#6F4BF2]" : "text-white"
-            }`}
-            style={{ backgroundColor: quickMode ? "#FFD400" : COLOR_PRIMARY }}
-            aria-label="빠른담기"
-            title="빠른담기"
-          >
-            {/* 번개 아이콘 (SVG) */}
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-              <path d="M13 2L3 14h7l-1 8 11-12h-7l0-8z" />
-            </svg>
-          </button>
-
-          {/* 검색 */}
+          {/* ▶ 검색 (위쪽) */}
           <button
             onClick={runSearchAndBlur}
             className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow"
@@ -569,6 +569,23 @@ export default function MapMobilePageV2() {
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
               <circle cx="10" cy="10" r="6" stroke="currentColor" strokeWidth="2" />
               <line x1="14.5" y1="14.5" x2="20" y2="20" stroke="currentColor" strokeWidth="2" />
+            </svg>
+          </button>
+
+          {/* ▶ 퀵담기 토글 (검색 아래로 이동) */}
+          <button
+            onClick={() => setQuickMode((v) => !v)}
+            aria-label="빠른담기"
+            aria-pressed={quickMode}
+            className={`w-11 h-11 rounded-full flex items-center justify-center shadow transition ${
+              quickMode ? "text-[#6F4BF2]" : "text-white"
+            }`}
+            style={{ backgroundColor: quickMode ? "#FFD400" : COLOR_PRIMARY }}
+            title="빠른담기"
+          >
+            {/* 번개 아이콘 */}
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+              <path d="M13 2L3 14h7l-1 8 11-14h-7l0-6z" />
             </svg>
           </button>
 
@@ -681,10 +698,10 @@ export default function MapMobilePageV2() {
           {activeTab === "detail" && (
             <DetailPanel
               selected={selected}
-              inCart={isInCart(selected?.rowKey)}
+              inCart={isInCartSelected(selected?.rowKey)}
               onToggleCart={() => {
                 if (!selected) return;
-                if (isInCart(selected.rowKey)) {
+                if (isInCartSelected(selected.rowKey)) {
                   removeFromCart(selected.rowKey);
                 } else {
                   addSelectedToCart();
