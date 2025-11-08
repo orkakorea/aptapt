@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import MapChrome, { SelectedApt } from "../components/MapChrome";
+import { LocateFixed } from "lucide-react"; // ✅ PC 내 위치 버튼 아이콘
 
 type KakaoNS = typeof window & { kakao: any };
 const FALLBACK_KAKAO_KEY = "a53075efe7a2256480b8650cec67ebae";
@@ -184,6 +185,11 @@ export default function MapPage() {
 
   const lastClickedRef = useRef<KMarker | null>(null);
 
+  // ✅ 내 위치 오버레이용 ref/state (PC 버튼)
+  const userOverlayRef = useRef<any>(null);
+  const userOverlayElRef = useRef<HTMLDivElement | null>(null);
+  const [geoError, setGeoError] = useState<string | null>(null);
+
   const [selected, setSelected] = useState<SelectedAptX | null>(null);
   const [initialQ, setInitialQ] = useState("");
   const [kakaoError, setKakaoError] = useState<string | null>(null);
@@ -319,6 +325,10 @@ export default function MapPage() {
       } catch {}
       try {
         searchPinRef.current?.setMap?.(null);
+      } catch {}
+      // ✅ 내 위치 오버레이 정리
+      try {
+        userOverlayRef.current?.setMap(null);
       } catch {}
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -887,7 +897,7 @@ export default function MapPage() {
     btn.style.height = "22px";
     btn.style.borderRadius = "999px";
     btn.style.background = "#FFFFFF";
-    btn.style.border = "2px solid #FFD400";
+    btn.style.border = "2px solid #FFD400"; // ✅ 문자열 수정
     btn.style.boxShadow = "0 2px 6px rgba(0,0,0,0.15)";
     btn.style.display = "flex";
     btn.style.alignItems = "center";
@@ -994,12 +1004,91 @@ export default function MapPage() {
     setSelected(null);
   }
 
+  /* ---------- ✅ PC: 내 위치 버튼 구현 ---------- */
+  const ensureUserOverlay = useCallback((lat: number, lng: number) => {
+    const kakao = (window as KakaoNS).kakao;
+    if (!kakao?.maps || !mapObjRef.current) return;
+    const map = mapObjRef.current;
+
+    // 오버레이용 엘리먼트(작은 보라 점)
+    if (!userOverlayElRef.current) {
+      const el = document.createElement("div");
+      el.style.width = "14px";
+      el.style.height = "14px";
+      el.style.borderRadius = "999px";
+      el.style.background = "#6F4BF2";
+      el.style.boxShadow = "0 0 0 3px rgba(111,75,242,0.25), 0 0 0 6px rgba(111,75,242,0.12)";
+      el.style.border = "2px solid #FFFFFF";
+      el.style.pointerEvents = "none";
+      userOverlayElRef.current = el;
+    }
+
+    const latlng = new kakao.maps.LatLng(lat, lng);
+
+    if (!userOverlayRef.current) {
+      userOverlayRef.current = new kakao.maps.CustomOverlay({
+        map,
+        position: latlng,
+        content: userOverlayElRef.current!,
+        yAnchor: 0.5,
+        xAnchor: 0.5,
+        zIndex: 999999,
+      });
+    } else {
+      userOverlayRef.current.setPosition(latlng);
+      userOverlayRef.current.setMap(map);
+      userOverlayRef.current.setZIndex?.(999999);
+    }
+  }, []);
+
+  const goMyLocation = useCallback(() => {
+    if (!("geolocation" in navigator)) {
+      setGeoError("이 브라우저는 위치 기능을 지원하지 않아요.");
+      setTimeout(() => setGeoError(null), 3000);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const kakao = (window as KakaoNS).kakao;
+        if (!kakao?.maps || !mapObjRef.current) return;
+        const { latitude, longitude } = pos.coords;
+        const latlng = new kakao.maps.LatLng(latitude, longitude);
+        mapObjRef.current.setLevel(5);
+        mapObjRef.current.setCenter(latlng);
+        ensureUserOverlay(latitude, longitude);
+      },
+      (err) => {
+        const msg =
+          err.code === err.PERMISSION_DENIED
+            ? "위치 권한이 거부되었어요. 브라우저 설정을 확인해주세요."
+            : "내 위치를 가져오지 못했어요.";
+        setGeoError(msg);
+        setTimeout(() => setGeoError(null), 3000);
+      },
+      { enableHighAccuracy: true, maximumAge: 60_000, timeout: 10_000 },
+    );
+  }, [ensureUserOverlay]);
+
   const mapLeftClass = selected ? "md:left-[720px]" : "md:left-[360px]";
   const MapChromeAny = MapChrome as any;
 
   return (
     <div className="w-screen h-[100dvh] bg-white">
       <div ref={mapRef} className={`fixed top-16 left-0 right-0 bottom-0 z-[10] ${mapLeftClass}`} aria-label="map" />
+
+      {/* ✅ PC 고정 버튼: 내 위치로 이동 */}
+      <div className="fixed right-4 bottom-6 md:bottom-8 z-[60] flex flex-col items-end gap-2 pointer-events-auto">
+        <button
+          type="button"
+          onClick={goMyLocation}
+          aria-label="내 위치로 이동"
+          title="내 위치로 이동"
+          className="w-12 h-12 rounded-full shadow-lg bg-[#6F4BF2] text-white flex items-center justify-center hover:brightness-110 active:scale-95 transition"
+        >
+          <LocateFixed className="w-6 h-6" />
+        </button>
+      </div>
+
       <MapChromeAny
         selected={selected}
         onCloseSelected={closeSelected}
@@ -1016,9 +1105,16 @@ export default function MapPage() {
         cartStickyTopPx={64}
         cartStickyUntil="bulkMonthsApply"
       />
+
+      {/* 에러 토스트들 */}
       {kakaoError && (
         <div className="fixed bottom-4 right-4 z-[100] rounded-lg bg-red-600 text-white px-3 py-2 text-sm shadow">
           Kakao SDK 로드 오류: {kakaoError}
+        </div>
+      )}
+      {geoError && (
+        <div className="fixed bottom-4 right-4 z-[100] rounded-lg bg-red-600 text-white px-3 py-2 text-sm shadow">
+          {geoError}
         </div>
       )}
     </div>
