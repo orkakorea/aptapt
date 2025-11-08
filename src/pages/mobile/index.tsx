@@ -122,20 +122,62 @@ export default function MapMobilePageV2() {
   }, [sheetOpen, recalcSheetMax]);
 
   /** =========================
+   * 🔥 퀵담기 상태/레퍼런스 & 1회 억제 플래그
+   * ========================= */
+  const [quickMode, setQuickMode] = useState(false);
+  const quickModeRef = useRef(false);
+  useEffect(() => {
+    quickModeRef.current = quickMode;
+  }, [quickMode]);
+
+  // 카트에서 특정 단지로 "포커스만" 할 때 자동 토글을 1회 막기 위한 플래그
+  const suppressQuickToggleOnceRef = useRef(false);
+
+  /** =========================
    * 마커
    * ========================= */
+  const isInCart = useCallback((rowKey?: string | null) => !!rowKey && cart.some((c) => c.rowKey === rowKey), [cart]);
+
+  // 선택된 apt를 인자로 받아 즉시 담는 헬퍼(선택 state에 의존하지 않음)
+  const addAptToCart = useCallback((apt: SelectedApt) => {
+    const monthsDefault = Math.max(1, Number(lastMonthsRef.current || 1));
+    const next: CartItem = {
+      rowKey: apt.rowKey,
+      aptName: apt.name,
+      productName: apt.productName ?? "기본상품",
+      months: monthsDefault,
+      baseMonthly: apt.monthlyFee ?? 0,
+      monthlyFeeY1: apt.monthlyFeeY1 ?? undefined,
+    };
+    setCart((prev) => [next, ...prev.filter((c) => c.rowKey !== next.rowKey)]);
+  }, []);
+
+  const removeFromCart = useCallback((rowKey: string) => {
+    setCart((prev) => prev.filter((c) => c.rowKey !== rowKey));
+  }, []);
+
   const markers = useMarkers({
     kakao,
     map,
     clusterer,
     onSelect: (apt) => {
-      // 기본 선택
+      // 기본 선택/시트 열기
       setSelected(apt);
       setActiveTab("detail");
       setSheetOpen(true);
       recalcSheetMax();
+
       // ✅ 카운터 등 최신 상세를 rowKey 맵에 캐시
       if (apt?.rowKey) detailByRowKeyRef.current.set(apt.rowKey, apt);
+
+      // ✅ 퀵담기 모드: 마커 탭 시 즉시 담기/취소 (단, 카트에서 "포커스만" 한 경우 1회 억제)
+      const suppress = suppressQuickToggleOnceRef.current;
+      suppressQuickToggleOnceRef.current = false; // 소모
+
+      if (quickModeRef.current && !suppress && apt?.rowKey) {
+        if (isInCart(apt.rowKey)) removeFromCart(apt.rowKey);
+        else addAptToCart(apt);
+      }
     },
     externalSelectedRowKeys: selectedRowKeys,
   });
@@ -221,10 +263,8 @@ export default function MapMobilePageV2() {
   }, [searchQ, search]);
 
   /** =========================
-   * 카트 조작
+   * 카트 조작 (UI에서 사용하는 것들)
    * ========================= */
-  const isInCart = useCallback((rowKey?: string | null) => !!rowKey && cart.some((c) => c.rowKey === rowKey), [cart]);
-
   // ✅ 담기 시 "마지막 개월수"로 기본 설정 (없으면 1개월)
   const addSelectedToCart = useCallback(() => {
     if (!selected) return;
@@ -239,10 +279,6 @@ export default function MapMobilePageV2() {
     };
     setCart((prev) => [next, ...prev.filter((c) => c.rowKey !== next.rowKey)]);
   }, [selected]);
-
-  const removeFromCart = useCallback((rowKey: string) => {
-    setCart((prev) => prev.filter((c) => c.rowKey !== rowKey));
-  }, []);
 
   const [applyAll, setApplyAll] = useState(true);
 
@@ -327,9 +363,11 @@ export default function MapMobilePageV2() {
 
   const totalCost = useMemo(() => computedCart.reduce((s, c) => s + c._total, 0), [computedCart]);
 
-  /** 장바구니 → 특정 단지로 이동 */
+  /** 장바구니 → 특정 단지로 이동 (퀵담기 억제 1회 세팅) */
   const goToRowKey = useCallback(
     (rk: string) => {
+      // ✅ 카트에서 포커스만 할 때 자동 토글이 발동하지 않도록 1회 억제
+      suppressQuickToggleOnceRef.current = true;
       markers.selectByRowKey(rk);
       setActiveTab("detail");
       setSheetOpen(true);
@@ -504,6 +542,22 @@ export default function MapMobilePageV2() {
       {/* 우측 버튼 스택 */}
       <div className="fixed z-[35] right-3 top-[64px] pointer-events-none">
         <div className="flex flex-col gap-2 pointer-events-auto">
+          {/* 🔥 퀵담기 토글 */}
+          <button
+            onClick={() => setQuickMode((v) => !v)}
+            className={`w-11 h-11 rounded-full flex items-center justify-center shadow transition ${
+              quickMode ? "text-[#6F4BF2]" : "text-white"
+            }`}
+            style={{ backgroundColor: quickMode ? "#FFD400" : COLOR_PRIMARY }}
+            aria-label="빠른담기"
+            title="빠른담기"
+          >
+            {/* 번개 아이콘 (SVG) */}
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+              <path d="M13 2L3 14h7l-1 8 11-12h-7l0-8z" />
+            </svg>
+          </button>
+
           {/* 검색 */}
           <button
             onClick={runSearchAndBlur}
