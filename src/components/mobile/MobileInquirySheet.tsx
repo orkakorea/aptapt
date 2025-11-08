@@ -186,124 +186,9 @@ export default function MobileInquirySheet({
     return `${s.slice(0, 3)}-${s.slice(3, 7)}-${s.slice(7)}`;
   }
 
-  /* =======================
-   *  스냅샷 정규화 유틸
-   * ======================= */
-  function parseMaybeJSON(input: any): any | null {
-    if (!input) return null;
-    if (typeof input === "string") {
-      try {
-        const t = input.trim();
-        if (t === "" || t === "null") return null;
-        return JSON.parse(t);
-      } catch {
-        return null;
-      }
-    }
-    if (typeof input === "object") return input;
-    return null;
-  }
-
-  /** 각 아이템에 months / monthlyAfter / baseMonthly / lineTotal 보강하고 cartTotal 재계산 */
-  function normalizeCartSnapshot(raw: any) {
-    const snap = parseMaybeJSON(raw) ?? {};
-    const rawItems: any[] =
-      (Array.isArray(snap.items) && snap.items) ||
-      (Array.isArray(snap.computedCart) && snap.computedCart) ||
-      (Array.isArray(snap.cart?.items) && snap.cart.items) ||
-      [];
-
-    const toNum = (v: any): number | null => {
-      const n = Number(v);
-      return isFinite(n) && !isNaN(n) ? n : null;
-    };
-
-    const items = rawItems.map((it) => {
-      const months = toNum(it.months ?? it.Months ?? it.period ?? it.duration) ?? toNum(snap.months) ?? 0;
-
-      // 최종 월가(할인가)
-      let monthlyAfter =
-        toNum(
-          it.monthlyAfter ??
-            it.monthly_after ??
-            it.priceMonthly ??
-            it.computedMonthly ??
-            it.finalMonthly ??
-            it.monthly_after_discount,
-        ) ?? null;
-
-      // 라인 총액
-      let lineTotal =
-        toNum(
-          it.lineTotal ??
-            it.line_total ??
-            it.total ??
-            it.totalCost ??
-            it.line_total_after_discount ??
-            it.item_total_won ??
-            it.total_won,
-        ) ?? 0;
-
-      // 월가가 없고 (총액, 개월) 있으면 역산
-      if ((monthlyAfter == null || monthlyAfter === 0) && months > 0 && lineTotal > 0) {
-        monthlyAfter = lineTotal / months;
-      }
-
-      // 총액이 없고 월×개월이 가능하면 계산
-      if ((lineTotal == null || lineTotal === 0) && monthlyAfter != null && months > 0) {
-        lineTotal = monthlyAfter * months;
-      }
-
-      // 기준 월가(정가)
-      let baseMonthly =
-        toNum(
-          it.baseMonthly ??
-            it.base_monthly ??
-            it.monthlyBefore ??
-            it.monthly_base ??
-            it.basePriceMonthly ??
-            it.base_price_monthly,
-        ) ?? null;
-
-      // 기준 월가가 없으면 월가로 대체(할인율 0%라도 표시 가능)
-      if (baseMonthly == null && monthlyAfter != null) {
-        baseMonthly = monthlyAfter;
-      }
-
-      return {
-        apt_name: it.apt_name ?? it.name ?? it.aptName ?? it.apt?.name ?? "",
-        product_name:
-          it.product_name ??
-          it.productName ??
-          it.mediaName ??
-          it.media_name ??
-          it.media ??
-          it.product ??
-          it.product_code ??
-          "",
-        product_code: it.product_code ?? it.product ?? it.media ?? "",
-        months,
-        baseMonthly, // 기준 금액(정가, 월)
-        monthlyAfter, // 최종 금액(월)
-        lineTotal, // 라인 총액
-      };
-    });
-
-    const cartTotal = items.reduce((acc, it) => acc + (Number(it.lineTotal) || 0), 0);
-    const monthsFromItems = items.reduce((mx, it) => (Number(it.months) > mx ? Number(it.months) : mx), 0);
-
-    return {
-      ...(typeof snap === "object" ? snap : {}),
-      items,
-      months: toNum(snap.months) ?? (monthsFromItems > 0 ? monthsFromItems : undefined),
-      cartTotal,
-    };
-  }
-
-  /* ✅ 완료모달에 바로 쓸 "표시용 스냅샷" 생성 (정규화 버전으로 업데이트) */
+  /* ✅ 완료모달에 바로 쓸 "표시용 스냅샷" 생성 */
   function buildReceiptSnapshot() {
-    const normalized = mode === "SEAT" ? normalizeCartSnapshot(prefill?.cart_snapshot) : null;
-    const snap = normalized || prefill?.cart_snapshot || null;
+    const snap = prefill?.cart_snapshot || null;
     const items: any[] = Array.isArray(snap?.items) ? snap.items : [];
     const first = items[0];
 
@@ -311,9 +196,17 @@ export default function MobileInquirySheet({
       ? `${first?.apt_name ?? "-"}${items.length > 1 ? ` 외 ${items.length - 1}개 단지` : ""}`
       : prefill?.apt_name || "-";
 
-    const months =
-      (Array.isArray(items) && items.reduce((mx, i) => (Number(i?.months) > mx ? Number(i.months) : mx), 0)) ||
-      (Number.isFinite(Number(snap?.months)) ? Number(snap.months) : null);
+    // months: snap.months 또는 items 내 최대 months
+    const monthsSet = new Set<number>();
+    items.forEach((i) => {
+      const n = Number(i?.months ?? 0);
+      if (Number.isFinite(n) && n > 0) monthsSet.add(n);
+    });
+    if (monthsSet.size === 0 && Number.isFinite(Number(snap?.months))) {
+      const m = Number(snap.months);
+      if (m > 0) monthsSet.add(m);
+    }
+    const months = monthsSet.size > 0 ? Array.from(monthsSet).reduce((mx, n) => (n > mx ? n : mx), 0) : undefined;
 
     return {
       summary: { topAptLabel },
@@ -327,7 +220,7 @@ export default function MobileInquirySheet({
       form: {
         values: {
           campaign_type: campaignType || null,
-          months: months || null,
+          months: months ?? null,
           desiredDate: hopeDate || null,
           promoCode: promoCode || null,
           request_text: requestText || null,
@@ -361,10 +254,6 @@ export default function MobileInquirySheet({
         step_ui: "mobile-2step",
       };
 
-      // ✅ 핵심: 스냅샷 정규화 후 저장(기준금액/할인율/총액을 Admin에서 바로 표시 가능)
-      const normalizedSnapshot =
-        mode === "SEAT" && prefill?.cart_snapshot ? normalizeCartSnapshot(prefill.cart_snapshot) : null;
-
       const payload: any = {
         inquiry_kind: mode, // "SEAT" | "PACKAGE"
         // status는 기본 'new'
@@ -380,7 +269,7 @@ export default function MobileInquirySheet({
         apt_name: mode === "SEAT" ? (prefill?.apt_name ?? null) : null,
         product_code: mode === "SEAT" ? (prefill?.product_code ?? null) : null,
         product_name: mode === "SEAT" ? (prefill?.product_name ?? null) : null,
-        cart_snapshot: mode === "SEAT" ? (normalizedSnapshot ?? prefill?.cart_snapshot ?? null) : null,
+        cart_snapshot: mode === "SEAT" ? (prefill?.cart_snapshot ?? null) : null,
         // 부가
         extra,
       };
@@ -392,7 +281,7 @@ export default function MobileInquirySheet({
 
       if (error) throw error;
 
-      // ✅ 상위로 '표시용 영수증 스냅샷' 함께 전달 (정규화 반영)
+      // ✅ 상위로 '표시용 영수증 스냅샷' 함께 전달 (고객/문의 정보가 완료모달에 즉시 표시됨)
       const snapshot = buildReceiptSnapshot();
       onSubmitted?.("ok", snapshot);
     } catch (err: any) {

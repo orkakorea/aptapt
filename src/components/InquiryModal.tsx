@@ -21,7 +21,7 @@ type Prefill = {
   apt_name?: string | null;
   product_code?: string | null;
   product_name?: string | null;
-  cart_snapshot?: any | null; // 1탭 카트 스냅샷(문자열/객체 모두 허용)
+  cart_snapshot?: any | null; // 1탭 카트 스냅샷
 };
 
 type Props = {
@@ -86,121 +86,6 @@ function persistReceiptLocal(token: string, data: any) {
 
 const emailOk = (v: string) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 const phoneOk = (digits: string) => digits.length >= 9 && digits.length <= 12;
-
-/* =======================
- *  스냅샷 정규화 유틸
- * ======================= */
-function parseMaybeJSON(input: any): any | null {
-  if (!input) return null;
-  if (typeof input === "string") {
-    try {
-      const t = input.trim();
-      if (t === "" || t === "null") return null;
-      return JSON.parse(t);
-    } catch {
-      return null;
-    }
-  }
-  if (typeof input === "object") return input;
-  return null;
-}
-
-/** 제출 직전 스냅샷을 확정 값으로 보강: baseMonthly / monthlyAfter / lineTotal / months */
-function normalizeCartSnapshot(raw: any) {
-  const snap = parseMaybeJSON(raw) ?? {};
-  const rawItems: any[] =
-    (Array.isArray(snap.items) && snap.items) ||
-    (Array.isArray(snap.computedCart) && snap.computedCart) ||
-    (Array.isArray(snap.cart?.items) && snap.cart.items) ||
-    [];
-
-  const toNum = (v: any): number | null => {
-    const n = Number(v);
-    return isFinite(n) && !isNaN(n) ? n : null;
-  };
-
-  const items = rawItems.map((it) => {
-    const months = toNum(it.months ?? it.Months ?? it.period ?? it.duration) ?? 0;
-
-    // 최종 월가(할인가) 후보
-    let monthlyAfter =
-      toNum(
-        it.monthlyAfter ??
-          it.monthly_after ??
-          it.priceMonthly ??
-          it.computedMonthly ??
-          it.monthly_after_discount ??
-          it.finalMonthly ??
-          it.final_monthly,
-      ) ?? null;
-
-    // 총액 후보(스냅샷 예시 대응: item_total_won / total_won)
-    let lineTotal =
-      toNum(
-        it.lineTotal ??
-          it.line_total ??
-          it.total ??
-          it.totalCost ??
-          it.line_total_after_discount ??
-          it.item_total_won ??
-          it.total_won,
-      ) ?? 0;
-
-    // 월가가 없고 (총액, 개월) 있으면 역산
-    if ((monthlyAfter == null || monthlyAfter === 0) && months > 0 && lineTotal > 0) {
-      monthlyAfter = lineTotal / months;
-    }
-
-    // 총액이 없고 월×개월이 가능하면 계산
-    if ((lineTotal == null || lineTotal === 0) && monthlyAfter != null && months > 0) {
-      lineTotal = monthlyAfter * months;
-    }
-
-    // 기준월가(정가) 후보
-    let baseMonthly =
-      toNum(
-        it.baseMonthly ??
-          it.base_monthly ??
-          it.monthlyBefore ??
-          it.monthly_base ??
-          it.basePriceMonthly ??
-          it.base_price_monthly,
-      ) ?? null;
-
-    // 기준월가가 없다면 일단 월가로 대체(할인율 0%라도 표시되게)
-    if (baseMonthly == null && monthlyAfter != null) {
-      baseMonthly = monthlyAfter;
-    }
-
-    return {
-      apt_name: it.apt_name ?? it.name ?? it.aptName ?? it.apt?.name ?? "",
-      product_name:
-        it.product_name ??
-        it.productName ??
-        it.mediaName ??
-        it.media_name ??
-        it.media ??
-        it.product ??
-        it.product_code ??
-        "",
-      product_code: it.product_code ?? it.product ?? it.media ?? "",
-      months,
-      baseMonthly, // 기준 월가(정가)
-      monthlyAfter, // 최종 월가(할인가)
-      lineTotal, // 라인 총액
-    };
-  });
-
-  // 상단 합계 재계산
-  const cartTotal = items.reduce((acc, it) => acc + (Number(it.lineTotal) || 0), 0);
-
-  return {
-    ...snap,
-    items,
-    months: toNum(snap.months) ?? (items.length ? Math.max(...items.map((i) => i.months || 0)) : undefined),
-    cartTotal,
-  };
-}
 
 export default function InquiryModal({ open, mode, prefill, onClose, sourcePage, onSubmitted }: Props) {
   // ===== 공통 입력 =====
@@ -301,16 +186,6 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
       setSubmitting(true);
       const utm = getUTM();
 
-      // ★★★ 핵심: 스냅샷 정규화(기준금액/할인율 표시용 확정값 포함)
-      const normalizedSnapshot =
-        isSeat && prefill?.cart_snapshot ? normalizeCartSnapshot(prefill.cart_snapshot) : undefined;
-
-      // step_ui 간단 판정(디바이스 보조 표기용)
-      const stepUI =
-        (typeof window !== "undefined" && /mobile/i.test(window.location.pathname)) || page.includes("/mobile")
-          ? "mobile-2step"
-          : "desktop-2step";
-
       const payload: any = {
         inquiry_kind: mode,
         customer_name: clean(managerName),
@@ -327,9 +202,7 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
         apt_name: isSeat ? clean(prefill?.apt_name) : undefined,
         product_code: isSeat ? clean(prefill?.product_code) : undefined,
         product_name: isSeat ? clean(prefill?.product_name) : undefined,
-
-        // ✅ 정규화된 스냅샷 저장(라인에 baseMonthly/monthlyAfter/lineTotal 포함)
-        cart_snapshot: isSeat ? (normalizedSnapshot ?? undefined) : undefined,
+        cart_snapshot: isSeat ? (prefill?.cart_snapshot ?? undefined) : undefined,
 
         extra: {
           brand: clean(brand),
@@ -339,7 +212,6 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
           request_text: clean(requestText),
           promo_code: clean(promoCode),
           agree_privacy: !!agreePrivacy,
-          step_ui: stepUI, // 디바이스 표기 보조
         },
 
         client_ts: new Date().toISOString(),
@@ -374,7 +246,6 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
           apt_name: prefill?.apt_name,
           product_name: prefill?.product_name,
           product_code: prefill?.product_code,
-          // 접수증 내부 표시는 기존 로직 유지(표기 용), 저장은 normalizedSnapshot으로 진행
           cart_snapshot: prefill?.cart_snapshot,
         });
         const items = buildSeatItemsFromSnapshot(prefill?.cart_snapshot || null);
@@ -390,11 +261,11 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
             monthlyTotalKRW: summary.monthlyTotalKRW ?? null,
             periodTotalKRW: summary.periodTotalKRW ?? null,
           },
-          // ✅ 완료모달 공유용: 정규화된 스냅샷을 form에 담아둠
+          // ✅✅ 핵심 수정: 완료모달이 읽을 수 있도록 스냅샷을 form에 포함
           form: {
             desiredDate: hopeDate || undefined,
             promotionCode: promoCode || undefined,
-            cart_snapshot: normalizedSnapshot ?? parseMaybeJSON(prefill?.cart_snapshot),
+            cart_snapshot: prefill?.cart_snapshot || null,
           },
           links: { receiptUrl },
           actions: {

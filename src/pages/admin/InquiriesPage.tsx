@@ -9,9 +9,7 @@ import { z } from "zod";
  * - 인라인 수정: status, valid(—/유효/무효), assignee
  * - 상세 드로어: 광고주 최종확인(금액) 스냅샷 테이블
  *
- * ⚠️ 중요
- * - 이 페이지는 "세션이 로드되어 admin 확인이 끝난 뒤"에만 데이터를 읽습니다.
- *   (admin 가드가 끝나기 전에 SELECT가 나가 401/403이 나는 문제를 방지)
+ * ⚠️ 중요: admin 세션 확인이 끝난 뒤에만 SELECT 수행
  */
 
 /* =========================
@@ -164,7 +162,7 @@ const InquiriesPage: React.FC = () => {
     return { fromIdx, toIdx: fromIdx + pageSize - 1 };
   }, [page, pageSize]);
 
-  // ----- 세션/role 확인 (여기서도 한 번 더 가드) -----
+  // ----- 세션/role 확인 -----
   useEffect(() => {
     let mounted = true;
     const run = async () => {
@@ -190,7 +188,7 @@ const InquiriesPage: React.FC = () => {
 
   // ----- 서버사이드 로드 -----
   useEffect(() => {
-    if (!sessionReady || !isAdmin) return; // ✅ admin 확인 전에는 절대 SELECT 안 보냄
+    if (!sessionReady || !isAdmin) return;
 
     let ignore = false;
     const load = async () => {
@@ -411,7 +409,7 @@ const InquiriesPage: React.FC = () => {
                           );
                         } else {
                           setErr(error.message || "진행상황 저장 실패");
-                          e.currentTarget.value = prev; // UI 복구
+                          e.currentTarget.value = prev;
                         }
                       }}
                       className={"border rounded-full px-2 py-1 text-sm " + pillClassForStatus(r.status ?? "new")}
@@ -454,7 +452,7 @@ const InquiriesPage: React.FC = () => {
                           );
                         } else {
                           setErr(error.message || "유효성 저장 실패");
-                          e.currentTarget.value = prev; // UI 복구
+                          e.currentTarget.value = prev;
                         }
                       }}
                       className={"border rounded-full px-2 py-1 text-sm " + pillClassForValid(validToTri(r.valid))}
@@ -475,7 +473,7 @@ const InquiriesPage: React.FC = () => {
                       onBlur={async (e) => {
                         const prev = r.assignee || "";
                         const sanitized = sanitizeAssignee(e.target.value);
-                        e.currentTarget.value = sanitized ?? ""; // UI 정리
+                        e.currentTarget.value = sanitized ?? "";
                         const { error } = await (supabase as any)
                           .from(TBL.main)
                           .update({ [COL.assignee]: sanitized })
@@ -486,7 +484,7 @@ const InquiriesPage: React.FC = () => {
                           );
                         } else {
                           setErr(error.message || "담당자 저장 실패");
-                          e.currentTarget.value = prev; // UI 복구
+                          e.currentTarget.value = prev;
                         }
                       }}
                       className="border rounded px-2 py-1 text-sm w-full"
@@ -577,16 +575,11 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
 
   // cart_snapshot 폴백 (표시 전용 단순 리스트 / CSV용)
   const snapshotSets = useMemo(() => {
-    const items =
-      (parsedSnap as any)?.details?.items ??
-      (parsedSnap as any)?.items ??
-      (parsedSnap as any)?.cart?.items ??
-      (parsedSnap as any)?.computedCart ??
-      [];
+    const items = (parsedSnap as any)?.items;
     if (!Array.isArray(items)) return [];
     return items.map((it: any) => ({
-      apt_name: it.apt_name ?? it.name ?? it.aptName ?? "",
-      months: toMonths(it.months ?? it.Months ?? it.period ?? it.duration),
+      apt_name: it.apt_name ?? it.name ?? it.aptName ?? it.apt?.name ?? "",
+      months: Number(it.months ?? it.Months ?? it.period ?? it.duration ?? 0) || null,
       product_name:
         it.product_name ??
         it.productName ??
@@ -623,147 +616,125 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
   // ====== 디바이스 표기 ======
   const deviceLabel = useMemo(() => deriveDeviceLabel(row), [row]);
 
-  // ====== 최종 확인(금액) 스냅샷 파싱 (스냅샷 우선/재계산 최소화) ======
+  // ====== 최종 확인(금액) 스냅샷 파싱 ======
   type FinalLine = {
     apt_name: string;
     product_name: string;
-    months: number; // 광고기간(개월)
-    monthlyFeeBase: number | null; // 기준 월가(할인 전)
-    baseTotal: number | null; // 기준금액 = 월가×개월
-    discountRate: number | null; // 0~1
-    lineTotal: number; // 총광고료
+    months: number;
+    baseMonthly: number | null; // 할인 전 월가(기준)
+    monthlyAfter: number | null; // 할인 후 월가
+    lineTotal: number; // 총광고료(할인 후 월×개월)
   };
 
-  const finalLines = useMemo<FinalLine[]>(() => {
-    const snap = parsedSnap;
-    if (!snap) return [];
+  // 내부 유틸
+  const toNum = (v: any): number | null => {
+    const n = Number(v);
+    return isFinite(n) && !isNaN(n) ? n : null;
+  };
+  const pick = (o: any, keys: string[]) => {
+    for (const k of keys) {
+      const v = o?.[k];
+      if (v !== undefined && v !== null && v !== "") return v;
+    }
+    return undefined;
+  };
 
-    // 후보: details.items > items > cart.items > computedCart
+  /** 모바일/PC 스냅샷 키 차이를 맞춰 단일 스키마로 변환 */
+  function normalizeSnapshotItems(snap: any): FinalLine[] {
+    if (!snap) return [];
     const candidates: any[] =
-      (Array.isArray((snap as any)?.details?.items) && (snap as any).details.items) ||
-      (Array.isArray((snap as any)?.items) && (snap as any).items) ||
-      (Array.isArray((snap as any)?.cart?.items) && (snap as any).cart.items) ||
-      (Array.isArray((snap as any)?.computedCart) && (snap as any).computedCart) ||
+      (Array.isArray(snap?.receipt_v1?.items) && snap.receipt_v1.items) ||
+      (Array.isArray(snap?.items) && snap.items) ||
+      (Array.isArray(snap?.computedCart) && snap.computedCart) ||
+      (Array.isArray(snap?.cart?.items) && snap.cart.items) ||
       [];
 
     if (!Array.isArray(candidates) || candidates.length === 0) return [];
 
-    const toNum = (v: any): number | null => {
-      const n = Number(v);
-      return Number.isFinite(n) ? n : null;
-    };
-    const pick = (obj: any, keys: string[]) => {
-      for (const k of keys) {
-        const v = obj?.[k];
-        if (v !== undefined && v !== null && v !== "") return v;
+    const lines: FinalLine[] = candidates.map((it: any) => {
+      const months = toNum(pick(it, ["months", "month", "Months", "period", "duration"])) ?? 0;
+
+      // 기준 월가(모바일의 priceMonthly는 '할인 후'로 쓰이는 경우가 있어 명시적으로 제외)
+      const baseMonthly =
+        toNum(
+          pick(it, [
+            "baseMonthly",
+            "base_monthly",
+            "monthlyBefore",
+            "monthly_base",
+            "basePriceMonthly",
+            "base_price_monthly",
+          ]),
+        ) ?? (months > 0 ? (toNum(pick(it, ["baseTotal", "base_total"])) ?? 0) / months : null);
+
+      // 할인 후 월가
+      let monthlyAfter =
+        toNum(
+          pick(it, [
+            "monthlyAfter",
+            "monthly_after",
+            "priceMonthlyAfter",
+            "discountedMonthly",
+            "discounted_monthly",
+            "finalMonthly",
+            "final_monthly",
+            "price_monthly",
+            "monthlyFee",
+            "monthly",
+          ]),
+        ) ?? null;
+
+      // 총액
+      let lineTotal =
+        toNum(
+          pick(it, [
+            "lineTotal",
+            "line_total",
+            "total",
+            "totalCost",
+            "line_total_after_discount",
+            "item_total_won",
+            "total_won",
+            "subtotal",
+            "final_total",
+          ]),
+        ) ?? 0;
+
+      if ((!lineTotal || lineTotal <= 0) && months > 0 && monthlyAfter != null) {
+        lineTotal = Math.round(monthlyAfter * months);
       }
-      return undefined;
-    };
+      if ((monthlyAfter == null || monthlyAfter <= 0) && months > 0 && lineTotal > 0) {
+        monthlyAfter = Math.round(lineTotal / months);
+      }
 
-    return (
-      candidates
-        .map((it: any) => {
-          const apt =
-            pick(it, ["apt_name", "aptName", "name"]) ??
-            pick(it?.apt ?? {}, ["name", "title"]) ??
-            pick((snap as any)?.summary ?? {}, ["topAptLabel"]) ??
-            "";
+      const baseMonthlyEff =
+        baseMonthly != null && isFinite(baseMonthly) && baseMonthly > 0
+          ? baseMonthly
+          : months > 0
+            ? Math.round((toNum(pick(it, ["baseTotal", "base_total"])) ?? 0) / months)
+            : null;
 
-          const product =
-            pick(it, ["product_name", "productName", "mediaName", "media_name", "media", "product", "product_code"]) ??
-            "";
+      return {
+        apt_name:
+          String(
+            pick(it, ["apt_name", "aptName", "name", "apt", "title", "apt_title"]) ??
+              (snap?.summary?.topAptLabel ? String(snap.summary.topAptLabel).replace(/\s*외.*$/, "") : ""),
+          ) || "",
+        product_name:
+          String(
+            pick(it, ["product_name", "productName", "mediaName", "media_name", "media", "product", "product_code"]),
+          ) || "",
+        months: Math.max(0, months || 0),
+        baseMonthly: baseMonthlyEff ?? null,
+        monthlyAfter: monthlyAfter ?? null,
+        lineTotal: Math.max(0, lineTotal || 0),
+      };
+    });
 
-          const months =
-            toMonths(pick(it, ["months", "month", "duration", "period"])) ??
-            toMonths((snap as any)?.summary?.months) ??
-            0;
+    return lines.filter((l) => l.apt_name || l.product_name || l.lineTotal > 0 || l.months > 0);
+  }
 
-          // 기준 월가(할인 전) 후보만 사용 — 'After/discounted' 계열은 제외
-          const monthlyFeeBaseRaw =
-            toNum(
-              pick(it, [
-                "baseMonthly",
-                "base_monthly",
-                "monthlyBefore",
-                "monthly_base",
-                "basePriceMonthly",
-                "base_price_monthly",
-              ]),
-            ) ??
-            // 일부 스냅샷은 'priceMonthly'를 기준 월가로 사용(After가 따로 있으면 priceMonthly를 기준으로 취급)
-            (() => {
-              const baseCandidate = toNum(pick(it, ["priceMonthly", "price_monthly"]));
-              const afterCandidate =
-                toNum(pick(it, ["monthlyAfter", "monthly_after", "priceMonthlyAfter", "discountedMonthly"])) ?? null;
-              if (baseCandidate != null && afterCandidate != null && afterCandidate <= baseCandidate)
-                return baseCandidate;
-              // after가 없고 priceMonthly만 있다면 프로젝트 스냅샷 컨벤션상 priceMonthly를 기준 월가로 취급
-              if (baseCandidate != null && afterCandidate == null) return baseCandidate;
-              return null;
-            })();
-
-          // 기준금액
-          const baseTotalRaw =
-            toNum(pick(it, ["baseTotal", "base_total", "base_total_won", "total_before_discount", "total_before"])) ??
-            (monthlyFeeBaseRaw != null && months > 0 ? monthlyFeeBaseRaw * months : null);
-
-          // 총광고료(최종)
-          const lineTotalRaw =
-            toNum(
-              pick(it, [
-                "lineTotal",
-                "line_total",
-                "total",
-                "totalCost",
-                "line_total_after_discount",
-                "item_total_won",
-                "total_won",
-              ]),
-            ) ?? 0;
-
-          // 할인율(0~1): 스냅샷에 명시되어 있으면 우선, 없으면 baseTotal 기준으로 역산
-          const discountRateExplicit =
-            ((): number | null => {
-              const pct =
-                toNum(pick(it, ["discountPct", "discount_pct", "discountPercent"])) ??
-                // 0~1로 온 경우
-                ((): number | null => {
-                  const r = toNum(pick(it, ["discountRate", "discount_rate"]));
-                  if (r == null) return null;
-                  // 1.2 같은 비정상 값 방지
-                  if (r > 1 && r <= 100) return r / 100;
-                  if (r >= 0 && r <= 1) return r;
-                  return null;
-                })();
-              if (pct == null) return null;
-              // 10 ~ 10% 같은 값 정규화
-              if (pct > 1 && pct <= 100) return Math.max(0, Math.min(1, pct / 100));
-              return Math.max(0, Math.min(1, pct));
-            })() ?? null;
-
-          const baseTotal = baseTotalRaw ?? null;
-          const monthlyFeeBase =
-            monthlyFeeBaseRaw ?? (baseTotalRaw != null && months > 0 ? Math.round(baseTotalRaw / months) : null);
-
-          let discountRate: number | null = discountRateExplicit;
-          if (discountRate == null && baseTotal != null && baseTotal > 0 && lineTotalRaw != null) {
-            discountRate = Math.max(0, Math.min(1, 1 - lineTotalRaw / baseTotal));
-          }
-
-          return {
-            apt_name: String(apt || ""),
-            product_name: String(product || ""),
-            months: Math.max(0, months || 0),
-            monthlyFeeBase: monthlyFeeBase ?? null,
-            baseTotal: baseTotal ?? null,
-            discountRate: discountRate,
-            lineTotal: Math.max(0, Number(lineTotalRaw) || 0),
-          } as FinalLine;
-        })
-        // 완전 빈 라인은 제거
-        .filter((l) => l.apt_name || l.product_name || l.lineTotal > 0 || (l.baseTotal ?? 0) > 0)
-    );
-  }, [parsedSnap]);
+  const finalLines = useMemo<FinalLine[]>(() => normalizeSnapshotItems(parsedSnap), [parsedSnap]);
 
   const totals = useMemo(() => {
     const sum = finalLines.reduce(
@@ -777,6 +748,15 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
     const grand = sum.total + vat;
     return { total: sum.total, vat, grand };
   }, [finalLines]);
+
+  function discountRate(baseMonthly: number | null, monthlyAfter: number | null): number | null {
+    if (baseMonthly == null || monthlyAfter == null) return null;
+    if (baseMonthly <= 0) return null;
+    const r = (baseMonthly - monthlyAfter) / baseMonthly;
+    if (!isFinite(r)) return null;
+    const clamped = Math.max(0, Math.min(1, r));
+    return clamped;
+  }
 
   function exportCSV() {
     const metaPairs: [string, any][] = [
@@ -794,12 +774,21 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
       "\n",
     );
 
-    const itemsHeader = ["단지명", "광고기간(개월)", "상품명"].join(",");
-    const itemsLines = listToRender
-      .map((r) => [safeCSV(r.apt_name), safeCSV(r.months ?? ""), safeCSV(r.product_name)].join(","))
+    const header = ["단지명", "상품명", "광고기간(개월)", "월가(기준)", "월가(할인후)", "총광고료"].join(",");
+    const rws = finalLines
+      .map((l) =>
+        [
+          safeCSV(l.apt_name),
+          safeCSV(l.product_name),
+          safeCSV(l.months),
+          safeCSV(l.baseMonthly ?? ""),
+          safeCSV(l.monthlyAfter ?? ""),
+          safeCSV(l.lineTotal),
+        ].join(","),
+      )
       .join("\n");
 
-    const full = metaLines + "\n\n" + itemsHeader + "\n" + itemsLines;
+    const full = metaLines + "\n\n" + header + "\n" + rws;
     const blob = new Blob(["\uFEFF" + full], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -850,19 +839,20 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
           <InfoItem label="이메일주소" value={row.email || "—"} />
           <InfoItem label="요청사항" value={row.memo || "—"} />
 
-          {/* ===== 광고주 최종 확인(금액) — 스냅샷 우선, 모달과 동일 철학 ===== */}
+          {/* ===== 광고주 최종 확인(금액) ===== */}
           <div className="border-t border-gray-100 pt-4">
             <div className="text-sm font-medium mb-2">광고주 최종 확인(금액)</div>
             {finalLines.length === 0 ? (
               <div className="text-sm text-gray-500">스냅샷 데이터 없음</div>
             ) : (
               <div className="overflow-auto rounded-md border">
-                <table className="w-full text-sm min-w-[820px]">
+                <table className="w-full text-sm min-w-[920px]">
                   <thead className="bg-gray-50">
                     <tr>
                       <th className="px-3 py-2 text-left">단지명</th>
                       <th className="px-3 py-2 text-left">상품명</th>
                       <th className="px-3 py-2 text-right">월광고료(기준)</th>
+                      <th className="px-3 py-2 text-right">월광고료(할인후)</th>
                       <th className="px-3 py-2 text-right">광고기간</th>
                       <th className="px-3 py-2 text-right">기준금액</th>
                       <th className="px-3 py-2 text-right">할인율</th>
@@ -873,6 +863,8 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
                   </thead>
                   <tbody>
                     {finalLines.map((l, i) => {
+                      const baseTotal = (l.baseMonthly ?? 0) * (l.months ?? 0);
+                      const rate = discountRate(l.baseMonthly, l.monthlyAfter);
                       const vat = Math.round(l.lineTotal * 0.1);
                       const grand = l.lineTotal + vat;
                       return (
@@ -880,13 +872,14 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
                           <td className="px-3 py-2">{l.apt_name || "—"}</td>
                           <td className="px-3 py-2">{l.product_name || "—"}</td>
                           <td className="px-3 py-2 text-right">
-                            {l.monthlyFeeBase != null ? fmtWon(l.monthlyFeeBase) : "—"}
+                            {l.baseMonthly != null ? fmtWon(l.baseMonthly) : "—"}
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            {l.monthlyAfter != null ? fmtWon(l.monthlyAfter) : "—"}
                           </td>
                           <td className="px-3 py-2 text-right">{l.months?.toLocaleString?.() ?? "—"}</td>
-                          <td className="px-3 py-2 text-right">{l.baseTotal != null ? fmtWon(l.baseTotal) : "—"}</td>
-                          <td className="px-3 py-2 text-right">
-                            {l.discountRate != null ? fmtPercent(l.discountRate) : "—"}
-                          </td>
+                          <td className="px-3 py-2 text-right">{l.baseMonthly != null ? fmtWon(baseTotal) : "—"}</td>
+                          <td className="px-3 py-2 text-right">{rate != null ? fmtPercent(rate) : "—"}</td>
                           <td className="px-3 py-2 text-right">{fmtWon(l.lineTotal)}</td>
                           <td className="px-3 py-2 text-right">{fmtWon(vat)}</td>
                           <td className="px-3 py-2 text-right">{fmtWon(grand)}</td>
@@ -895,7 +888,7 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
                     })}
                     {/* 합계 */}
                     <tr className="border-t bg-gray-50 font-medium">
-                      <td className="px-3 py-2 text-right" colSpan={6}>
+                      <td className="px-3 py-2 text-right" colSpan={7}>
                         합계
                       </td>
                       <td className="px-3 py-2 text-right">{fmtWon(totals.total)}</td>
@@ -1000,7 +993,7 @@ function pillClassForValid(v: ValidTri): string {
   }
 }
 
-/* ===== 추가 유틸 ===== */
+/* ===== 추가 유틸: 디바이스 표기/포맷 ===== */
 function deriveDeviceLabel(row: InquiryRow): string {
   // 1) device 필드 우선
   const raw = (row.device ?? "").toString().toLowerCase();
@@ -1025,23 +1018,12 @@ function deriveDeviceLabel(row: InquiryRow): string {
   // 4) 알 수 없음
   return "—";
 }
-
 function fmtWon(n: number | null | undefined): string {
   const v = Number(n ?? 0);
-  if (!Number.isFinite(v)) return "—";
+  if (!isFinite(v)) return "—";
   return v.toLocaleString("ko-KR") + "원";
 }
 function fmtPercent(r: number | null | undefined): string {
-  if (r == null || !Number.isFinite(r)) return "—";
-  const pct = Math.round(r * 1000) / 10; // 한 자리 소수
-  return pct + "%";
-}
-function toMonths(value: any): number | null {
-  if (value == null) return null;
-  if (typeof value === "number" && Number.isFinite(value)) return Math.max(0, Math.floor(value));
-  if (typeof value === "string") {
-    const num = parseInt(value.replace(/[^\d]/g, ""), 10);
-    return Number.isNaN(num) ? null : Math.max(0, num);
-  }
-  return null;
+  if (r == null || !isFinite(r)) return "—";
+  return Math.round(r * 1000) / 10 + "%";
 }
