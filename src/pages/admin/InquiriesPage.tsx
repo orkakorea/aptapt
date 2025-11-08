@@ -3,9 +3,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { z } from "zod";
 
-/* === 추가: 완료모달과 동일한 계산 유틸 임포트 (정책/월가 계산) === */
-import { calcMonthlyWithPolicy, normPolicyKey, DEFAULT_POLICY, rateFromRanges } from "@/core/pricing";
-
 /**
  * InquiriesPage (관리자 전용)
  * - 목록/검색/필터/페이지네이션
@@ -576,22 +573,38 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
     return null;
   }, [row]);
 
-  // cart_snapshot 폴백 (표시 전용 단순 리스트 / CSV용)
+  // cart_snapshot 폴백 (표시 전용 단순 리스트 / CSV용) — 경로 확장
   const snapshotSets = useMemo(() => {
-    const items = (parsedSnap as any)?.items;
+    const items =
+      (Array.isArray((parsedSnap as any)?.items) && (parsedSnap as any).items) ||
+      (Array.isArray((parsedSnap as any)?.receipt_v1?.items) && (parsedSnap as any).receipt_v1.items) ||
+      (Array.isArray((parsedSnap as any)?.computedCart) && (parsedSnap as any).computedCart) ||
+      (Array.isArray((parsedSnap as any)?.cart?.items) && (parsedSnap as any).cart.items) ||
+      // ⬇️ 모바일 스냅샷 경로 보강
+      (Array.isArray((parsedSnap as any)?.details?.items) && (parsedSnap as any).details.items) ||
+      (Array.isArray((parsedSnap as any)?.form?.cart_snapshot?.items) &&
+        (parsedSnap as any).form.cart_snapshot.items) ||
+      [];
     if (!Array.isArray(items)) return [];
+    const toNum = (v: any): number | null => {
+      const n = Number(String(v).replace(/[^\d.-]/g, ""));
+      return isFinite(n) && !isNaN(n) ? n : null;
+    };
     return items.map((it: any) => ({
-      apt_name: it.apt_name ?? it.name ?? it.aptName ?? it.apt?.name ?? "",
-      months: Number(it.months ?? it.Months ?? it.period ?? it.duration ?? 0) || null,
-      product_name:
-        it.product_name ??
-        it.productName ??
-        it.mediaName ??
-        it.media_name ??
-        it.media ??
-        it.product ??
-        it.product_code ??
+      apt_name:
+        it.apt_name ??
+        it.aptName ??
+        (typeof it.apt === "object" && it.apt ? (it.apt.name ?? it.apt.title) : undefined) ??
+        it.name ??
+        it.title ??
+        (parsedSnap as any)?.summary?.topAptLabel?.replace?.(/\s*외.*$/, "") ??
         "",
+      months:
+        toNum(it.months ?? it.month ?? it.Months) ??
+        toNum(String(it.periodLabel ?? it.period_label ?? it.period ?? it.duration ?? "").replace(/[^\d]/g, "")) ??
+        0,
+      product_name:
+        it.product_name ?? it.productName ?? it.mediaName ?? it.media_name ?? it.product ?? it.product_code ?? "",
     }));
   }, [parsedSnap]);
 
@@ -619,7 +632,7 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
   // ====== 디바이스 표기 ======
   const deviceLabel = useMemo(() => deriveDeviceLabel(row), [row]);
 
-  // ====== 최종 확인(금액) 스냅샷 파싱 ======
+  // ====== 최종 확인(금액) 스냅샷 파싱 (모바일 보강) ======
   type FinalLine = {
     apt_name: string;
     product_name: string;
@@ -629,9 +642,9 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
     lineTotal: number; // 총광고료(할인 후 월×개월)
   };
 
-  // 내부 유틸
+  // 유틸들
   const toNum = (v: any): number | null => {
-    const n = Number(v);
+    const n = Number(String(v).replace(/[^\d.-]/g, ""));
     return isFinite(n) && !isNaN(n) ? n : null;
   };
   const pick = (o: any, keys: string[]) => {
@@ -641,156 +654,133 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
     }
     return undefined;
   };
+  const pickNum = (o: any, keys: string[]) => {
+    for (const k of keys) {
+      const v = o?.[k];
+      const n = toNum(v);
+      if (n != null) return n;
+    }
+    return null;
+  };
+  const parseMonthsFrom = (o: any): number => {
+    const direct =
+      pick(o, ["months", "month", "Months"]) ??
+      pick(o, ["period", "duration"]) ??
+      pick(o, ["periodLabel", "period_label"]);
+    if (direct == null) return 0;
+    const n = Number(String(direct).replace(/[^\d]/g, ""));
+    return isFinite(n) ? n : 0;
+  };
 
-  /** === 핵심: 완료모달 로직과 동일한 정규화 파서 === */
+  /** 모바일/PC 스냅샷 키 차이를 맞춰 단일 스키마로 변환 */
   function normalizeSnapshotItems(snap: any): FinalLine[] {
     if (!snap) return [];
-
-    // ① 항목 배열 우선순위 (DB 스냅샷 신뢰 경로)
+    // ⬇️ 후보 경로 확장 (모바일 보강: details.items, form.cart_snapshot.items)
     const candidates: any[] =
       (Array.isArray(snap?.receipt_v1?.items) && snap.receipt_v1.items) ||
       (Array.isArray(snap?.items) && snap.items) ||
       (Array.isArray(snap?.computedCart) && snap.computedCart) ||
       (Array.isArray(snap?.cart?.items) && snap.cart.items) ||
+      (Array.isArray(snap?.details?.items) && snap.details.items) ||
+      (Array.isArray(snap?.form?.cart_snapshot?.items) && snap.form.cart_snapshot.items) ||
       [];
 
     if (!Array.isArray(candidates) || candidates.length === 0) return [];
 
-    // 상단 라벨 폴백
-    const topAptFallback: string =
-      typeof snap?.summary?.topAptLabel === "string" ? String(snap.summary.topAptLabel).replace(/\s*외.*$/, "") : "";
-
     const lines: FinalLine[] = candidates.map((it: any) => {
-      // months 추출(문자/단위 혼입 대비)
-      const parseMonths = (value: any): number => {
-        if (value == null) return 0;
-        if (typeof value === "number" && isFinite(value)) return Math.max(0, Math.floor(value));
-        if (typeof value === "string") {
-          const num = parseInt(value.replace(/[^\d]/g, ""), 10);
-          return isNaN(num) ? 0 : num;
-        }
-        return 0;
-      };
+      // 개월 파싱(라벨에서 숫자만 뽑는 케이스 포함)
+      const months = parseMonthsFrom(it);
 
-      const months =
-        parseMonths(
-          pick(it, ["months", "month", "Months", "period", "duration"]) ?? pick(it, ["Months", "Period", "Duration"]),
-        ) || 0;
+      // 기준 월가/총액 후보(키 다변화)
+      const baseMonthly =
+        pickNum(it, [
+          "baseMonthly",
+          "base_monthly",
+          "priceMonthly",
+          "price_monthly",
+          "monthlyFee",
+          "monthly_fee",
+          "monthly",
+          "basePriceMonthly",
+          "base_price_monthly",
+          "monthlyFeeY1",
+        ]) ?? null;
 
-      // 기준 월가 후보 / 기준 총액 후보
-      const baseMonthlyRaw = toNum(
-        pick(it, ["baseMonthly", "base_monthly", "monthlyBefore", "basePriceMonthly", "priceMonthly"]),
-      );
-
-      const baseTotalField = toNum(pick(it, ["baseTotal", "base_total"]));
       let baseTotal =
-        baseTotalField != null
-          ? baseTotalField
-          : baseMonthlyRaw != null && months > 0
-            ? Math.round(baseMonthlyRaw * months)
-            : 0;
+        pickNum(it, ["baseTotal", "base_total", "monthly_base_total", "criteriaTotal"]) ??
+        (months > 0 && baseMonthly != null ? baseMonthly * months : null);
 
-      // 할인후 월가 후보
-      let monthlyAfter: number | null =
-        toNum(
-          pick(it, [
-            "monthlyAfter",
-            "monthly_after",
-            "priceMonthlyAfter",
-            "discountedMonthly",
-            "discounted_monthly",
-            "finalMonthly",
-            "final_monthly",
-            "price_monthly",
-            "monthly",
-            "monthlyFee",
-          ]),
-        ) ?? null;
+      // 할인 후 월가 후보
+      let monthlyAfter =
+        pickNum(it, [
+          "monthlyAfter",
+          "monthly_after",
+          "priceMonthlyAfter",
+          "price_monthly_after",
+          "discountedMonthly",
+          "discounted_monthly",
+          "finalMonthly",
+          "final_monthly",
+          "price_monthly",
+        ]) ?? null;
 
-      // 라인 합계 후보
-      let lineTotal: number =
-        toNum(
-          pick(it, [
-            "lineTotal",
-            "line_total",
-            "total",
-            "totalCost",
-            "final_total",
-            "subtotal",
-            "item_total_won",
-            "total_won",
-          ]),
-        ) ?? 0;
+      // 총액 후보
+      let lineTotal =
+        pickNum(it, [
+          "lineTotal",
+          "line_total",
+          "line_total_after_discount",
+          "item_total",
+          "item_total_won",
+          "total_won",
+          "total",
+          "totalCost",
+          "final_total",
+          "subtotal",
+          "sum",
+        ]) ?? 0;
 
-      // 역산 로직(모달 동일)
-      if ((!lineTotal || lineTotal <= 0) && months > 0 && monthlyAfter != null && monthlyAfter > 0) {
+      // 1차 복원
+      if ((!lineTotal || lineTotal <= 0) && months > 0 && monthlyAfter != null) {
         lineTotal = Math.round(monthlyAfter * months);
       }
-      if ((!lineTotal || lineTotal <= 0) && months > 0 && baseMonthlyRaw != null && baseMonthlyRaw > 0) {
-        lineTotal = Math.round(baseMonthlyRaw * months);
+      if ((monthlyAfter == null || monthlyAfter <= 0) && months > 0 && lineTotal > 0) {
+        monthlyAfter = Math.round(lineTotal / months);
       }
-
-      // 표시용 기준 월가
-      const baseMonthlyEff =
-        baseMonthlyRaw != null && baseMonthlyRaw > 0
-          ? baseMonthlyRaw
-          : months > 0 && baseTotal > 0
-            ? Math.round(baseTotal / months)
-            : null;
-
-      // ───────────────────────────────────────────────────────────
-      // ELEVATOR TV 전용 규칙 강제 적용 (모달과 동일)
-      //   총액 = 기준금액 × (1-기간할인) × (1-사전보상할인[개월기준])
-      //   할인후월가 = 총액/개월
-      // ───────────────────────────────────────────────────────────
-      const productName =
-        String(
-          pick(it, ["product_name", "productName", "mediaName", "media_name", "media", "product", "product_code"]) ??
-            "",
-        ) || "";
-      const key = normPolicyKey(productName);
-
-      if (key === "ELEVATOR TV" && months > 0) {
-        if (!baseTotal || baseTotal <= 0) {
-          baseTotal = baseMonthlyEff != null && months > 0 ? baseMonthlyEff * months : 0;
-        }
-        const periodRate = rateFromRanges(DEFAULT_POLICY["ELEVATOR TV"].period, months);
-        const precompRate = months < 3 ? 0.03 : 0.05;
-        const tvTotal = Math.round((baseTotal || 0) * (1 - periodRate) * (1 - precompRate));
-        lineTotal = tvTotal;
-        monthlyAfter = months > 0 ? Math.round(tvTotal / months) : monthlyAfter;
-      } else {
-        // 비 TV 상품: 정책 폴백
-        const looksZeroDiscount = (() => {
-          if (!baseTotal || baseTotal <= 0 || !lineTotal || lineTotal <= 0) return true;
-          const r = 1 - lineTotal / baseTotal;
-          return !isFinite(r) || Math.abs(r) < 0.01;
-        })();
-
-        if (looksZeroDiscount && baseMonthlyEff != null && baseMonthlyEff > 0 && months > 0) {
-          const { monthly } = calcMonthlyWithPolicy(productName, months, baseMonthlyEff, undefined, 1);
-          if (monthly > 0 && monthly <= baseMonthlyEff) {
-            monthlyAfter = monthly;
-            lineTotal = Math.round(monthly * months);
-          }
-        }
+      if ((baseTotal == null || baseTotal <= 0) && months > 0 && baseMonthly != null) {
+        baseTotal = Math.round(baseMonthly * months);
       }
 
       return {
         apt_name:
           String(
-            pick(it, ["apt_name", "aptName", "name", "apt", "title", "apt_title"]) ??
-              (topAptFallback ? topAptFallback : ""),
+            pick(it, ["apt_name", "aptName", "name", "apt_title"]) ??
+              // 객체형 apt 지원
+              (typeof it.apt === "object" && it.apt
+                ? (it.apt.name ?? it.apt.title)
+                : it.apt) /* 문자열로 들어온 경우 */ ??
+              (snap?.summary?.topAptLabel ? String(snap.summary.topAptLabel).replace(/\s*외.*$/, "") : ""),
           ) || "",
-        product_name: productName,
+        product_name:
+          String(
+            pick(it, ["product_name", "productName", "mediaName", "media_name", "media", "product", "product_code"]),
+          ) || "",
         months: Math.max(0, months || 0),
-        baseMonthly: baseMonthlyEff ?? null,
-        monthlyAfter: monthlyAfter ?? (months > 0 && lineTotal > 0 ? Math.round(lineTotal / months) : null),
+        baseMonthly: baseTotal && months ? Math.round(baseTotal / months) : (baseMonthly ?? null),
+        monthlyAfter: monthlyAfter ?? null,
         lineTotal: Math.max(0, lineTotal || 0),
       };
     });
 
-    return lines.filter((l) => l.apt_name || l.product_name || l.lineTotal > 0 || l.months > 0);
+    // months만 있는 빈 라인 제거(단지/상품/총액/월가 모두 없으면 버림)
+    return lines.filter(
+      (l) =>
+        l.apt_name ||
+        l.product_name ||
+        (l.baseMonthly != null && l.baseMonthly > 0) ||
+        (l.monthlyAfter != null && l.monthlyAfter > 0) ||
+        l.lineTotal > 0,
+    );
   }
 
   const finalLines = useMemo<FinalLine[]>(() => normalizeSnapshotItems(parsedSnap), [parsedSnap]);
