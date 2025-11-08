@@ -194,12 +194,20 @@ export default function MapPage() {
   // ✅ Quick Add 모드 상태
   const quickModeRef = useRef<boolean>(false);
   const [quickMode, setQuickMode] = useState(false);
+  // ▼ 프로그램적으로 마커 클릭을 트리거할 때(카트→지도 포커스) 퀵담기 자동 토글을 1회 억제
+  const suppressQuickRef = useRef(false);
 
   // ✅ 선택 스냅샷 참조 (이벤트 payload에 사용)
   const selectedRef = useRef<SelectedAptX | null>(null);
   const lastSelectedSnapRef = useRef<SelectedAptX | null>(null);
 
   const [selected, setSelected] = useState<SelectedAptX | null>(null);
+  // ▼ 선택된 단지 스냅샷(카트 이벤트에 같이 실어 보냄)
+  const selectedSnapRef = useRef<SelectedAptX | null>(null);
+  useEffect(() => {
+    selectedSnapRef.current = selected;
+  }, [selected]);
+
   const [initialQ, setInitialQ] = useState("");
   const [kakaoError, setKakaoError] = useState<string | null>(null);
 
@@ -410,11 +418,7 @@ export default function MapPage() {
       const snap = selectedRef.current ?? lastSelectedSnapRef.current ?? null;
       window.dispatchEvent(
         new CustomEvent("orka:cart:changed", {
-          detail: {
-            rowKey,
-            selected: true,
-            selectedSnapshot: snap,
-          },
+          detail: { rowKey, selected: true, selectedSnapshot: selectedSnapRef.current ?? null },
         }),
       );
     },
@@ -433,11 +437,7 @@ export default function MapPage() {
       const snap = selectedRef.current ?? lastSelectedSnapRef.current ?? null;
       window.dispatchEvent(
         new CustomEvent("orka:cart:changed", {
-          detail: {
-            rowKey,
-            selected: false,
-            selectedSnapshot: snap,
-          },
+          detail: { rowKey, selected: false, selectedSnapshot: selectedSnapRef.current ?? null },
         }),
       );
     },
