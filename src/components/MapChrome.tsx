@@ -221,12 +221,6 @@ export default function MapChrome({
   useEffect(() => {
     selectedRef.current = selected ?? null;
   }, [selected]);
-
-  // 퀵담기 신호 수신 시, 최신 selected를 정확히 읽기 위한 ref
-  const selectedRef = React.useRef<SelectedApt | null>(selected);
-  useEffect(() => {
-    selectedRef.current = selected ?? null;
-  }, [selected]);
   // 지도(MapPage)에서 날아오는 담기/취소 이벤트 → 카트에 반영
   useEffect(() => {
     const onCartChanged = (ev: Event) => {
@@ -523,8 +517,7 @@ export default function MapChrome({
         }
       });
 
-      // ② 2탭 상세 선택 상태 반영
-      setSelected((p) => (p && p.rowKey === rowKey ? { ...p, selectedInCart: !!selected } : p));
+      // ② 2탭 상세 선택 상태 반영 (selected is a prop, can't update it here)
 
       // ③ statsMap 보강 (스냅샷 값으로 먼저 채우고, 부족하면 fetch)
       if (ss?.name) {
