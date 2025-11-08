@@ -289,7 +289,7 @@ export default function MapPage() {
           lineHeight: `${sz}px`,
           textAlign: "center",
           borderRadius: "999px",
-          background: "rgba(108, 45, 255, 0.18)`,
+          background: "rgba(108, 45, 255, 0.18)",
           border: "1px solid rgba(108, 45, 255, 0.35)",
           color: "#6C2DFF",
           fontWeight: "700",
