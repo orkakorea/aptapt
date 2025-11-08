@@ -444,26 +444,24 @@ export default function MapChrome({
     const uniq = Array.from(new Set(names.filter(Boolean)));
     if (!uniq.length) return;
 
-    // ⚠️ 컬럼명 교정: '송출횟수'가 아니라 '월송출횟수'가 실제 컬럼
-    const { data, error } = await supabase
-      .from("raw_places")
-      .select("단지명, 세대수, 거주인원, 월송출횟수, 모니터수량")
-      .in("단지명", uniq);
+    const { data, error } = ((await supabase.rpc) as any)("get_public_place_stats_by_names", {
+      p_names: uniq,
+    });
 
     if (error) {
-      console.error("[Supabase] fetch error:", error);
+      console.error("[Supabase] stats rpc error:", error);
       return;
     }
 
     const map: Record<string, AptStats> = {};
-    (data || []).forEach((row: any) => {
-      const k = keyName(row["단지명"] || "");
+    ((data as any[]) || []).forEach((row: any) => {
+      const k = keyName(row.name || "");
       if (!k) return;
       map[k] = {
-        households: row["세대수"] != null ? Number(row["세대수"]) : undefined,
-        residents: row["거주인원"] != null ? Number(row["거주인원"]) : undefined,
-        monthlyImpressions: row["월송출횟수"] != null ? Number(row["월송출횟수"]) : undefined,
-        monitors: row["모니터수량"] != null ? Number(row["모니터수량"]) : undefined,
+        households: row.households != null ? Number(row.households) : undefined,
+        residents: row.residents != null ? Number(row.residents) : undefined,
+        monthlyImpressions: row.monthly_impressions != null ? Number(row.monthly_impressions) : undefined,
+        monitors: row.monitors != null ? Number(row.monitors) : undefined,
       };
     });
     setStatsMap((prev) => ({ ...prev, ...map }));
