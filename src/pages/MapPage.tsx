@@ -465,6 +465,7 @@ export default function MapPage() {
         const pos = mk.getPosition?.() || mk.__basePos;
         if (opts?.level != null) map.setLevel(opts.level);
         map.setCenter(pos);
+        suppressQuickRef.current = true; // ← 이번 클릭은 퀵담기 자동토글 금지
         maps.event.trigger(mk, "click"); // ← 마커 클릭과 동일 동작
         applyStaticSeparationAll();
       }
@@ -495,6 +496,7 @@ export default function MapPage() {
         }
       });
       if (best) {
+        suppressQuickRef.current = true; // ← 이번 클릭은 퀵담기 자동토글 금지
         maps.event.trigger(best, "click");
         applyStaticSeparationAll();
       }
