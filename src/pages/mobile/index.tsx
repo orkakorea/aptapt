@@ -422,7 +422,7 @@ export default function MapMobilePageV2() {
    * ========================= */
   const buildReceiptFrom = useCallback(
     (items: typeof computedCart, total: number, id?: string | null, mode?: InquiryKind) => {
-      const ticketCode = `T${Date.now().toString(36).toUpperCase()}`;
+      const ticketCode = `ORKA-${Date.now().toString(36).toUpperCase()}`;
       const createdAtISO = new Date().toISOString();
 
       const snapshot = buildCartSnapshot(items, total);
