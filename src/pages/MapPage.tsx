@@ -2,7 +2,8 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import MapChrome, { SelectedApt } from "../components/MapChrome";
-import { LocateFixed } from "lucide-react"; // ✅ PC 내 위치 버튼 아이콘
+import { LocateFixed, Zap } from "lucide-react";
+// ✅ PC 내 위치 버튼 아이콘
 
 type KakaoNS = typeof window & { kakao: any };
 const FALLBACK_KAKAO_KEY = "a53075efe7a2256480b8650cec67ebae";
@@ -1099,17 +1100,45 @@ export default function MapPage() {
     <div className="w-screen h-[100dvh] bg-white">
       <div ref={mapRef} className={`fixed top-16 left-0 right-0 bottom-0 z-[10] ${mapLeftClass}`} aria-label="map" />
 
-      {/* ✅ PC 고정 버튼: 내 위치로 이동 */}
-      <div className="fixed right-4 bottom-6 md:bottom-8 z-[60] flex flex-col items-end gap-2 pointer-events-auto">
-        <button
-          type="button"
-          onClick={goMyLocation}
-          aria-label="내 위치로 이동"
-          title="내 위치로 이동"
-          className="w-12 h-12 rounded-full shadow-lg bg-[#6F4BF2] text-white flex items-center justify-center hover:brightness-110 active:scale-95 transition"
-        >
-          <LocateFixed className="w-6 h-6" />
-        </button>
+      {/* ▼ 지도 우상단 고정 오버레이 */}
+      <div className="fixed top-[84px] right-4 z-[70] pointer-events-none">
+        <div className="flex flex-col items-end gap-2">
+          {/* 퀵담기 버튼 + 툴팁 */}
+          <div className="relative group pointer-events-auto">
+            <button
+              type="button"
+              onClick={() => setQuickMode((v) => !v)}
+              aria-label="빠른담기"
+              aria-pressed={quickMode}
+              className={`w-12 h-12 rounded-full shadow-lg flex items-center justify-center transition
+          ${quickMode ? "bg-[#FFD400] text-[#6F4BF2]" : "bg-[#6F4BF2] text-white"}
+          hover:brightness-110 active:scale-95`}
+            >
+              <Zap className="w-6 h-6" />
+            </button>
+            {/* 툴팁: 빠른담기 */}
+            <div
+              className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2
+                   rounded-md bg-[#111827] text-white text-xs px-2 py-1 shadow-md
+                   opacity-0 scale-95 transition
+                   group-hover:opacity-100 group-hover:scale-100 group-focus-within:opacity-100"
+            >
+              빠른담기
+            </div>
+          </div>
+
+          {/* 내 위치 버튼 */}
+          <button
+            type="button"
+            onClick={goMyLocation}
+            aria-label="내 위치로 이동"
+            title="내 위치로 이동"
+            className="w-12 h-12 rounded-full shadow-lg bg-[#6F4BF2] text-white
+                 flex items-center justify-center hover:brightness-110 active:scale-95 transition pointer-events-auto"
+          >
+            <LocateFixed className="w-6 h-6" />
+          </button>
+        </div>
       </div>
 
       <MapChromeAny
