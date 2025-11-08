@@ -216,6 +216,49 @@ export default function MapChrome({
   const [openPackageInquiry, setOpenPackageInquiry] = useState(false);
 
   const [statsMap, setStatsMap] = useState<Record<string, AptStats>>({});
+  // 퀵담기(지도) → 카트(좌측) 동기화
+  useEffect(() => {
+    const handler = (ev: Event) => {
+      const e = ev as CustomEvent<{ rowKey: string; selected: boolean }>;
+      const detail = e.detail;
+      if (!detail) return;
+      const { rowKey, selected: isSel } = detail;
+
+      // 현재 상세(2탭)가 같은 rowKey면 카트 반영
+      setCart((prev) => {
+        const has = prev.some((x) => x.rowKey === rowKey);
+        if (isSel) {
+          if (!has && selected && selected.rowKey === rowKey) {
+            const id = makeIdFromSelected(selected);
+            const productKey = classifyProductForPolicy(selected.productName, selected.installLocation);
+            const defaultMonths = prev.length > 0 ? prev[0].months : 1;
+            const newItem: CartItem = {
+              id,
+              rowKey,
+              name: selected.name,
+              productKey,
+              productName: selected.productName,
+              baseMonthly: selected.monthlyFee,
+              months: defaultMonths,
+              lat: selected.lat,
+              lng: selected.lng,
+            };
+            // 스크롤 유도
+            setTimeout(() => {
+              document.getElementById("bulkMonthsApply")?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }, 0);
+            return [newItem, ...prev];
+          }
+          return prev;
+        } else {
+          return prev.filter((x) => x.rowKey !== rowKey);
+        }
+      });
+    };
+
+    window.addEventListener("orka:cart:changed", handler as EventListener);
+    return () => window.removeEventListener("orka:cart:changed", handler as EventListener);
+  }, [selected]);
 
   const fmtNum = (n?: number, unit = "") =>
     typeof n === "number" && Number.isFinite(n) ? n.toLocaleString() + (unit ? " " + unit : "") : "—";
@@ -357,7 +400,12 @@ export default function MapChrome({
   };
 
   /* ===== 2탭 버튼 즉시 토글 ===== */
-  const inCart = !!selected && cart.some((c) => c.id === makeIdFromSelected(selected));
+  const inCart =
+    !!selected &&
+    (selected.rowKey
+      ? cart.some((c) => c.rowKey === selected.rowKey)
+      : cart.some((c) => c.id === makeIdFromSelected(selected)));
+
   const onClickAddOrCancel = () => {
     if (!selected) return;
     const id = makeIdFromSelected(selected);
