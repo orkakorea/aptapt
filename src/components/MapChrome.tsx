@@ -193,7 +193,6 @@ type AptStats = { households?: number; residents?: number; monthlyImpressions?: 
 /** ===== 내부 유틸(행키 파서 & 보강) ===== */
 function parseRowKey(rowKey?: string): { placeId?: string } {
   if (!rowKey) return {};
-  // 형태1) id:123
   const m = /^id:([^|]+)$/i.exec(rowKey.trim());
   if (m) return { placeId: m[1] };
   return {};
@@ -256,22 +255,17 @@ export default function MapChrome({
         };
       }
       const place = parseRowKey(rowKey);
-      // 이미 충분하면 패스
       if (next.baseMonthly && next.productName) {
         next.hydrated = true;
         const copy = prev.slice();
         copy[idx] = next;
         return copy;
       }
-
-      // placeId가 없으면 일단 힌트까지만 반영
       if (!place.placeId) {
         const copy = prev.slice();
         copy[idx] = next;
         return copy;
       }
-
-      // 비동기 호출: 완료 시 상태 반영
       (async () => {
         const { data, error } = await (supabase as any).rpc("get_public_place_detail", {
           p_place_id: place.placeId,
@@ -307,7 +301,6 @@ export default function MapChrome({
           return out;
         });
 
-        // statsMap도 보강
         const key = keyName(hint?.name ?? d.name ?? "");
         if (key) {
           setStatsMap((prev) => ({
@@ -348,12 +341,10 @@ export default function MapChrome({
         const already = prev.some((x) => x.rowKey === rowKey);
         if (shouldSelect) {
           if (already) {
-            // 이미 있으면 보강만 시도
             setTimeout(() => hydrateCartItemByRowKey(rowKey, snap ?? undefined), 0);
             return prev;
           }
 
-          // snap이 있으면 즉시 생성, 없으면 placeholder 후 보강
           const name = snap?.name ?? "(이름 불러오는 중)";
           const productName = snap?.productName ?? undefined;
           const baseMonthly = snap?.monthlyFee ?? undefined;
@@ -381,7 +372,6 @@ export default function MapChrome({
             hydrated: Boolean(snap?.monthlyFee && snap?.productName),
           };
 
-          // statsMap을 스냅샷으로 선반영
           if (snap?.name) {
             const k = keyName(snap.name);
             setStatsMap((prevStats) => ({
@@ -395,10 +385,8 @@ export default function MapChrome({
             }));
           }
 
-          // 보강 예약
           setTimeout(() => hydrateCartItemByRowKey(rowKey, snap ?? undefined), 0);
 
-          // 스티키 헤더로 살짝 스크롤 유도
           setTimeout(() => {
             document.getElementById("bulkMonthsApply")?.scrollIntoView({ behavior: "smooth", block: "start" });
           }, 0);
@@ -434,7 +422,7 @@ export default function MapChrome({
     return Math.round(base * (1 - preRate) * (1 - periodRate));
   }, [selected]);
 
-  /** ===== 총 합계 (보강 후 자동 반영) ===== */
+  /** ===== 총 합계 ===== */
   const cartTotal = useMemo(() => {
     return cart.reduce((sum, item) => {
       const rule = item.productKey ? DEFAULT_POLICY[item.productKey] : undefined;
@@ -455,14 +443,18 @@ export default function MapChrome({
   async function fetchStatsByNames(names: string[]) {
     const uniq = Array.from(new Set(names.filter(Boolean)));
     if (!uniq.length) return;
+
+    // ⚠️ 컬럼명 교정: '송출횟수'가 아니라 '월송출횟수'가 실제 컬럼
     const { data, error } = await supabase
       .from("raw_places")
-      .select("단지명, 세대수, 거주인원, 송출횟수, 모니터수량")
+      .select("단지명, 세대수, 거주인원, 월송출횟수, 모니터수량")
       .in("단지명", uniq);
+
     if (error) {
       console.error("[Supabase] fetch error:", error);
       return;
     }
+
     const map: Record<string, AptStats> = {};
     (data || []).forEach((row: any) => {
       const k = keyName(row["단지명"] || "");
@@ -470,7 +462,7 @@ export default function MapChrome({
       map[k] = {
         households: row["세대수"] != null ? Number(row["세대수"]) : undefined,
         residents: row["거주인원"] != null ? Number(row["거주인원"]) : undefined,
-        monthlyImpressions: row["송출횟수"] != null ? Number(row["송출횟수"]) : undefined,
+        monthlyImpressions: row["월송출횟수"] != null ? Number(row["월송출횟수"]) : undefined,
         monitors: row["모니터수량"] != null ? Number(row["모니터수량"]) : undefined,
       };
     });
@@ -712,14 +704,10 @@ export default function MapChrome({
 
           <div className="rounded-2xl border border-[#E5E7EB] bg-white flex-1 min-h-0 overflow-hidden">
             {cart.length === 0 ? (
-              /* ✅ 보라 아이콘 + 2줄 문구 중앙 배치 */
               <div className="relative h-full">
                 <div className="absolute inset-0 grid place-items-center p-6">
                   <div className="w-full max-w-[320px] min-h-[200px] grid place-items-center text-center">
-                    {/* 아이콘 */}
                     <img src="/atp.png" alt="아파트 아이콘" className="w-16 h-16 mb-3 object-contain" />
-
-                    {/* 문구 */}
                     <div className="text-x1 text-[#6B7280] font-semibold leading-relaxed">
                       <span className="block">광고를 원하는</span>
                       <span className="block">아파트 단지를 담아주세요!</span>
@@ -729,7 +717,6 @@ export default function MapChrome({
               </div>
             ) : (
               <div className="h-full overflow-y-auto">
-                {/* ✅ sticky 헤더: 총 n건 + 일괄적용 */}
                 <div
                   className="sticky top-0 z-10 bg-white/95 backdrop-blur px-5 pt-5 pb-2 border-b border-[#F3F4F6]"
                   id="bulkMonthsApply"
@@ -748,7 +735,6 @@ export default function MapChrome({
                   </div>
                 </div>
 
-                {/* 리스트 */}
                 <div className="px-5 pb-4 space-y-3">
                   {cart.map((item) => (
                     <CartItemCard
@@ -761,7 +747,6 @@ export default function MapChrome({
                   ))}
                 </div>
 
-                {/* 하단 버튼 */}
                 <div className="sticky bottom-0 bg-white/95 backdrop-blur px-5 pt-3 pb-5 border-t border-[#F3F4F6]">
                   <button
                     type="button"
@@ -935,7 +920,6 @@ function CartItemCard({ item, onChangeMonths, onRemove, onTitleClick }: CartItem
     <div className="rounded-2xl border border-[#E5E7EB] bg-white p-4">
       <div className="flex items-start justify-between">
         <div className="min-w-0">
-          {/* ✅ 아파트명 클릭 → 지도 포커스 */}
           <button
             onClick={onTitleClick}
             className="font-semibold text-black leading-tight truncate hover:underline text-left"
@@ -972,7 +956,7 @@ function CartItemCard({ item, onChangeMonths, onRemove, onTitleClick }: CartItem
       </div>
 
       <div className="mt-3 flex items-center justify-between">
-        <div className="text-[#6B7280] text-[13px]">월광고료</div>
+        <div className="text-[#6B7280] text:[13px]">월광고료</div>
         <div className="text-sm font-semibold text-black whitespace-nowrap">{monthlyAfter.toLocaleString()}원</div>
       </div>
 
