@@ -601,6 +601,12 @@ export default function MapPage() {
             return; // ▼ 아래 'clicked' 이미지 로직 타지 않음
           }
           setSelected(sel);
+          if (quickModeRef.current) {
+            toggleCartByRowKey(rowKey);
+            lastClickedRef.current = null;
+            applyStaticSeparationAll();
+            return;
+          }
 
           // ✅ 상세 보강 RPC
           (() => {
@@ -798,6 +804,12 @@ export default function MapPage() {
             return; // ▼ 아래 'clicked' 이미지 로직 타지 않음
           }
           setSelected(sel);
+          if (quickModeRef.current) {
+            toggleCartByRowKey(rowKey);
+            lastClickedRef.current = null;
+            applyStaticSeparationAll();
+            return;
+          }
 
           // ✅ 상세 보강 RPC
           (() => {
