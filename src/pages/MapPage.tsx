@@ -401,14 +401,17 @@ useEffect(() => {
       applyGroupPrioritiesForRowKey(rowKey);
       applyStaticSeparationAll();
       window.dispatchEvent(
-  new CustomEvent("orka:cart:changed", {
-    detail: {
-      rowKey,
-      selected: true,
-      selectedSnapshot: selectedRef.current ?? lastSelectedSnapRef.current ?? null,
+        new CustomEvent("orka:cart:changed", {
+          detail: {
+            rowKey,
+            selected: true,
+            selectedSnapshot: selectedRef.current ?? lastSelectedSnapRef.current ?? null,
+          },
+        })
+      );
     },
-  }),
-);
+    [setMarkerStateByRowKey, applyGroupPrioritiesForRowKey, applyStaticSeparationAll]
+  );
 
   const removeFromCartByRowKey = useCallback(
     (rowKey: string) => {
@@ -418,14 +421,17 @@ useEffect(() => {
       applyGroupPrioritiesForRowKey(rowKey);
       applyStaticSeparationAll();
       window.dispatchEvent(
-  new CustomEvent("orka:cart:changed", {
-    detail: {
-      rowKey,
-      selected: true,
-      selectedSnapshot: selectedRef.current ?? lastSelectedSnapRef.current ?? null,
+        new CustomEvent("orka:cart:changed", {
+          detail: {
+            rowKey,
+            selected: false,
+            selectedSnapshot: selectedRef.current ?? lastSelectedSnapRef.current ?? null,
+          },
+        })
+      );
     },
-  }),
-);
+    [setMarkerStateByRowKey, applyGroupPrioritiesForRowKey, applyStaticSeparationAll]
+  );
 
   const toggleCartByRowKey = useCallback(
     (rowKey: string) => {
