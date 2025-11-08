@@ -30,6 +30,9 @@ type Props = {
   onCloseSelected?: () => void;
   onSearch?: (query: string) => void;
   initialQuery?: string;
+  // Quick Add (퀵담기) 표시/토글
+  quickMode?: boolean;
+  onToggleQuick?: () => void;
 
   // (구버전 호환)
   setMarkerState?: (name: string, state: "default" | "selected") => void;
@@ -199,6 +202,8 @@ export default function MapChrome({
   focusByRowKey,
   focusByLatLng,
   cartStickyTopPx = 64,
+  quickMode,
+  onToggleQuick,
 }: Props) {
   const [query, setQuery] = useState(initialQuery || "");
   useEffect(() => setQuery(initialQuery || ""), [initialQuery]);
@@ -429,7 +434,28 @@ export default function MapChrome({
       <div className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-[#E5E7EB] z-[60]">
         <div className="h-full flex items-center justify-between px-6">
           <div className="text-xl font-bold text.black">응답하라 입주민이여</div>
-          <LoginModal />
+
+          {/* ▼ 오른쪽 스택: 퀵담기 토글 + 로그인 */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onToggleQuick}
+              aria-pressed={!!quickMode}
+              disabled={!onToggleQuick}
+              className={`h-8 px-3 rounded-md text-sm border transition
+        ${
+          quickMode
+            ? "bg-[#6C2DFF] text-white border-[#6C2DFF] hover:bg-[#5b23ff]"
+            : "bg-white text-[#6C2DFF] border-[#6C2DFF] hover:bg-[#F4F0FB]"
+        }
+        ${!onToggleQuick ? "opacity-60 cursor-not-allowed" : ""}`}
+              title="+ 마커 클릭 시 카트 담기/취소로 바로 동작"
+            >
+              {quickMode ? "퀵담기 ON" : "퀵담기 OFF"}
+            </button>
+
+            <LoginModal />
+          </div>
         </div>
       </div>
 
@@ -642,11 +668,11 @@ export default function MapChrome({
                       {selected.productName || "—"}
                     </span>
                   </Row>
-                 <Row label="설치 위치">
-  <span className="whitespace-pre-wrap break-words">
-    {selected.installLocation ?? (selected as any)?.install_location ?? "—"}
-  </span>
-</Row>
+                  <Row label="설치 위치">
+                    <span className="whitespace-pre-wrap break-words">
+                      {selected.installLocation ?? (selected as any)?.install_location ?? "—"}
+                    </span>
+                  </Row>
                   <Row label="모니터 수량">{fmtNum(selected.monitors, "대")}</Row>
                   <Row label="월 송출횟수">{fmtNum(selected.monthlyImpressions, "회")}</Row>
                   <Row label="송출 1회당 비용">{fmtNum(selected.costPerPlay, "원")}</Row>
