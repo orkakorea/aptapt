@@ -172,7 +172,6 @@ const InquiriesPage: React.FC = () => {
       const {
         data: { session },
       } = await supabase.auth.getSession();
-      const role = (session?.user as any)?.app_metadata?.role;
       if (mounted) {
         setIsAdmin(role === "admin");
         setSessionReady(true);
@@ -182,7 +181,6 @@ const InquiriesPage: React.FC = () => {
 
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
       const role = (session?.user as any)?.app_metadata?.role;
-      setIsAdmin(role === "admin");
       setSessionReady(true);
     });
 
