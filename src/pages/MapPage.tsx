@@ -3,7 +3,6 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import MapChrome, { SelectedApt } from "../components/MapChrome";
 import { LocateFixed, Zap } from "lucide-react";
-// ✅ PC 내 위치 버튼 아이콘
 
 type KakaoNS = typeof window & { kakao: any };
 const FALLBACK_KAKAO_KEY = "a53075efe7a2256480b8650cec67ebae";
@@ -194,22 +193,17 @@ export default function MapPage() {
   // ✅ Quick Add 모드 상태
   const quickModeRef = useRef<boolean>(false);
   const [quickMode, setQuickMode] = useState(false);
-  // ▼ 프로그램적으로 마커 클릭을 트리거할 때(카트→지도 포커스) 퀵담기 자동 토글을 1회 억제
-  const suppressQuickRef = useRef(false);
 
   // ✅ 선택 스냅샷 참조 (이벤트 payload에 사용)
   const selectedRef = useRef<SelectedAptX | null>(null);
   const lastSelectedSnapRef = useRef<SelectedAptX | null>(null);
 
   const [selected, setSelected] = useState<SelectedAptX | null>(null);
-  // ▼ 선택된 단지 스냅샷(카트 이벤트에 같이 실어 보냄)
-  const selectedSnapRef = useRef<SelectedAptX | null>(null);
-  useEffect(() => {
-    selectedSnapRef.current = selected;
-  }, [selected]);
-
   const [initialQ, setInitialQ] = useState("");
   const [kakaoError, setKakaoError] = useState<string | null>(null);
+
+  // 🔒 퀵담기 토글 억제 플래그(카트에서 단지명 클릭 → 프로그램틱 클릭 시 한 번 억제)
+  const suppressQuickToggleOnceRef = useRef<boolean>(false);
 
   // Sync quickMode state to ref
   useEffect(() => {
@@ -418,7 +412,11 @@ export default function MapPage() {
       const snap = selectedRef.current ?? lastSelectedSnapRef.current ?? null;
       window.dispatchEvent(
         new CustomEvent("orka:cart:changed", {
-          detail: { rowKey, selected: true, selectedSnapshot: selectedSnapRef.current ?? null },
+          detail: {
+            rowKey,
+            selected: true,
+            selectedSnapshot: snap,
+          },
         }),
       );
     },
@@ -437,7 +435,11 @@ export default function MapPage() {
       const snap = selectedRef.current ?? lastSelectedSnapRef.current ?? null;
       window.dispatchEvent(
         new CustomEvent("orka:cart:changed", {
-          detail: { rowKey, selected: false, selectedSnapshot: selectedSnapRef.current ?? null },
+          detail: {
+            rowKey,
+            selected: false,
+            selectedSnapshot: snap,
+          },
         }),
       );
     },
@@ -465,8 +467,9 @@ export default function MapPage() {
         const pos = mk.getPosition?.() || mk.__basePos;
         if (opts?.level != null) map.setLevel(opts.level);
         map.setCenter(pos);
-        suppressQuickRef.current = true; // ← 이번 클릭은 퀵담기 자동토글 금지
-        maps.event.trigger(mk, "click"); // ← 마커 클릭과 동일 동작
+        // 🚫 프로그램틱 클릭에서는 퀵담기 토글을 한 번 억제
+        suppressQuickToggleOnceRef.current = true;
+        maps.event.trigger(mk, "click");
         applyStaticSeparationAll();
       }
     },
@@ -496,7 +499,8 @@ export default function MapPage() {
         }
       });
       if (best) {
-        suppressQuickRef.current = true; // ← 이번 클릭은 퀵담기 자동토글 금지
+        // 🚫 프로그램틱 클릭에서는 퀵담기 토글을 한 번 억제
+        suppressQuickToggleOnceRef.current = true;
         maps.event.trigger(best, "click");
         applyStaticSeparationAll();
       }
@@ -630,20 +634,15 @@ export default function MapPage() {
             lng,
             selectedInCart: selectedRowKeySetRef.current.has(rowKey),
           };
-
-          if (quickModeRef.current && !suppressQuickRef.current) {
-            // 퀵담기 ON + 사용자 직접 클릭 → 담기/취소만 수행하고 종료
-            toggleCartByRowKey(rowKey);
-            lastClickedRef.current = null;
-            applyStaticSeparationAll();
-            return; // 아래 클릭 강조 로직은 스킵
-          }
-          // (포커스에서 유도한 클릭이면 여기서 억제 플래그만 해제하고 상세를 연다)
-          suppressQuickRef.current = false;
           setSelected(sel);
-          // React가 selected를 커밋한 뒤에 카트 토글 신호를 보내도록 한 틱 지연
+
+          // 🚫 카트/프로그램틱 클릭 시에는 퀵담기 자동 토글 1회 억제
+          const suppress = suppressQuickToggleOnceRef.current;
+          suppressQuickToggleOnceRef.current = false;
+
+          // React 커밋 이후 한 틱 지연
           setTimeout(() => {
-            if (quickModeRef.current) {
+            if (quickModeRef.current && !suppress) {
               toggleCartByRowKey(rowKey);
               lastClickedRef.current = null;
               applyStaticSeparationAll();
@@ -841,8 +840,13 @@ export default function MapPage() {
             selectedInCart: selectedRowKeySetRef.current.has(rowKey),
           };
           setSelected(sel);
+
+          // 🚫 카트/프로그램틱 클릭 시에는 퀵담기 자동 토글 1회 억제
+          const suppress = suppressQuickToggleOnceRef.current;
+          suppressQuickToggleOnceRef.current = false;
+
           setTimeout(() => {
-            if (quickModeRef.current) {
+            if (quickModeRef.current && !suppress) {
               toggleCartByRowKey(rowKey);
               lastClickedRef.current = null;
               applyStaticSeparationAll();
@@ -971,7 +975,7 @@ export default function MapPage() {
     btn.style.height = "22px";
     btn.style.borderRadius = "999px";
     btn.style.background = "#FFFFFF";
-    btn.style.border = "2px solid #FFD400"; // ✅ 문자열 수정
+    btn.style.border = "2px solid #FFD400";
     btn.style.boxShadow = "0 2px 6px rgba(0,0,0,0.15)";
     btn.style.display = "flex";
     btn.style.alignItems = "center";
