@@ -572,16 +572,95 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
                   </button>
                 </div>
                 <div className="px-6 py-5 max-h-[60vh] overflow-auto text-[13px] leading-6 text-gray-700">
-                  <p className="mb-3">
-                    오르카 코리아는 문의 접수 및 상담을 위해 최소한의 개인정보를 수집·이용하며, 목적 달성 후 지체 없이
-                    파기합니다. 수집 항목: 성명, 연락처, 이메일, 문의 내용 등. 보유·이용 기간: 문의 처리 완료 후 1년.
-                  </p>
-                  <p className="mb-3">
-                    필요한 경우 매체 운영사 등 협력사와의 상담/집행을 위해 최소한의 정보가 공유될 수 있습니다. 법령에
-                    따른 고지·동의 절차를 준수합니다.
-                  </p>
-                  <p>귀하는 동의를 거부할 권리가 있으며, 동의 거부 시 상담 제공이 제한될 수 있습니다.</p>
+                  <p className="mb-3">오르카 코리아(이하 ‘회사’)는 아래와 같이 개인정보를 수집·이용합니다.</p>
+
+                  <ol className="list-decimal pl-5 space-y-3">
+                    <li>
+                      <p className="font-medium">이용목적</p>
+                      <ul className="list-disc pl-5 mt-1 space-y-1">
+                        <li>문의 접수, 견적/제안 제공, 캠페인 진행 관련 상담 및 고객응대</li>
+                        <li>계약 체결·이행·정산, 분쟁 대응 및 민원 처리</li>
+                        <li>서비스 품질 개선 및 기록 보존(법령 준수)</li>
+                      </ul>
+                    </li>
+
+                    <li>
+                      <p className="font-medium">수집항목</p>
+                      <ul className="list-disc pl-5 mt-1 space-y-1">
+                        <li>
+                          [필수] 이름, 연락처(전화), 이메일, 회사/브랜드명, 캠페인 기본정보(매체·기간·예산 등), 접수 시
+                          자동 생성 정보(IP, 브라우저/디바이스 정보, 접수 일시)
+                        </li>
+                        <li>[선택] 직책/부서, 참고자료(파일/링크), 기타 전달사항</li>
+                      </ul>
+                    </li>
+
+                    <li>
+                      <p className="font-medium">보유·이용기간</p>
+                      <ul className="list-disc pl-5 mt-1 space-y-1">
+                        <li>문의 처리 완료 후 3년 보관 후 파기</li>
+                        <li>관련 법령에서 별도 보존이 요구되는 경우 해당 기간 동안 보관</li>
+                      </ul>
+                    </li>
+
+                    <li>
+                      <p className="font-medium">제3자 제공</p>
+                      <ul className="list-disc pl-5 mt-1 space-y-1">
+                        <li>원칙적으로 제3자에게 제공하지 않습니다.</li>
+                        <li>
+                          단, 계약 체결 및 집행 과정에서 캠페인 수행을 위해 필요한 범위 내에서 매체사·협력사에 최소
+                          항목을 제공할 수 있습니다(사전 고지 또는 별도 동의).
+                        </li>
+                      </ul>
+                    </li>
+
+                    <li>
+                      <p className="font-medium">처리위탁</p>
+                      <ul className="list-disc pl-5 mt-1 space-y-1">
+                        <li>
+                          고객관리 시스템 운영/유지보수, 전산·보안, 알림 발송 등 서비스 제공을 위한 업무를 전문업체에
+                          위탁할 수 있으며, 위탁계약 시 관련 법령을 준수합니다.
+                        </li>
+                      </ul>
+                    </li>
+
+                    <li>
+                      <p className="font-medium">국외 이전</p>
+                      <ul className="list-disc pl-5 mt-1 space-y-1">
+                        <li>기본: 국외 이전 없음.</li>
+                        <li>
+                          (해당 시) 이전받는 자, 국가, 일시·방법, 이전 항목, 보유·이용기간을 사전 고지하고 별도 동의를
+                          받습니다.
+                        </li>
+                      </ul>
+                    </li>
+
+                    <li>
+                      <p className="font-medium">정보주체의 권리</p>
+                      <ul className="list-disc pl-5 mt-1 space-y-1">
+                        <li>이용자는 언제든지 개인정보 열람·정정·삭제·처리정지를 요청할 수 있습니다.</li>
+                        <li>문의: privacy@orka.co.kr / 031-1551-0810</li>
+                      </ul>
+                    </li>
+
+                    <li>
+                      <p className="font-medium">동의 거부 권리 및 불이익</p>
+                      <ul className="list-disc pl-5 mt-1 space-y-1">
+                        <li>
+                          이용자는 개인정보 수집·이용에 대한 동의를 거부할 권리가 있으나, 필수항목 동의가 없을 경우 문의
+                          접수가 제한될 수 있습니다.
+                        </li>
+                      </ul>
+                    </li>
+                  </ol>
+
+                  <div className="mt-4 text-[12px] text-gray-500">
+                    <span>시행일: 2025-11-08</span>
+                    <span className="mx-2">|</span>
+                    <span>버전: v1.2</span>
+                  </div>
                 </div>
+
                 <div className="px-6 py-4 border-t border-gray-100 flex justify-end">
                   <button
                     className="rounded-xl px-5 py-3 text-white font-semibold bg-violet-600 hover:bg-violet-700"
