@@ -289,7 +289,7 @@ export default function MapPage() {
           lineHeight: `${sz}px`,
           textAlign: "center",
           borderRadius: "999px",
-          background: "rgba(108, 45, 255, 0.18)`,
+          background: "rgba(108, 45, 255, 0.18)",
           border: "1px solid rgba(108, 45, 255, 0.35)",
           color: "#6C2DFF",
           fontWeight: "700",
@@ -752,9 +752,9 @@ export default function MapPage() {
       const rows2 = (data2 ?? []) as PlaceRow[];
       rows2.forEach((row) => {
         if (row.lat == null || row.lng == null) return;
-        const key = `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(7)}|${rowIdOf(row) != null ? String(
-          rowIdOf(row),
-        ) : ""}|${String(getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "")}|${String(getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "")}`;
+        const key = `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(7)}|${
+          rowIdOf(row) != null ? String(rowIdOf(row)) : ""
+        }|${String(getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "")}|${String(getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "")}`;
         if (markerCacheRef.current.has(key)) return;
 
         const lat = Number(row.lat),
