@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import QuoteModal, { QuoteLineItem } from "./QuoteM"bulkMonthsApply"odal";
+import QuoteModal, { QuoteLineItem } from "./QuoteModal";
 import InquiryModal from "./InquiryModal";
 import { supabase } from "@/integrations/supabase/client";
 import LoginModal from "@/components/LoginModal";
@@ -435,8 +435,27 @@ export default function MapChrome({
         <div className="h-full flex items-center justify-between px-6">
           <div className="text-xl font-bold text.black">응답하라 입주민이여</div>
 
-          <LoginModal />
+          {/* ▼ 오른쪽 스택: 퀵담기 토글 + 로그인 */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onToggleQuick}
+              aria-pressed={!!quickMode}
+              disabled={!onToggleQuick}
+              className={`h-8 px-3 rounded-md text-sm border transition
+        ${
+          quickMode
+            ? "bg-[#6C2DFF] text-white border-[#6C2DFF] hover:bg-[#5b23ff]"
+            : "bg-white text-[#6C2DFF] border-[#6C2DFF] hover:bg-[#F4F0FB]"
+        }
+        ${!onToggleQuick ? "opacity-60 cursor-not-allowed" : ""}`}
+              title="+ 마커 클릭 시 카트 담기/취소로 바로 동작"
+            >
+              {quickMode ? "퀵담기 ON" : "퀵담기 OFF"}
+            </button>
 
+            <LoginModal />
+          </div>
         </div>
       </div>
 
