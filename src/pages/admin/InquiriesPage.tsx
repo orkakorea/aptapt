@@ -165,28 +165,49 @@ const InquiriesPage: React.FC = () => {
     return { fromIdx, toIdx: fromIdx + pageSize - 1 };
   }, [page, pageSize]);
 
-  // ----- 세션/role 확인 -----
+  // ----- 세션/role 확인 (DB RPC is_admin()만 사용) -----
   useEffect(() => {
     let mounted = true;
-    const run = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const role = (session?.user as any)?.app_metadata?.role;
-      if (mounted) {
-        setIsAdmin(role === "admin");
+
+    async function checkAdmin() {
+      try {
+        // 1) 현재 세션 확인
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+
+        if (!mounted) return;
+
+        if (session?.user) {
+          // 2) DB 보안 단일 출처: SECURITY DEFINER RPC
+          const { data: adminCheck, error } = await supabase.rpc("is_admin");
+          if (!mounted) return;
+          setIsAdmin(Boolean(adminCheck) && !error);
+        } else {
+          setIsAdmin(false);
+        }
+      } catch {
+        if (!mounted) return;
+        setIsAdmin(false);
+      } finally {
+        if (!mounted) return;
         setSessionReady(true);
       }
-    };
-    run();
+    }
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
-      const role = (session?.user as any)?.app_metadata?.role;
-      setIsAdmin(role === "admin");
-      setSessionReady(true);
+    // 마운트 시 1회 검사
+    checkAdmin();
+
+    // 세션 변동 시 재검사 (구독 1개만)
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, _session) => {
+      checkAdmin();
     });
 
-    return () => sub?.subscription?.unsubscribe?.();
+    // 정리
+    return () => {
+      mounted = false;
+      sub?.subscription?.unsubscribe?.();
+    };
   }, []);
 
   // ----- 서버사이드 로드 -----
