@@ -797,7 +797,7 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
         lineTotal = Math.round(baseMonthlyRaw * months);
       }
 
-      // 표시용 기준 월가
+      // 표시용 기준 월가(초기값)
       const baseMonthlyEff =
         baseMonthlyRaw != null && baseMonthlyRaw > 0
           ? baseMonthlyRaw
@@ -812,28 +812,48 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
         ) || "";
       const key = normPolicyKey(productName);
 
+      // 기준 월가 표시에 사용할 값(기본은 baseMonthlyEff)
+      let baseMonthlyView = baseMonthlyEff;
+
       // ───────── 모바일 유입만: 정책 유틸로 재계산(표준화) ─────────
       if (mobile && months > 0) {
-        const baseCandidate =
-          (baseMonthlyEff != null ? baseMonthlyEff : null) ??
-          (lineTotal > 0 ? Math.round(lineTotal / months) : null) ??
-          (monthlyAfter != null ? monthlyAfter : null);
+        if (key === "ELEVATOR TV") {
+          // ✅ 엘리베이터TV: '기준'을 반드시 할인 전으로 고정하여 이중 할인 방지
+          const baseMonthlyTrue =
+            (baseMonthlyRaw != null && baseMonthlyRaw > 0 ? baseMonthlyRaw : null) ??
+            (baseTotalField != null && months > 0 ? Math.round(baseTotalField / months) : null);
 
-        if (baseCandidate != null && baseCandidate > 0) {
-          const { monthly } = calcMonthlyWithPolicy(productName, months, baseCandidate, undefined, 1);
-          if (monthly && monthly > 0) {
-            monthlyAfter = monthly;
-            lineTotal = Math.round(monthly * months);
+          if (baseMonthlyTrue != null && baseMonthlyTrue > 0) {
+            const { monthly } = calcMonthlyWithPolicy(productName, months, baseMonthlyTrue, undefined, 1);
+            if (monthly && monthly > 0) {
+              monthlyAfter = monthly; // 할인후 = 정책 한 번만 적용
+              lineTotal = Math.round(monthly * months);
+            }
+            baseTotal = months > 0 ? baseMonthlyTrue * months : baseTotal; // 기준 총액(할인 전)
+            baseMonthlyView = baseMonthlyTrue; // 표 '월광고료(기준)'에 표시
           }
-        }
-        // baseTotal 보정(표시용)
-        if ((!baseTotal || baseTotal <= 0) && baseCandidate != null && months > 0) {
-          baseTotal = baseCandidate * months;
+          // ⚠️ 주의: monthlyAfter/lineTotal로 역산한 값을 기준으로 쓰지 않음(이중 할인 방지)
+        } else {
+          // 일반 모바일(기존 로직 유지)
+          const baseCandidate =
+            (baseMonthlyEff != null ? baseMonthlyEff : null) ??
+            (lineTotal > 0 ? Math.round(lineTotal / months) : null) ??
+            (monthlyAfter != null ? monthlyAfter : null);
+
+          if (baseCandidate != null && baseCandidate > 0) {
+            const { monthly } = calcMonthlyWithPolicy(productName, months, baseCandidate, undefined, 1);
+            if (monthly && monthly > 0) {
+              monthlyAfter = monthly;
+              lineTotal = Math.round(monthly * months);
+            }
+          }
+          if ((!baseTotal || baseTotal <= 0) && baseCandidate != null && months > 0) {
+            baseTotal = baseCandidate * months;
+          }
         }
       }
       // ───────── PC 유입/기존 경로: 기존 로직 유지 (변경 없음) ─────────
       else {
-        // ELEVATOR TV 전용: 기존 규칙 유지
         if (key === "ELEVATOR TV" && months > 0) {
           if (!baseTotal || baseTotal <= 0) {
             baseTotal = baseMonthlyEff != null && months > 0 ? baseMonthlyEff * months : 0;
@@ -868,7 +888,7 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
           ) || "",
         product_name: productName,
         months: Math.max(0, months || 0),
-        baseMonthly: baseMonthlyEff ?? (months > 0 && baseTotal > 0 ? Math.round(baseTotal / months) : null),
+        baseMonthly: baseMonthlyView ?? (months > 0 && baseTotal > 0 ? Math.round(baseTotal / months) : null),
         monthlyAfter: monthlyAfter ?? (months > 0 && lineTotal > 0 ? Math.round(lineTotal / months) : null),
         lineTotal: Math.max(0, lineTotal || 0),
       };
