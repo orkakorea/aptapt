@@ -216,6 +216,69 @@ export default function MapChrome({
   const [openPackageInquiry, setOpenPackageInquiry] = useState(false);
 
   const [statsMap, setStatsMap] = useState<Record<string, AptStats>>({});
+  // 퀵담기 신호 수신 시, 최신 selected를 정확히 읽기 위한 ref
+  const selectedRef = React.useRef<SelectedApt | null>(selected);
+  useEffect(() => {
+    selectedRef.current = selected ?? null;
+  }, [selected]);
+  // 지도(MapPage)에서 날아오는 담기/취소 이벤트 → 카트에 반영
+  useEffect(() => {
+    const onCartChanged = (ev: Event) => {
+      const e = ev as CustomEvent<{ rowKey: string; selected: boolean }>;
+      const payload = e.detail;
+      if (!payload) return;
+
+      const { rowKey, selected: shouldSelect } = payload;
+      const sel = selectedRef.current;
+
+      // 현재 상세(2탭)가 같은 rowKey일 때만 카트 반영(정보를 sel에서 가져옴)
+      setCart((prev) => {
+        const already = prev.some((x) => x.rowKey === rowKey);
+
+        if (shouldSelect) {
+          if (already) return prev;
+          if (!sel || sel.rowKey !== rowKey) return prev; // 아직 상세가 안 열렸다면 대기
+
+          const id = [
+            String(sel.name ?? "")
+              .replace(/\s+/g, "")
+              .toLowerCase(),
+            String(sel.productName ?? "")
+              .replace(/\s+/g, "")
+              .toLowerCase(),
+          ].join("||");
+          const productKey = classifyProductForPolicy(sel.productName, sel.installLocation);
+          const defaultMonths = prev.length > 0 ? prev[0].months : 1;
+
+          const newItem: CartItem = {
+            id,
+            rowKey,
+            name: sel.name,
+            productKey,
+            productName: sel.productName,
+            baseMonthly: sel.monthlyFee,
+            months: defaultMonths,
+            lat: sel.lat,
+            lng: sel.lng,
+          };
+
+          // 스티키 헤더로 살짝 스크롤 유도
+          setTimeout(() => {
+            document.getElementById("bulkMonthsApply")?.scrollIntoView({ behavior: "smooth", block: "start" });
+          }, 0);
+
+          return [newItem, ...prev];
+        } else {
+          // 취소일 때는 해당 rowKey만 제거
+          return prev.filter((x) => x.rowKey !== rowKey);
+        }
+      });
+    };
+
+    window.addEventListener("orka:cart:changed", onCartChanged as EventListener);
+    return () => window.removeEventListener("orka:cart:changed", onCartChanged as EventListener);
+  }, []);
+
   // 퀵담기(지도) → 카트(좌측) 동기화
   useEffect(() => {
     const handler = (ev: Event) => {
