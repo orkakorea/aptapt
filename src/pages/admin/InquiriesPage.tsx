@@ -172,19 +172,37 @@ const InquiriesPage: React.FC = () => {
       const {
         data: { session },
       } = await supabase.auth.getSession();
-      if (mounted) {
-        setIsAdmin(role === "admin");
-        setSessionReady(true);
+      if (!mounted) return;
+      
+      if (session?.user) {
+        const { data: adminCheck, error } = await supabase.rpc('is_admin');
+        if (mounted) {
+          setIsAdmin(Boolean(adminCheck) && !error);
+          setSessionReady(true);
+        }
+      } else {
+        if (mounted) {
+          setIsAdmin(false);
+          setSessionReady(true);
+        }
       }
     };
     run();
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
-      const role = (session?.user as any)?.app_metadata?.role;
+    const { data: sub } = supabase.auth.onAuthStateChange(async (_e, session) => {
+      if (session?.user) {
+        const { data: adminCheck, error } = await supabase.rpc('is_admin');
+        setIsAdmin(Boolean(adminCheck) && !error);
+      } else {
+        setIsAdmin(false);
+      }
       setSessionReady(true);
     });
 
-    return () => sub?.subscription?.unsubscribe?.();
+    return () => {
+      mounted = false;
+      sub?.subscription?.unsubscribe?.();
+    };
   }, []);
 
   // ----- 서버사이드 로드 -----
