@@ -2,7 +2,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import MapChrome, { SelectedApt } from "../components/MapChrome";
-import { LocateFixed, Zap } from "lucide-react";
+import { LocateFixed, Zap, Plus, Minus } from "lucide-react";
 
 type KakaoNS = typeof window & { kakao: any };
 const FALLBACK_KAKAO_KEY = "a53075efe7a2256480b8650cec67ebae";
@@ -1147,6 +1147,20 @@ export default function MapPage() {
     );
   }, [ensureUserOverlay]);
 
+  /* ---------- ✅ 확대/축소 버튼 행동 ---------- */
+  const MIN_LEVEL = 1;
+  const MAX_LEVEL = 14;
+  const changeZoom = useCallback((delta: number) => {
+    const kakao = (window as KakaoNS).kakao;
+    const map = mapObjRef.current;
+    if (!kakao?.maps || !map) return;
+    const cur = typeof map.getLevel === "function" ? map.getLevel() : 6;
+    const next = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, cur + delta)); // -1: zoom in, +1: zoom out
+    if (next !== cur) map.setLevel(next);
+  }, []);
+  const zoomIn = useCallback(() => changeZoom(-1), [changeZoom]);
+  const zoomOut = useCallback(() => changeZoom(1), [changeZoom]);
+
   const mapLeftClass = selected ? "md:left-[720px]" : "md:left-[360px]";
   const MapChromeAny = MapChrome as any;
 
@@ -1175,7 +1189,7 @@ export default function MapPage() {
               className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2
                    rounded-md bg-[#111827] text-white text-xs px-2 py-1 shadow-md
                    opacity-0 scale-95 transition
-                   group-hover:opacity-100 group-hover:scale-100 group-focus-within:opacity-100"
+                   group-hover:opacity-100 group-focus-within:opacity-100"
             >
               빠른담기
             </div>
@@ -1192,6 +1206,28 @@ export default function MapPage() {
           >
             <LocateFixed className="w-6 h-6" />
           </button>
+
+          {/* ✅ 확대/축소 버튼 */}
+          <div className="flex flex-col gap-2 pointer-events-auto">
+            <button
+              type="button"
+              onClick={zoomIn}
+              aria-label="확대"
+              title="확대"
+              className="w-12 h-12 rounded-full shadow-lg bg-[#6F4BF2] text-white flex items-center justify-center hover:brightness-110 active:scale-95 transition"
+            >
+              <Plus className="w-6 h-6" />
+            </button>
+            <button
+              type="button"
+              onClick={zoomOut}
+              aria-label="축소"
+              title="축소"
+              className="w-12 h-12 rounded-full shadow-lg bg-[#6F4BF2] text-white flex items-center justify-center hover:brightness-110 active:scale-95 transition"
+            >
+              <Minus className="w-6 h-6" />
+            </button>
+          </div>
         </div>
       </div>
 
