@@ -535,7 +535,7 @@ export default function MapMobilePageV2() {
 
       {/* 지도 */}
       <div ref={mapRef} className="fixed top-[56px] left-0 right-0 bottom-0 z-[10]" aria-label="map" />
-      <GestureHint map={map} />
+      <GestureHint map={map} autoHideMs={0} />
 
       {/* 검색창 */}
 
