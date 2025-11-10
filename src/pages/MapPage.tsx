@@ -232,7 +232,7 @@ export default function MapPage() {
       if (aFee !== bFee) return bFee - aFee;
       return 0;
     });
-    const TOP = 100000;
+    const TOP = 2000000; // 반경 라벨(1,000,000)·검색핀(500,000)보다 높게
     for (let i = 0; i < sorted.length; i++)
       try {
         sorted[i].setZIndex?.(TOP - i);
