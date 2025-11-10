@@ -400,6 +400,23 @@ export default function MapMobilePageV2() {
   const kakaoReady = !!(kakao && map);
 
   /** =========================
+   * 확대/축소 버튼 동작
+   * ========================= */
+  const MIN_LEVEL = 1;
+  const MAX_LEVEL = 14;
+  const changeZoom = useCallback(
+    (delta: number) => {
+      if (!kakaoReady || !map) return;
+      const cur = typeof map.getLevel === "function" ? map.getLevel() : 6;
+      const next = Math.max(MIN_LEVEL, Math.min(MAX_LEVEL, cur + delta)); // -1: zoom in, +1: zoom out
+      if (next !== cur) map.setLevel(next);
+    },
+    [kakaoReady, map],
+  );
+  const zoomIn = useCallback(() => changeZoom(-1), [changeZoom]);
+  const zoomOut = useCallback(() => changeZoom(1), [changeZoom]);
+
+  /** =========================
    * 카트 → 문의 prefill 스냅샷
    * ========================= */
   const buildCartSnapshot = useCallback((items: typeof computedCart, total: number) => {
@@ -659,6 +676,37 @@ export default function MapMobilePageV2() {
               <line x1="12" y1="19" x2="12" y2="22" stroke="currentColor" strokeWidth="2" />
               <line x1="2" y1="12" x2="5" y2="12" stroke="currentColor" strokeWidth="2" />
               <line x1="19" y1="12" x2="22" y2="12" stroke="currentColor" strokeWidth="2" />
+            </svg>
+          </button>
+
+          {/* ✅ 확대/축소 (+ / −) — 내 위치 아래 */}
+          <button
+            onClick={zoomIn}
+            disabled={!kakaoReady}
+            className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow disabled:opacity-50"
+            style={{ backgroundColor: COLOR_PRIMARY }}
+            aria-label="확대"
+            title="확대"
+          >
+            {/* Plus icon */}
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
+              <line x1="12" y1="7" x2="12" y2="17" stroke="currentColor" strokeWidth="2" />
+              <line x1="7" y1="12" x2="17" y2="12" stroke="currentColor" strokeWidth="2" />
+            </svg>
+          </button>
+          <button
+            onClick={zoomOut}
+            disabled={!kakaoReady}
+            className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow disabled:opacity-50"
+            style={{ backgroundColor: COLOR_PRIMARY }}
+            aria-label="축소"
+            title="축소"
+          >
+            {/* Minus icon */}
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
+              <line x1="7" y1="12" x2="17" y2="12" stroke="currentColor" strokeWidth="2" />
             </svg>
           </button>
         </div>
