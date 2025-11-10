@@ -5,8 +5,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
  * GestureHint (Mobile)
  * - 모바일 맵 첫 진입 시에만 1회 노출되는 두 손가락(핀치/스와이프) 가이드 오버레이
  * - 사용자가 터치/드래그/핀치 등 제스처를 하면 즉시 닫힘
- * - 2.5~3초 뒤 자동 페이드아웃
- * - localStorage 플래그로 재방문 시 노출 방지
+ * - autoHideMs <= 0 이면 자동 페이드아웃 비활성화
+ * - localStorage 플래그로 재방문 시 노출 방지 (forceShow가 true면 무시)
  * - 지도 인스턴스를 전달하면 카카오 이벤트(dragstart/zoom_changed)로도 닫힘을 감지
  */
 
@@ -15,9 +15,9 @@ export type GestureHintProps = {
   map?: any;
   /** localStorage 키 (필요 시 커스터마이즈) */
   storageKey?: string;
-  /** 자동 사라짐(ms). 기본 2800ms */
+  /** 자동 사라짐(ms). 기본 2800ms, 0 이하이면 자동 닫힘 없음 */
   autoHideMs?: number;
-  /** 강제 노출(디버그용) */
+  /** 강제 노출(디버그/상시 노출용) */
   forceShow?: boolean;
   /** 닫힐 때 콜백 */
   onDismiss?: () => void;
@@ -56,6 +56,9 @@ export default function GestureHint({
   const dismissRef = useRef(false);
   const autoTimerRef = useRef<number | null>(null);
 
+  // ✅ 사용자가 실제로 화면을 터치/포인터다운 했는지 여부 (맵 이벤트 게이트용)
+  const userInteractedRef = useRef(false);
+
   const allowMotion = useMemo(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return true;
     try {
@@ -80,9 +83,11 @@ export default function GestureHint({
     }
   }, [forceShow, storageKey]);
 
-  // 자동 닫힘 타이머
+  // 자동 닫힘 타이머 (autoHideMs <= 0 이면 비활성화)
   useEffect(() => {
     if (!visible) return;
+    if (!(autoHideMs > 0)) return; // ✅ 타이머 비활성화
+
     if (autoTimerRef.current) {
       window.clearTimeout(autoTimerRef.current);
     }
@@ -95,11 +100,18 @@ export default function GestureHint({
     };
   }, [visible, autoHideMs]);
 
-  // 전역 터치로 즉시 닫힘
+  // 전역 터치/포인터로 즉시 닫힘 + 사용자 인터랙션 플래그 세팅
   useEffect(() => {
     if (!visible || typeof window === "undefined") return;
-    const onTouch = () => dismiss("touch");
-    const onPointer = () => dismiss("pointer");
+
+    const onTouch = () => {
+      userInteractedRef.current = true; // ✅ 실제 사용자 액션
+      dismiss("touch");
+    };
+    const onPointer = () => {
+      userInteractedRef.current = true; // ✅ 실제 사용자 액션
+      dismiss("pointer");
+    };
 
     window.addEventListener("touchstart", onTouch, { passive: true });
     window.addEventListener("pointerdown", onPointer, { passive: true });
@@ -110,12 +122,16 @@ export default function GestureHint({
     };
   }, [visible]);
 
-  // Kakao 지도 이벤트(있을 때만)로 닫힘
+  // Kakao 지도 이벤트(있을 때만)로 닫힘 (✅ 사용자 인터랙션 이후에만 동작)
   useEffect(() => {
     if (!visible || !map || typeof kakao === "undefined") return;
 
-    const handleDragStart = () => dismiss("dragstart");
-    const handleZoomChanged = () => dismiss("zoom");
+    const handleDragStart = () => {
+      if (userInteractedRef.current) dismiss("dragstart");
+    };
+    const handleZoomChanged = () => {
+      if (userInteractedRef.current) dismiss("zoom");
+    };
 
     kakao.maps.event.addListener(map, "dragstart", handleDragStart);
     kakao.maps.event.addListener(map, "zoom_changed", handleZoomChanged);
@@ -171,7 +187,7 @@ export default function GestureHint({
       {/* 카드 컨텐트 */}
       <div className="relative pointer-events-none select-none flex flex-col items-center gap-3 text-white">
         {/* SVG 애니메이션: 두 손가락 핀치 + 살짝 스와이프 힌트 */}
-        <div className="w-[120px] h-[120px] max-w-[50vw] max-h-[50vw]">
+        <div className="w-[240px] h-[240px] max-w-[80vw] max-h-[80vw]">
           <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
             {/* 스와이프 힌트 화살표 (좌우로 은은하게) */}
             <g className="gsh-swipe">
