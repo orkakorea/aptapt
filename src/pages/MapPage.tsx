@@ -1031,12 +1031,12 @@ export default function MapPage() {
         position: latlng,
         content: labelContent,
         yAnchor: 1.6,
-        zIndex: 1000000,
+        zIndex: 50,
       });
     } else {
       radiusLabelRef.current.setContent(labelContent);
       radiusLabelRef.current.setPosition(latlng);
-      radiusLabelRef.current.setZIndex?.(1000000);
+      radiusLabelRef.current.setZIndex?.(50);
       radiusLabelRef.current.setMap(map);
     }
     const searchImg = buildSearchMarkerImage(kakao.maps);
@@ -1045,13 +1045,13 @@ export default function MapPage() {
         map,
         position: latlng,
         image: searchImg,
-        zIndex: 500000,
+        zIndex: 40,
         clickable: false,
       });
     } else {
       searchPinRef.current.setPosition(latlng);
       searchPinRef.current.setImage(searchImg);
-      searchPinRef.current.setZIndex?.(500000);
+      searchPinRef.current.setZIndex?.(40);
       searchPinRef.current.setMap(map);
     }
   }
