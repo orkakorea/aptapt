@@ -12,6 +12,7 @@ import MobileInquirySheet, { type Prefill, type InquiryKind } from "@/components
 
 // ✅ 문의 완료 모달(모바일)
 import CompleteModalMobile from "@/components/complete-modal/CompleteModal.mobile";
+import GestureHint from "@/components/mobile/GestureHint";
 
 import { useKakaoLoader } from "@/hooks/useKakaoLoader";
 import { useKakaoMap } from "@/hooks/useKakaoMap";
@@ -534,8 +535,10 @@ export default function MapMobilePageV2() {
 
       {/* 지도 */}
       <div ref={mapRef} className="fixed top-[56px] left-0 right-0 bottom-0 z-[10]" aria-label="map" />
+      <GestureHint map={map} />
 
       {/* 검색창 */}
+
       <div ref={searchAreaRef} className="fixed z-[35] left-3 right-[76px] top-[64px] pointer-events-none">
         <form
           onSubmit={async (e) => {
