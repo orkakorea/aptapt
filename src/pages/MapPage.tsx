@@ -1001,14 +1001,18 @@ export default function MapPage() {
     if (!kakao?.maps || !mapObjRef.current) return;
     const map = mapObjRef.current;
 
-    // ▼ 검색 좌표가 기존 단지 마커와 "정확히 동일"한지(소수 7자리) 확인
-    const lat7 = +latlng.getLat().toFixed(7);
-    const lng7 = +latlng.getLng().toFixed(7);
+    // ▼ 검색 좌표가 기존 단지 마커와 "시각적으로 겹치는지" 픽셀 기준으로 판단(18px 이내면 겹침)
+    const proj = map.getProjection();
+    const centerPt = proj.containerPointFromCoords(latlng);
     let hasAptHere = false;
     markerCacheRef.current.forEach((mk) => {
       const p = mk.getPosition?.() || mk.__basePos;
       if (!p) return;
-      if (+p.getLat().toFixed(7) === lat7 && +p.getLng().toFixed(7) === lng7) {
+      const pt = proj.containerPointFromCoords(p);
+      const dx = pt.x - centerPt.x;
+      const dy = pt.y - centerPt.y;
+      if (dx * dx + dy * dy <= 18 * 18) {
+        // ← 임계값 18px
         hasAptHere = true;
       }
     });
