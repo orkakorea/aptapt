@@ -1000,6 +1000,20 @@ export default function MapPage() {
     const kakao = (window as KakaoNS).kakao;
     if (!kakao?.maps || !mapObjRef.current) return;
     const map = mapObjRef.current;
+
+    // ▼ 검색 좌표가 기존 단지 마커와 "정확히 동일"한지(소수 7자리) 확인
+    const lat7 = +latlng.getLat().toFixed(7);
+    const lng7 = +latlng.getLng().toFixed(7);
+    let hasAptHere = false;
+    markerCacheRef.current.forEach((mk) => {
+      const p = mk.getPosition?.() || mk.__basePos;
+      if (!p) return;
+      if (+p.getLat().toFixed(7) === lat7 && +p.getLng().toFixed(7) === lng7) {
+        hasAptHere = true;
+      }
+    });
+
+    // 원(반경)은 지도 아래 레이어로 유지
     if (!radiusCircleRef.current) {
       radiusCircleRef.current = new kakao.maps.Circle({
         map,
@@ -1024,35 +1038,43 @@ export default function MapPage() {
       radiusCircleRef.current.setZIndex?.(-1000);
       radiusCircleRef.current.setMap(map);
     }
-    const labelContent = ensureRadiusLabelContent(clearRadiusUI);
-    if (!radiusLabelRef.current) {
-      radiusLabelRef.current = new kakao.maps.CustomOverlay({
-        map,
-        position: latlng,
-        content: labelContent,
-        yAnchor: 1.6,
-        zIndex: 50,
-      });
+
+    if (hasAptHere) {
+      // ▼ 겹치면 라벨/검색핀 숨김 → 단지 마커가 우선 노출
+      radiusLabelRef.current?.setMap(null);
+      searchPinRef.current?.setMap?.(null);
     } else {
-      radiusLabelRef.current.setContent(labelContent);
-      radiusLabelRef.current.setPosition(latlng);
-      radiusLabelRef.current.setZIndex?.(50);
-      radiusLabelRef.current.setMap(map);
-    }
-    const searchImg = buildSearchMarkerImage(kakao.maps);
-    if (!searchPinRef.current) {
-      searchPinRef.current = new kakao.maps.Marker({
-        map,
-        position: latlng,
-        image: searchImg,
-        zIndex: 40,
-        clickable: false,
-      });
-    } else {
-      searchPinRef.current.setPosition(latlng);
-      searchPinRef.current.setImage(searchImg);
-      searchPinRef.current.setZIndex?.(40);
-      searchPinRef.current.setMap(map);
+      // ▼ 겹치지 않으면 라벨/검색핀 표시(낮은 zIndex 유지)
+      const labelContent = ensureRadiusLabelContent(clearRadiusUI);
+      if (!radiusLabelRef.current) {
+        radiusLabelRef.current = new kakao.maps.CustomOverlay({
+          map,
+          position: latlng,
+          content: labelContent,
+          yAnchor: 1.6,
+          zIndex: 50,
+        });
+      } else {
+        radiusLabelRef.current.setContent(labelContent);
+        radiusLabelRef.current.setPosition(latlng);
+        radiusLabelRef.current.setZIndex?.(50);
+        radiusLabelRef.current.setMap(map);
+      }
+      const searchImg = buildSearchMarkerImage(kakao.maps);
+      if (!searchPinRef.current) {
+        searchPinRef.current = new kakao.maps.Marker({
+          map,
+          position: latlng,
+          image: searchImg,
+          zIndex: 40,
+          clickable: false,
+        });
+      } else {
+        searchPinRef.current.setPosition(latlng);
+        searchPinRef.current.setImage(searchImg);
+        searchPinRef.current.setZIndex?.(40);
+        searchPinRef.current.setMap(map);
+      }
     }
   }
 
@@ -1070,8 +1092,15 @@ export default function MapPage() {
       const latlng = new kakao.maps.LatLng(lat, lng);
       mapObjRef.current.setLevel(4);
       mapObjRef.current.setCenter(latlng);
+
+      // 1차 반경/라벨/핀
       drawSearchOverlays(latlng);
-      loadMarkersInBounds().then(() => applyStaticSeparationAll());
+
+      // 마커 로드 끝난 뒤 재평가(겹치면 숨김)
+      loadMarkersInBounds().then(() => {
+        applyStaticSeparationAll();
+        drawSearchOverlays(latlng);
+      });
     });
   }
   function handleSearch(q: string) {
