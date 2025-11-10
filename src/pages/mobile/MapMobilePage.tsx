@@ -473,30 +473,38 @@ export default function MapMobilePage() {
     groupsRef.current.forEach((group) => layoutMarkersSideBySide(map, group));
   }, [layoutMarkersSideBySide]);
 
-  /* 그룹 zIndex */
+  // 수정
   const orderAndApplyZIndex = useCallback((arr: KMarker[]) => {
-    if (!arr || arr.length <= 1) return arr;
-    const sorted = arr.slice().sort((a, b) => {
-      const ra = a.__row as PlaceRow;
-      const rb = b.__row as PlaceRow;
-      const aRowKey = buildRowKeyFromRow(ra);
-      const bRowKey = buildRowKeyFromRow(rb);
-      const aSel = selectedRowKeySetRef.current.has(aRowKey) ? 1 : 0;
-      const bSel = selectedRowKeySetRef.current.has(bRowKey) ? 1 : 0;
-      if (aSel !== bSel) return bSel - aSel;
-      const aFee = monthlyFeeOf(ra);
-      const bFee = monthlyFeeOf(rb);
-      if (aFee !== bFee) return bFee - aFee;
-      return 0;
-    });
-    const TOP = 100000;
-    for (let i = 0; i < sorted.length; i++) {
+    if (!arr || !arr.length) return arr;
+
+    // 단일 그룹은 정렬 생략하고 '현 배열'에 그대로 zIndex만 부여
+    const sorted =
+      arr.length > 1
+        ? arr.slice().sort((a, b) => {
+            const ra = a.__row as PlaceRow,
+              rb = b.__row as PlaceRow;
+            const aRowKey = buildRowKeyFromRow(ra),
+              bRowKey = buildRowKeyFromRow(rb);
+            const aSel = selectedRowKeySetRef.current.has(aRowKey) ? 1 : 0;
+            const bSel = selectedRowKeySetRef.current.has(bRowKey) ? 1 : 0;
+            if (aSel !== bSel) return bSel - aSel;
+            const aFee = monthlyFeeOf(ra),
+              bFee = monthlyFeeOf(rb);
+            if (aFee !== bFee) return bFee - aFee;
+            return 0;
+          })
+        : arr;
+
+    const TOP = 2000000; // 반경 라벨(1,000,000)·검색핀(500,000)보다 위
+    for (let i = 0; i < sorted.length; i++)
       try {
         sorted[i].setZIndex?.(TOP - i);
       } catch {}
+
+    if (arr.length > 1) {
+      arr.length = 0;
+      sorted.forEach((m) => arr.push(m));
     }
-    arr.length = 0;
-    sorted.forEach((m) => arr.push(m));
     return arr;
   }, []);
   const applyGroupPrioritiesMap = useCallback(
