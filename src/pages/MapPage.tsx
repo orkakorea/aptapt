@@ -1031,7 +1031,7 @@ export default function MapPage() {
         position: latlng,
         content: labelContent,
         yAnchor: 1.6,
-        zIndex: 300,
+        zIndex: 1000000,
       });
     } else {
       radiusLabelRef.current.setContent(labelContent);
