@@ -957,7 +957,7 @@ function CartItemCard({ item, onChangeMonths, onRemove, onTitleClick }: CartItem
         </button>
       </div>
 
-      <div className="mt-2 flex items-center justify-between whitespace-nowrap">
+      <div className="mt-3 flex items-center justify-between whitespace-nowrap">
         <span className="text-sm text-[#6B7280]">광고기간</span>
         <select
           className="h-9 w-[120px] rounded-md border border-[#E5E7EB] bg-white px-2 text-sm"
@@ -972,7 +972,7 @@ function CartItemCard({ item, onChangeMonths, onRemove, onTitleClick }: CartItem
         </select>
       </div>
 
-      <div className="mt-2 flex items-center justify-between">
+      <div className="mt-3 flex items-center justify-between">
         <div className="text-[#6B7280] text:[13px]">월광고료</div>
         <div className="text-sm font-semibold text-black whitespace-nowrap">{displayMonthly.toLocaleString()}원</div>
       </div>
