@@ -649,40 +649,21 @@ export default function MapPage() {
             }
           }, 0);
 
-          // ✅ 상세 보강 RPC
-          (() => {
-            const pid = rowIdOf(row);
-            if (!pid) return;
-            (async () => {
-              const { data: detail, error: dErr } = await (supabase as any).rpc("get_public_place_detail", {
-                p_place_id: pid,
-              });
-              if (!dErr && detail?.length) {
-                const d = detail[0];
-                setSelected((prev) =>
-                  prev && prev.rowKey === rowKey
-                    ? {
-                        ...prev,
-                        households: d.households ?? prev.households,
-                        residents: d.residents ?? prev.residents,
-                        monitors: d.monitors ?? prev.monitors,
-                        monthlyImpressions: d.monthly_impressions ?? prev.monthlyImpressions,
-                        costPerPlay: d.cost_per_play ?? prev.costPerPlay,
-                        hours: d.hours ?? prev.hours,
-                        address: d.address ?? prev.address,
-                        installLocation: d.install_location ?? d.installLocation ?? prev.installLocation,
-                        monthlyFee: d.monthly_fee ?? prev.monthlyFee,
-                        monthlyFeeY1: d.monthly_fee_y1 ?? prev.monthlyFeeY1,
-                        lat: d.lat ?? prev.lat,
-                        lng: d.lng ?? prev.lng,
-                        imageUrl: d.image_url ?? prev.imageUrl,
-                      }
-                    : prev,
-                );
-              } else if (dErr) {
-                console.warn("[RPC] get_public_place_detail error:", dErr.message);
-              }
-            })();
+          // ✅ 상세 보강 RPC (캐시 사용: 공백/깜빡임 제거)
+(async () => {
+  const pid = rowIdOf(row);
+  if (!pid) return;
+  try {
+    const d = await fetchDetailCached(pid, rowKey);
+    if (!d) return;
+    setSelected((prev) =>
+      prev && prev.rowKey === rowKey ? { ...prev, ...patchFromDetail(d, prev) } : prev,
+    );
+  } catch (e: any) {
+    console.warn("[RPC] get_public_place_detail error:", e?.message || e);
+  }
+})();
+
           })();
 
           const isAlreadySelected = selectedRowKeySetRef.current.has(rowKey);
@@ -853,40 +834,21 @@ export default function MapPage() {
             }
           }, 0);
 
-          // ✅ 상세 보강 RPC
-          (() => {
-            const pid = rowIdOf(row);
-            if (!pid) return;
-            (async () => {
-              const { data: detail, error: dErr } = await (supabase as any).rpc("get_public_place_detail", {
-                p_place_id: pid,
-              });
-              if (!dErr && detail?.length) {
-                const d = detail[0];
-                setSelected((prev) =>
-                  prev && prev.rowKey === rowKey
-                    ? {
-                        ...prev,
-                        households: d.households ?? prev.households,
-                        residents: d.residents ?? prev.residents,
-                        monitors: d.monitors ?? prev.monitors,
-                        monthlyImpressions: d.monthly_impressions ?? prev.monthlyImpressions,
-                        costPerPlay: d.cost_per_play ?? prev.costPerPlay,
-                        hours: d.hours ?? prev.hours,
-                        address: d.address ?? prev.address,
-                        installLocation: d.install_location ?? d.installLocation ?? prev.installLocation,
-                        monthlyFee: d.monthly_fee ?? prev.monthlyFee,
-                        monthlyFeeY1: d.monthly_fee_y1 ?? prev.monthlyFeeY1,
-                        lat: d.lat ?? prev.lat,
-                        lng: d.lng ?? prev.lng,
-                        imageUrl: d.image_url ?? prev.imageUrl,
-                      }
-                    : prev,
-                );
-              } else if (dErr) {
-                console.warn("[RPC] get_public_place_detail error:", dErr.message);
-              }
-            })();
+          // ✅ 상세 보강 RPC (캐시 사용: 공백/깜빡임 제거)
+(async () => {
+  const pid = rowIdOf(row);
+  if (!pid) return;
+  try {
+    const d = await fetchDetailCached(pid, rowKey);
+    if (!d) return;
+    setSelected((prev) =>
+      prev && prev.rowKey === rowKey ? { ...prev, ...patchFromDetail(d, prev) } : prev,
+    );
+  } catch (e: any) {
+    console.warn("[RPC] get_public_place_detail error:", e?.message || e);
+  }
+})();
+
           })();
 
           const isAlreadySelected = selectedRowKeySetRef.current.has(rowKey);
