@@ -3,6 +3,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import QuoteModal, { QuoteLineItem } from "./QuoteModal";
 import InquiryModal from "./InquiryModal";
 import { supabase } from "@/integrations/supabase/client";
+/* ✅ 추가: 타이틀 오른쪽 패널 줌 버튼 */
+import PanelZoomButtons from "./PanelZoomButtons";
 
 /** ===== 타입 ===== */
 export type SelectedApt = {
@@ -52,6 +54,10 @@ type Props = {
 
   cartStickyTopPx?: number;
   cartStickyUntil?: string;
+
+  /* ✅ 추가: MapPage에서 계산한 패널 폭을 프롭으로 전달 (없으면 360 기본값 사용) */
+  cartWidthPx?: number;
+  detailWidthPx?: number;
 };
 
 /** ===== 정적 에셋 & 유틸 ===== */
@@ -214,6 +220,9 @@ export default function MapChrome({
   cartStickyTopPx = 64,
   quickMode,
   onToggleQuick,
+  /* ✅ 추가된 프롭 */
+  cartWidthPx,
+  detailWidthPx,
 }: Props) {
   const [query, setQuery] = useState(initialQuery || "");
   useEffect(() => setQuery(initialQuery || ""), [initialQuery]);
@@ -322,9 +331,6 @@ export default function MapChrome({
 
   /** ============================================================
    *  지도(MapPage) → 카트: 담기/취소 이벤트 수신
-   *  - payload.selectedSnapshot 이 오면 최우선 사용
-   *  - 없으면 현재 상세(selectedRef)에서 보강
-   *  - 없거나 부족하면 rowKey를 기반으로 Supabase RPC로 보강
    * ============================================================ */
   type CartChangedDetail = { rowKey: string; selected: boolean; selectedSnapshot?: SelectedApt | null };
   useEffect(() => {
@@ -631,20 +637,31 @@ export default function MapChrome({
     };
   };
 
-  const LEFT_W = 360;
-  const RIGHT_W = 360;
+  /* ✅ MapPage에서 전달된 폭 적용(없으면 360 기본) */
+  const CART_W = Math.max(280, Math.round(cartWidthPx ?? 360));
+  const DETAIL_W = Math.max(320, Math.round(detailWidthPx ?? 360));
 
   return (
     <>
       {/* 상단 바 */}
       <div className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-[#E5E7EB] z-[60]">
         <div className="h-full flex items-center justify-between px-6">
-          <div className="text-xl font-bold text-black">응답하라 입주민이여</div>
+          {/* ✅ 타이틀 + 패널 줌 버튼(타이틀 오른쪽) */}
+          <div className="flex items-center">
+            <div className="text-xl font-bold text-black">응답하라 입주민이여</div>
+            <PanelZoomButtons className="ml-3" />
+          </div>
+          {/* 우측 비워둠(기존 레이아웃 유지) */}
+          <div />
         </div>
       </div>
 
       {/* 1탭: 카트 */}
-      <aside className="hidden md:flex fixed top-16 bottom-0 left-0 w-[360px] z-[60] bg-white border-r border-[#E5E7EB]">
+      <aside
+        className="hidden md:flex fixed top-16 bottom-0 left-0 z-[60] bg-white border-r border-[#E5E7EB]"
+        /* ✅ 폭만 동적으로 반영 */
+        style={{ width: CART_W }}
+      >
         <div className="flex flex-col h-full w-full px-5 py-5 gap-3">
           <div className="flex gap-2">
             <button
@@ -763,8 +780,9 @@ export default function MapChrome({
       {/* 2탭: 상세 */}
       {selected && (
         <aside
-          className="hidden md:block fixed top-16 left-[360px] z-[60] w-[360px] pointer-events-none"
-          style={{ bottom: 0 }}
+          className="hidden md:block fixed top-16 z-[60] pointer-events-none"
+          /* ✅ 왼쪽 오프셋과 폭을 동적으로 반영 (기존 left/w 클래스를 인라인 style로 덮어씀) */
+          style={{ left: CART_W, width: DETAIL_W, bottom: 0 }}
         >
           <div className="h-full px-6 py-5 max-h-[calc(100vh-4rem)] overflow-y-auto">
             <div className="pointer-events-auto flex flex-col gap-4">
