@@ -83,8 +83,6 @@ function loadKakao(): Promise<any> {
 /* =========================================================================
    ③ 헬퍼
    ------------------------------------------------------------------------- */
-const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
-
 function readQuery() {
   const u = new URL(window.location.href);
   return (u.searchParams.get("q") || "").trim();
@@ -204,45 +202,6 @@ export default function MapPage() {
   const detailCacheRef = useRef<Map<string, any>>(new Map());
   const inflightDetailRef = useRef<Map<string, Promise<any>>>(new Map());
 
-  // ✅ 패널 묶음 스케일(카트+상세)
-  const BASE_CART = 360;
-  const BASE_DETAIL = 720;
-  const MIN_SCALE = 0.8;
-  const MAX_SCALE = 1.3;
-  const STEP_SCALE = 0.1;
-  const [panelScale, setPanelScale] = useState<number>(() => {
-    const raw = typeof window !== "undefined" ? window.localStorage.getItem("orka:panelScale") : null;
-    const v = raw ? Number(raw) : 1;
-    return Number.isFinite(v) ? clamp(v, MIN_SCALE, MAX_SCALE) : 1;
-  });
-  useEffect(() => {
-    try {
-      window.localStorage.setItem("orka:panelScale", String(panelScale));
-    } catch {}
-  }, [panelScale]);
-
-  // 파생 너비 & 지도 left
-  const cartW = Math.round(BASE_CART * panelScale);
-  const detailW = Math.round(BASE_DETAIL * panelScale);
-
-  const [selected, setSelected] = useState<SelectedAptX | null>(null);
-  const [initialQ, setInitialQ] = useState("");
-  const [kakaoError, setKakaoError] = useState<string | null>(null);
-
-  // 🔒 퀵담기 토글 억제 플래그(카트에서 단지명 클릭 → 프로그램틱 클릭 시 한 번 억제)
-  const suppressQuickToggleOnceRef = useRef<boolean>(false);
-
-  // Sync quickMode state to ref
-  useEffect(() => {
-    quickModeRef.current = quickMode;
-  }, [quickMode]);
-
-  // ✅ selected → ref 동기화 (이벤트용 스냅샷 보존)
-  useEffect(() => {
-    selectedRef.current = selected ?? null;
-    if (selected) lastSelectedSnapRef.current = selected;
-  }, [selected]);
-
   // 상세 응답 → SelectedAptX에 병합
   const patchFromDetail = useCallback(
     (d: any, prev: SelectedAptX) => ({
@@ -281,6 +240,24 @@ export default function MapPage() {
     inflightDetailRef.current.set(cacheKey, p);
     return p;
   }, []);
+
+  const [selected, setSelected] = useState<SelectedAptX | null>(null);
+  const [initialQ, setInitialQ] = useState("");
+  const [kakaoError, setKakaoError] = useState<string | null>(null);
+
+  // 🔒 퀵담기 토글 억제 플래그(카트에서 단지명 클릭 → 프로그램틱 클릭 시 한 번 억제)
+  const suppressQuickToggleOnceRef = useRef<boolean>(false);
+
+  // Sync quickMode state to ref
+  useEffect(() => {
+    quickModeRef.current = quickMode;
+  }, [quickMode]);
+
+  // ✅ selected → ref 동기화 (이벤트용 스냅샷 보존)
+  useEffect(() => {
+    selectedRef.current = selected ?? null;
+    if (selected) lastSelectedSnapRef.current = selected;
+  }, [selected]);
 
   /* ---------- 정렬/우선순위 ---------- */
   const orderAndApplyZIndex = useCallback((arr: KMarker[]) => {
@@ -452,12 +429,6 @@ export default function MapPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applyStaticSeparationAll, prefetchTopDetails]);
-
-  // 패널 스케일/선택 변화 시 지도 레이아웃 갱신
-  useEffect(() => {
-    const m = mapObjRef.current;
-    if ((window as any).kakao?.maps && m) setTimeout(() => m.relayout(), 0);
-  }, [panelScale, selected]);
 
   useEffect(() => {
     const m = mapObjRef.current;
@@ -1251,58 +1222,14 @@ export default function MapPage() {
   const zoomIn = useCallback(() => changeZoom(-1), [changeZoom]);
   const zoomOut = useCallback(() => changeZoom(1), [changeZoom]);
 
-  // ✅ 패널 스케일 버튼
-  const panelZoomIn = useCallback(() => setPanelScale((s) => clamp(s + STEP_SCALE, MIN_SCALE, MAX_SCALE)), []);
-  const panelZoomOut = useCallback(() => setPanelScale((s) => clamp(s - STEP_SCALE, MIN_SCALE, MAX_SCALE)), []);
-
-  // 지도 left 오프셋(패널 묶음 너비)
-  const panelsWidthPx = selected ? cartW + detailW : cartW;
-
+  const mapLeftClass = selected ? "md:left-[720px]" : "md:left-[360px]";
   const MapChromeAny = MapChrome as any;
 
   return (
     <div className="w-screen h-[100dvh] bg-white">
-      {/* 지도: left 오프셋을 동적으로 지정 (고정 클래스의 left-* 제거) */}
-      <div
-        ref={mapRef}
-        className="fixed top-16 right-0 bottom-0 z-[10]"
-        aria-label="map"
-        style={{ left: panelsWidthPx }}
-      />
+      <div ref={mapRef} className={`fixed top-16 left-0 right-0 bottom-0 z-[10] ${mapLeftClass}`} aria-label="map" />
 
-      {/* 좌측 패널(카트+상세) 랩퍼: transform scale로 묶음 확대/축소 + 레이아웃 폭 동기화 */}
-      <div
-        className="fixed top-16 left-0 bottom-0 z-[20] overflow-hidden"
-        style={{
-          width: panelsWidthPx,
-          transform: `scale(${panelScale})`,
-          transformOrigin: "left top",
-          // 성능/시각 디테일
-          willChange: "transform",
-        }}
-      >
-        <MapChromeAny
-          selected={selected}
-          onCloseSelected={closeSelected}
-          onSearch={handleSearch}
-          initialQuery={initialQ}
-          setMarkerStateByRowKey={setMarkerStateByRowKey}
-          isRowKeySelected={isRowKeySelected}
-          addToCartByRowKey={addToCartByRowKey}
-          removeFromCartByRowKey={removeFromCartByRowKey}
-          toggleCartByRowKey={toggleCartByRowKey}
-          /* 🔎 카트에서 단지 클릭 → 지도 이동 + 2탭 오픈 */
-          focusByRowKey={focusByRowKey}
-          focusByLatLng={focusByLatLng}
-          cartStickyTopPx={64}
-          cartStickyUntil="bulkMonthsApply"
-          /* Quick 모드 */
-          quickMode={quickMode}
-          onToggleQuick={() => setQuickMode((v) => !v)}
-        />
-      </div>
-
-      {/* ▼ 지도 우상단 고정 오버레이 (버튼들) */}
+      {/* ▼ 지도 우상단 고정 오버레이 */}
       <div className="fixed top-[84px] right-4 z-[70] pointer-events-none">
         <div className="flex flex-col items-end gap-2">
           {/* 퀵담기 버튼 + 툴팁 */}
@@ -1341,13 +1268,13 @@ export default function MapPage() {
             <LocateFixed className="w-6 h-6" />
           </button>
 
-          {/* ✅ 지도 확대/축소 */}
+          {/* ✅ 확대/축소 버튼 */}
           <div className="flex flex-col gap-2 pointer-events-auto">
             <button
               type="button"
               onClick={zoomIn}
-              aria-label="지도 확대"
-              title="지도 확대"
+              aria-label="확대"
+              title="확대"
               className="w-12 h-12 rounded-full shadow-lg bg-[#6F4BF2] text-white flex items-center justify-center hover:brightness-110 active:scale-95 transition"
             >
               <Plus className="w-6 h-6" />
@@ -1355,30 +1282,8 @@ export default function MapPage() {
             <button
               type="button"
               onClick={zoomOut}
-              aria-label="지도 축소"
-              title="지도 축소"
-              className="w-12 h-12 rounded-full shadow-lg bg-[#6F4BF2] text-white flex items-center justify-center hover:brightness-110 active:scale-95 transition"
-            >
-              <Minus className="w-6 h-6" />
-            </button>
-          </div>
-
-          {/* ✅ 패널(카트+상세) 묶음 확대/축소 */}
-          <div className="flex flex-col gap-2 pointer-events-auto">
-            <button
-              type="button"
-              onClick={panelZoomIn}
-              aria-label="패널 확대"
-              title={`패널 확대 (${Math.round(panelScale * 100)}%)`}
-              className="w-12 h-12 rounded-full shadow-lg bg-[#6F4BF2] text-white flex items-center justify-center hover:brightness-110 active:scale-95 transition"
-            >
-              <Plus className="w-6 h-6" />
-            </button>
-            <button
-              type="button"
-              onClick={panelZoomOut}
-              aria-label="패널 축소"
-              title={`패널 축소 (${Math.round(panelScale * 100)}%)`}
+              aria-label="축소"
+              title="축소"
               className="w-12 h-12 rounded-full shadow-lg bg-[#6F4BF2] text-white flex items-center justify-center hover:brightness-110 active:scale-95 transition"
             >
               <Minus className="w-6 h-6" />
@@ -1386,6 +1291,26 @@ export default function MapPage() {
           </div>
         </div>
       </div>
+
+      <MapChromeAny
+        selected={selected}
+        onCloseSelected={closeSelected}
+        onSearch={handleSearch}
+        initialQuery={initialQ}
+        setMarkerStateByRowKey={setMarkerStateByRowKey}
+        isRowKeySelected={isRowKeySelected}
+        addToCartByRowKey={addToCartByRowKey}
+        removeFromCartByRowKey={removeFromCartByRowKey}
+        toggleCartByRowKey={toggleCartByRowKey}
+        /* 🔎 카트에서 단지 클릭 → 지도 이동 + 2탭 오픈 */
+        focusByRowKey={focusByRowKey}
+        focusByLatLng={focusByLatLng}
+        cartStickyTopPx={64}
+        cartStickyUntil="bulkMonthsApply"
+        /* ▼ 여기 추가 */
+        quickMode={quickMode}
+        onToggleQuick={() => setQuickMode((v) => !v)}
+      />
 
       {/* 에러 토스트들 */}
       {kakaoError && (
