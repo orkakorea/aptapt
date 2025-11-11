@@ -617,7 +617,7 @@ export default function CompleteModalDesktop({ open, onClose, data, confirmLabel
                     문의 내용 저장
                   </button>
                   {/* 붉은 안내 문구 */}
-                  <p className="mt-2 text-xs text-red-500">정확한 상담을 위해 문의 내용을 반드시 저장 해두세요</p>
+                  <p className="mt-2 text-sm text-red-500">정확한 상담을 위해 문의 내용을 반드시 저장 해두세요</p>
 
                   <div className="rounded-xl border border-gray-100 p-4">
                     <div className="text-sm font-semibold">더 많은 정보</div>
