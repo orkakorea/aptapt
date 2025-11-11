@@ -198,55 +198,31 @@ export default function MapPage() {
   const selectedRef = useRef<SelectedAptX | null>(null);
   const lastSelectedSnapRef = useRef<SelectedAptX | null>(null);
 
-  // ✅ 상세 캐시 & 중복요청 방지
-  const detailCacheRef = useRef<Map<string, any>>(new Map());
-  const inflightDetailRef = useRef<Map<string, Promise<any>>>(new Map());
-
-  // 상세 응답 → SelectedAptX에 병합
-  const patchFromDetail = useCallback(
-    (d: any, prev: SelectedAptX) => ({
-      households: d.households ?? prev.households,
-      residents: d.residents ?? prev.residents,
-      monitors: d.monitors ?? prev.monitors,
-      monthlyImpressions: d.monthly_impressions ?? prev.monthlyImpressions,
-      costPerPlay: d.cost_per_play ?? prev.costPerPlay,
-      hours: d.hours ?? prev.hours,
-      address: d.address ?? prev.address,
-      installLocation: d.install_location ?? d.installLocation ?? prev.installLocation,
-      monthlyFee: d.monthly_fee ?? prev.monthlyFee,
-      monthlyFeeY1: d.monthly_fee_y1 ?? prev.monthlyFeeY1,
-      lat: d.lat ?? prev.lat,
-      lng: d.lng ?? prev.lng,
-      imageUrl: d.image_url ?? prev.imageUrl,
-    }),
-    [],
-  );
-
-  // RPC 1회 보장 + 결과 캐싱
-  const fetchDetailCached = useCallback(async (pid: string | number, rowKey: string) => {
-    const cacheKey = rowKey;
-    if (detailCacheRef.current.has(cacheKey)) return detailCacheRef.current.get(cacheKey);
-    if (inflightDetailRef.current.has(cacheKey)) return inflightDetailRef.current.get(cacheKey);
-
-    const p = (async () => {
-      const { data, error } = await (supabase as any).rpc("get_public_place_detail", { p_place_id: pid });
-      if (error) throw error;
-      const d = Array.isArray(data) ? data[0] : data;
-      if (d) detailCacheRef.current.set(cacheKey, d);
-      inflightDetailRef.current.delete(cacheKey);
-      return d;
-    })();
-
-    inflightDetailRef.current.set(cacheKey, p);
-    return p;
-  }, []);
-
   const [selected, setSelected] = useState<SelectedAptX | null>(null);
   const [initialQ, setInitialQ] = useState("");
   const [kakaoError, setKakaoError] = useState<string | null>(null);
 
   // 🔒 퀵담기 토글 억제 플래그(카트에서 단지명 클릭 → 프로그램틱 클릭 시 한 번 억제)
   const suppressQuickToggleOnceRef = useRef<boolean>(false);
+
+  // ✅ 패널 스케일(1탭+2탭 묶음 확대/축소)
+  const [panelScale, setPanelScale] = useState(1);
+
+  // 타이틀 옆 PanelZoomButtons 가 쏘는 이벤트 수신
+  useEffect(() => {
+    const onZoom = (ev: Event) => {
+      const { delta, min, max } = (ev as CustomEvent).detail || {};
+      const d = typeof delta === "number" ? delta : 0;
+      const lo = typeof min === "number" ? min : 0.8;
+      const hi = typeof max === "number" ? max : 1.3;
+      setPanelScale((s) => {
+        const next = Math.max(lo, Math.min(hi, s + d));
+        return Math.round(next * 100) / 100;
+      });
+    };
+    window.addEventListener("orka:panels:zoom", onZoom as EventListener);
+    return () => window.removeEventListener("orka:panels:zoom", onZoom as EventListener);
+  }, []);
 
   // Sync quickMode state to ref
   useEffect(() => {
@@ -308,36 +284,6 @@ export default function MapPage() {
     groupsRef.current.forEach((group) => layoutMarkersSideBySide(map, group));
   }, []);
 
-  // 화면 중심에 가까운 마커 상세를 조용히 프리페치
-  const prefetchTopDetails = useCallback(
-    (limit = 8) => {
-      const kakao = (window as KakaoNS).kakao;
-      const maps = kakao?.maps;
-      const map = mapObjRef.current;
-      if (!maps || !map) return;
-      const center = map.getCenter();
-
-      const items: { rowKey: string; pid: string; dist: number }[] = [];
-      markerCacheRef.current.forEach((mk) => {
-        const r = mk.__row as PlaceRow;
-        const pid = rowIdOf(r);
-        if (!pid) return;
-        const rk = buildRowKeyFromRow(r);
-        if (detailCacheRef.current.has(rk) || inflightDetailRef.current.has(rk)) return;
-        const p = mk.getPosition?.() || mk.__basePos;
-        const dlat = p.getLat() - center.getLat();
-        const dlng = p.getLng() - center.getLng();
-        items.push({ rowKey: rk, pid: String(pid), dist: dlat * dlat + dlng * dlng });
-      });
-
-      items.sort((a, b) => a.dist - b.dist);
-      items.slice(0, limit).forEach((it) => {
-        fetchDetailCached(it.pid, it.rowKey).catch(() => {});
-      });
-    },
-    [fetchDetailCached],
-  );
-
   /* ---------- 지도 초기화 ---------- */
   useEffect(() => {
     let resizeHandler: any;
@@ -383,7 +329,6 @@ export default function MapPage() {
         kakao.maps.event.addListener(map, "idle", async () => {
           await loadMarkersInBounds();
           applyStaticSeparationAll();
-          prefetchTopDetails(8); // ✅ 가까운 것들 미리 상세 로드
         });
 
         setTimeout(() => map && map.relayout(), 0);
@@ -428,7 +373,7 @@ export default function MapPage() {
       } catch {}
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applyStaticSeparationAll, prefetchTopDetails]);
+  }, [applyStaticSeparationAll]);
 
   useEffect(() => {
     const m = mapObjRef.current;
@@ -438,6 +383,17 @@ export default function MapPage() {
         applyStaticSeparationAll();
       }, 0);
   }, [selected, applyStaticSeparationAll]);
+
+  // 패널 스케일 변경 → 지도 레이아웃/마커 분리 재적용
+  useEffect(() => {
+    const m = mapObjRef.current;
+    if ((window as any).kakao?.maps && m) {
+      setTimeout(() => {
+        m.relayout();
+        applyStaticSeparationAll();
+      }, 0);
+    }
+  }, [panelScale, applyStaticSeparationAll]);
 
   /* ---------- 마커 색 전환(행 키) ---------- */
   const setMarkerStateByRowKey = useCallback(
@@ -723,17 +679,40 @@ export default function MapPage() {
             }
           }, 0);
 
-          // ✅ 상세 보강 RPC (캐시 사용: 공백/깜빡임 제거)
-          (async () => {
+          // ✅ 상세 보강 RPC
+          (() => {
             const pid = rowIdOf(row);
             if (!pid) return;
-            try {
-              const d = await fetchDetailCached(pid, rowKey);
-              if (!d) return;
-              setSelected((prev) => (prev && prev.rowKey === rowKey ? { ...prev, ...patchFromDetail(d, prev) } : prev));
-            } catch (e: any) {
-              console.warn("[RPC] get_public_place_detail error:", e?.message || e);
-            }
+            (async () => {
+              const { data: detail, error: dErr } = await (supabase as any).rpc("get_public_place_detail", {
+                p_place_id: pid,
+              });
+              if (!dErr && detail?.length) {
+                const d = detail[0];
+                setSelected((prev) =>
+                  prev && prev.rowKey === rowKey
+                    ? {
+                        ...prev,
+                        households: d.households ?? prev.households,
+                        residents: d.residents ?? prev.residents,
+                        monitors: d.monitors ?? prev.monitors,
+                        monthlyImpressions: d.monthly_impressions ?? prev.monthlyImpressions,
+                        costPerPlay: d.cost_per_play ?? prev.costPerPlay,
+                        hours: d.hours ?? prev.hours,
+                        address: d.address ?? prev.address,
+                        installLocation: d.install_location ?? d.installLocation ?? prev.installLocation,
+                        monthlyFee: d.monthly_fee ?? prev.monthlyFee,
+                        monthlyFeeY1: d.monthly_fee_y1 ?? prev.monthlyFeeY1,
+                        lat: d.lat ?? prev.lat,
+                        lng: d.lng ?? prev.lng,
+                        imageUrl: d.image_url ?? prev.imageUrl,
+                      }
+                    : prev,
+                );
+              } else if (dErr) {
+                console.warn("[RPC] get_public_place_detail error:", dErr.message);
+              }
+            })();
           })();
 
           const isAlreadySelected = selectedRowKeySetRef.current.has(rowKey);
@@ -904,17 +883,40 @@ export default function MapPage() {
             }
           }, 0);
 
-          // ✅ 상세 보강 RPC (캐시 사용: 공백/깜빡임 제거)
-          (async () => {
+          // ✅ 상세 보강 RPC
+          (() => {
             const pid = rowIdOf(row);
             if (!pid) return;
-            try {
-              const d = await fetchDetailCached(pid, rowKey);
-              if (!d) return;
-              setSelected((prev) => (prev && prev.rowKey === rowKey ? { ...prev, ...patchFromDetail(d, prev) } : prev));
-            } catch (e: any) {
-              console.warn("[RPC] get_public_place_detail error:", e?.message || e);
-            }
+            (async () => {
+              const { data: detail, error: dErr } = await (supabase as any).rpc("get_public_place_detail", {
+                p_place_id: pid,
+              });
+              if (!dErr && detail?.length) {
+                const d = detail[0];
+                setSelected((prev) =>
+                  prev && prev.rowKey === rowKey
+                    ? {
+                        ...prev,
+                        households: d.households ?? prev.households,
+                        residents: d.residents ?? prev.residents,
+                        monitors: d.monitors ?? prev.monitors,
+                        monthlyImpressions: d.monthly_impressions ?? prev.monthlyImpressions,
+                        costPerPlay: d.cost_per_play ?? prev.costPerPlay,
+                        hours: d.hours ?? prev.hours,
+                        address: d.address ?? prev.address,
+                        installLocation: d.install_location ?? d.installLocation ?? prev.installLocation,
+                        monthlyFee: d.monthly_fee ?? prev.monthlyFee,
+                        monthlyFeeY1: d.monthly_fee_y1 ?? prev.monthlyFeeY1,
+                        lat: d.lat ?? prev.lat,
+                        lng: d.lng ?? prev.lng,
+                        imageUrl: d.image_url ?? prev.imageUrl,
+                      }
+                    : prev,
+                );
+              } else if (dErr) {
+                console.warn("[RPC] get_public_place_detail error:", dErr.message);
+              }
+            })();
           })();
 
           const isAlreadySelected = selectedRowKeySetRef.current.has(rowKey);
@@ -1222,12 +1224,25 @@ export default function MapPage() {
   const zoomIn = useCallback(() => changeZoom(-1), [changeZoom]);
   const zoomOut = useCallback(() => changeZoom(1), [changeZoom]);
 
+  /* ---------- ✅ 패널 폭(스케일) → 지도 left 오프셋 ---------- */
+  const BASE_CART_W = 360;
+  const BASE_DETAIL_W = 360;
+
+  const cartWidthPx = Math.max(280, Math.round(BASE_CART_W * panelScale));
+  const detailWidthPx = Math.max(320, Math.round(BASE_DETAIL_W * panelScale));
+  const mapLeftPx = selected ? cartWidthPx + detailWidthPx : cartWidthPx;
+
   const mapLeftClass = selected ? "md:left-[720px]" : "md:left-[360px]";
   const MapChromeAny = MapChrome as any;
 
   return (
     <div className="w-screen h-[100dvh] bg-white">
-      <div ref={mapRef} className={`fixed top-16 left-0 right-0 bottom-0 z-[10] ${mapLeftClass}`} aria-label="map" />
+      <div
+        ref={mapRef}
+        className={`fixed top-16 left-0 right-0 bottom-0 z-[10] ${mapLeftClass}`}
+        aria-label="map"
+        style={{ left: mapLeftPx }}
+      />
 
       {/* ▼ 지도 우상단 고정 오버레이 */}
       <div className="fixed top-[84px] right-4 z-[70] pointer-events-none">
@@ -1307,9 +1322,11 @@ export default function MapPage() {
         focusByLatLng={focusByLatLng}
         cartStickyTopPx={64}
         cartStickyUntil="bulkMonthsApply"
-        /* ▼ 여기 추가 */
         quickMode={quickMode}
         onToggleQuick={() => setQuickMode((v) => !v)}
+        /* ✅ 패널 폭 전달 */
+        cartWidthPx={cartWidthPx}
+        detailWidthPx={detailWidthPx}
       />
 
       {/* 에러 토스트들 */}
