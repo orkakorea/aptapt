@@ -1,4 +1,3 @@
-// src/hooks/useMarkers.ts
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { buildRowKeyFromRow, groupKeyFromRow } from "@/core/map/rowKey";
@@ -352,7 +351,7 @@ export default function useMarkers({
     [clusterer, colorByRule, imgs, kakao, map, onSelect, toSelectedBase, enrichWithDetail],
   );
 
-  /** 바운드 내 데이터 요청 (존재하는 컬럼만 선택) */
+  /** 바운드 내 데이터 요청 — ✅ 모바일 목록 RPC(get_public_map_places_v2) 사용 */
   const refreshInBounds = useCallback(async () => {
     if (!kakao?.maps || !map) return;
     const kbounds = map.getBounds?.();
@@ -377,33 +376,29 @@ export default function useMarkers({
     const myVersion = ++requestVersionRef.current;
 
     try {
-      const { data, error } = await (supabase as any)
-        .from("public_map_places")
-        .select("place_id,name,product_name,lat,lng,image_url,is_active,city,district,updated_at")
-        .eq("is_active", true)
-        .not("lat", "is", null)
-        .not("lng", "is", null)
-        .gte("lat", minLat)
-        .lte("lat", maxLat)
-        .gte("lng", minLng)
-        .lte("lng", maxLng)
-        .order("updated_at", { ascending: false })
-        .limit(5000);
+      // 🔁 from(...) → rpc(...) 로 교체 (서버에서 필터/정렬/LIMIT 강제)
+      const { data, error } = await (supabase as any).rpc("get_public_map_places_v2", {
+        p_min_lat: minLat,
+        p_max_lat: maxLat,
+        p_min_lng: minLng,
+        p_max_lng: maxLng,
+        p_limit: 5000,
+      });
 
       if (myVersion !== requestVersionRef.current) return;
       if (error) {
-        console.error("Supabase(public_map_places) error:", error.message);
+        console.error("Supabase(get_public_map_places_v2) error:", error.message);
         return;
       }
 
       const rows: PlaceRow[] = (data ?? []).map((r: any) => ({
-        place_id: r.place_id,
+        place_id: r.place_id, // text (숫자 문자열이면 Number(...)로 사용 가능)
         lat: r.lat,
         lng: r.lng,
         name: r.name ?? undefined,
-        product_name: r.product_name,
+        product_name: r.product_name, // 서버에서 이미 "ELEVATOR TV"로 정규화됨
         productName: r.product_name,
-        image_url: r.image_url, // 존재하는 칼럼만 사용
+        image_url: r.image_url,
         city: r.city,
         district: r.district,
         updated_at: r.updated_at,
