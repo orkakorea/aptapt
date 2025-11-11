@@ -834,9 +834,9 @@ export default function MapChrome({
 
               <div className="rounded-2xl bg-[#F6F7FB] h-14 px-5 flex items-center justify-between">
                 <div className="text-[#6B7280]">월 광고료</div>
-                <div className="text-lg font-semibold text-black">
-                  {fmtWon(selected.monthlyFee)}{" "}
-                  <span className="align-baseline text-[11px] text-[#111827] font-normal">(VAT별도)</span>
+                <div className="h-10 rounded-[10px] bg-[#F4F0FB] flex items-center justify-center px-3 text-base text-[#6C2DFF] font-bold">
+                  <span className="text-base">{fmtWon(cartTotal)}원</span>
+                  <span className="ml-1 text-[11px] font-normal">(VAT별도)</span>
                 </div>
               </div>
 
@@ -973,12 +973,12 @@ function CartItemCard({ item, onChangeMonths, onRemove, onTitleClick }: CartItem
       </div>
 
       <div className="mt-2 flex items-center justify-between">
-        <div className="text-[#6B7280] text:[13px]">월광고료</div>
+        <div className="text-sm text-[#6B7280]">월광고료</div>
         <div className="text-sm font-semibold text-black whitespace-nowrap">{displayMonthly.toLocaleString()}원</div>
       </div>
 
       <div className="mt-2 flex items-center justify-between">
-        <div className="text-[#6B7280] text-[13px]">총광고료</div>
+        <div className="text-sm text-[#6B7280]">총광고료</div>
         <div className="text-right whitespace-nowrap">
           {discountCombined > 0 ? (
             <span className="inline-flex items-center rounded-md bg-[#F4F0FB] text-[#6C2DFF] text-[11px] font-semibold px-2 py-[2px] mr-2 align-middle">
