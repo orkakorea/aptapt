@@ -198,6 +198,49 @@ export default function MapPage() {
   const selectedRef = useRef<SelectedAptX | null>(null);
   const lastSelectedSnapRef = useRef<SelectedAptX | null>(null);
 
+  // ✅ 상세 캐시 & 중복요청 방지
+  const detailCacheRef = useRef<Map<string, any>>(new Map());
+  const inflightDetailRef = useRef<Map<string, Promise<any>>>(new Map());
+
+  // 상세 응답 → SelectedAptX에 병합
+  const patchFromDetail = useCallback(
+    (d: any, prev: SelectedAptX) => ({
+      households: d.households ?? prev.households,
+      residents: d.residents ?? prev.residents,
+      monitors: d.monitors ?? prev.monitors,
+      monthlyImpressions: d.monthly_impressions ?? prev.monthlyImpressions,
+      costPerPlay: d.cost_per_play ?? prev.costPerPlay,
+      hours: d.hours ?? prev.hours,
+      address: d.address ?? prev.address,
+      installLocation: d.install_location ?? d.installLocation ?? prev.installLocation,
+      monthlyFee: d.monthly_fee ?? prev.monthlyFee,
+      monthlyFeeY1: d.monthly_fee_y1 ?? prev.monthlyFeeY1,
+      lat: d.lat ?? prev.lat,
+      lng: d.lng ?? prev.lng,
+      imageUrl: d.image_url ?? prev.imageUrl,
+    }),
+    [],
+  );
+
+  // RPC 1회 보장 + 결과 캐싱
+  const fetchDetailCached = useCallback(async (pid: string | number, rowKey: string) => {
+    const cacheKey = rowKey;
+    if (detailCacheRef.current.has(cacheKey)) return detailCacheRef.current.get(cacheKey);
+    if (inflightDetailRef.current.has(cacheKey)) return inflightDetailRef.current.get(cacheKey);
+
+    const p = (async () => {
+      const { data, error } = await (supabase as any).rpc("get_public_place_detail", { p_place_id: pid });
+      if (error) throw error;
+      const d = Array.isArray(data) ? data[0] : data;
+      if (d) detailCacheRef.current.set(cacheKey, d);
+      inflightDetailRef.current.delete(cacheKey);
+      return d;
+    })();
+
+    inflightDetailRef.current.set(cacheKey, p);
+    return p;
+  }, []);
+
   const [selected, setSelected] = useState<SelectedAptX | null>(null);
   const [initialQ, setInitialQ] = useState("");
   const [kakaoError, setKakaoError] = useState<string | null>(null);
@@ -265,6 +308,36 @@ export default function MapPage() {
     groupsRef.current.forEach((group) => layoutMarkersSideBySide(map, group));
   }, []);
 
+  // 화면 중심에 가까운 마커 상세를 조용히 프리페치
+  const prefetchTopDetails = useCallback(
+    (limit = 8) => {
+      const kakao = (window as KakaoNS).kakao;
+      const maps = kakao?.maps;
+      const map = mapObjRef.current;
+      if (!maps || !map) return;
+      const center = map.getCenter();
+
+      const items: { rowKey: string; pid: string; dist: number }[] = [];
+      markerCacheRef.current.forEach((mk) => {
+        const r = mk.__row as PlaceRow;
+        const pid = rowIdOf(r);
+        if (!pid) return;
+        const rk = buildRowKeyFromRow(r);
+        if (detailCacheRef.current.has(rk) || inflightDetailRef.current.has(rk)) return;
+        const p = mk.getPosition?.() || mk.__basePos;
+        const dlat = p.getLat() - center.getLat();
+        const dlng = p.getLng() - center.getLng();
+        items.push({ rowKey: rk, pid: String(pid), dist: dlat * dlat + dlng * dlng });
+      });
+
+      items.sort((a, b) => a.dist - b.dist);
+      items.slice(0, limit).forEach((it) => {
+        fetchDetailCached(it.pid, it.rowKey).catch(() => {});
+      });
+    },
+    [fetchDetailCached],
+  );
+
   /* ---------- 지도 초기화 ---------- */
   useEffect(() => {
     let resizeHandler: any;
@@ -310,6 +383,7 @@ export default function MapPage() {
         kakao.maps.event.addListener(map, "idle", async () => {
           await loadMarkersInBounds();
           applyStaticSeparationAll();
+          prefetchTopDetails(8); // ✅ 가까운 것들 미리 상세 로드
         });
 
         setTimeout(() => map && map.relayout(), 0);
@@ -354,7 +428,7 @@ export default function MapPage() {
       } catch {}
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applyStaticSeparationAll]);
+  }, [applyStaticSeparationAll, prefetchTopDetails]);
 
   useEffect(() => {
     const m = mapObjRef.current;
@@ -649,40 +723,17 @@ export default function MapPage() {
             }
           }, 0);
 
-          // ✅ 상세 보강 RPC
-          (() => {
+          // ✅ 상세 보강 RPC (캐시 사용: 공백/깜빡임 제거)
+          (async () => {
             const pid = rowIdOf(row);
             if (!pid) return;
-            (async () => {
-              const { data: detail, error: dErr } = await (supabase as any).rpc("get_public_place_detail", {
-                p_place_id: pid,
-              });
-              if (!dErr && detail?.length) {
-                const d = detail[0];
-                setSelected((prev) =>
-                  prev && prev.rowKey === rowKey
-                    ? {
-                        ...prev,
-                        households: d.households ?? prev.households,
-                        residents: d.residents ?? prev.residents,
-                        monitors: d.monitors ?? prev.monitors,
-                        monthlyImpressions: d.monthly_impressions ?? prev.monthlyImpressions,
-                        costPerPlay: d.cost_per_play ?? prev.costPerPlay,
-                        hours: d.hours ?? prev.hours,
-                        address: d.address ?? prev.address,
-                        installLocation: d.install_location ?? d.installLocation ?? prev.installLocation,
-                        monthlyFee: d.monthly_fee ?? prev.monthlyFee,
-                        monthlyFeeY1: d.monthly_fee_y1 ?? prev.monthlyFeeY1,
-                        lat: d.lat ?? prev.lat,
-                        lng: d.lng ?? prev.lng,
-                        imageUrl: d.image_url ?? prev.imageUrl,
-                      }
-                    : prev,
-                );
-              } else if (dErr) {
-                console.warn("[RPC] get_public_place_detail error:", dErr.message);
-              }
-            })();
+            try {
+              const d = await fetchDetailCached(pid, rowKey);
+              if (!d) return;
+              setSelected((prev) => (prev && prev.rowKey === rowKey ? { ...prev, ...patchFromDetail(d, prev) } : prev));
+            } catch (e: any) {
+              console.warn("[RPC] get_public_place_detail error:", e?.message || e);
+            }
           })();
 
           const isAlreadySelected = selectedRowKeySetRef.current.has(rowKey);
@@ -853,40 +904,17 @@ export default function MapPage() {
             }
           }, 0);
 
-          // ✅ 상세 보강 RPC
-          (() => {
+          // ✅ 상세 보강 RPC (캐시 사용: 공백/깜빡임 제거)
+          (async () => {
             const pid = rowIdOf(row);
             if (!pid) return;
-            (async () => {
-              const { data: detail, error: dErr } = await (supabase as any).rpc("get_public_place_detail", {
-                p_place_id: pid,
-              });
-              if (!dErr && detail?.length) {
-                const d = detail[0];
-                setSelected((prev) =>
-                  prev && prev.rowKey === rowKey
-                    ? {
-                        ...prev,
-                        households: d.households ?? prev.households,
-                        residents: d.residents ?? prev.residents,
-                        monitors: d.monitors ?? prev.monitors,
-                        monthlyImpressions: d.monthly_impressions ?? prev.monthlyImpressions,
-                        costPerPlay: d.cost_per_play ?? prev.costPerPlay,
-                        hours: d.hours ?? prev.hours,
-                        address: d.address ?? prev.address,
-                        installLocation: d.install_location ?? d.installLocation ?? prev.installLocation,
-                        monthlyFee: d.monthly_fee ?? prev.monthlyFee,
-                        monthlyFeeY1: d.monthly_fee_y1 ?? prev.monthlyFeeY1,
-                        lat: d.lat ?? prev.lat,
-                        lng: d.lng ?? prev.lng,
-                        imageUrl: d.image_url ?? prev.imageUrl,
-                      }
-                    : prev,
-                );
-              } else if (dErr) {
-                console.warn("[RPC] get_public_place_detail error:", dErr.message);
-              }
-            })();
+            try {
+              const d = await fetchDetailCached(pid, rowKey);
+              if (!d) return;
+              setSelected((prev) => (prev && prev.rowKey === rowKey ? { ...prev, ...patchFromDetail(d, prev) } : prev));
+            } catch (e: any) {
+              console.warn("[RPC] get_public_place_detail error:", e?.message || e);
+            }
           })();
 
           const isAlreadySelected = selectedRowKeySetRef.current.has(rowKey);
