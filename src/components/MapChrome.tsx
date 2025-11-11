@@ -668,7 +668,7 @@ export default function MapChrome({
               className="flex-1 h-9 rounded-md border border-[#6C2DFF] text-sm text-[#6C2DFF] hover:bg-[#F4F0FB]"
               onClick={() => setOpenPackageInquiry(true)}
             >
-              시·군·구·동 단위 / 패키지 문의
+              묶음 단위 / 패키지 문의
             </button>
             <a
               href="tel:031-1551-0810"
