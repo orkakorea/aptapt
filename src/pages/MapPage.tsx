@@ -208,28 +208,6 @@ export default function MapPage() {
   // ✅ 패널 스케일(1탭+2탭 묶음 확대/축소)
   const [panelScale, setPanelScale] = useState(1);
 
-  // [PATCH] ────────────────────────────────────────────────────────────────
-  // 상세 캐시 + 최신요청 보장 + 즉시 병합 유틸
-  const detailCacheRef = useRef<Map<string, any>>(new Map()); // place_id → detail row
-  const detailReqRef = useRef<Record<string, number>>({}); // place_id → last request id
-  const mergeDetail = (base: SelectedAptX, d: any): SelectedAptX => ({
-    ...base,
-    households: d.households ?? base.households,
-    residents: d.residents ?? base.residents,
-    monitors: d.monitors ?? base.monitors,
-    monthlyImpressions: d.monthly_impressions ?? base.monthlyImpressions,
-    costPerPlay: d.cost_per_play ?? base.costPerPlay,
-    hours: d.hours ?? base.hours,
-    address: d.address ?? base.address,
-    installLocation: d.install_location ?? d.installLocation ?? base.installLocation,
-    monthlyFee: d.monthly_fee ?? base.monthlyFee,
-    monthlyFeeY1: d.monthly_fee_y1 ?? base.monthlyFeeY1,
-    lat: d.lat ?? base.lat,
-    lng: d.lng ?? base.lng,
-    imageUrl: d.image_url ?? base.imageUrl,
-  });
-  // [PATCH] ────────────────────────────────────────────────────────────────
-
   // 타이틀 옆 PanelZoomButtons 가 쏘는 이벤트 수신
   useEffect(() => {
     const onZoom = (ev: Event) => {
@@ -686,15 +664,7 @@ export default function MapPage() {
             lng,
             selectedInCart: selectedRowKeySetRef.current.has(rowKey),
           };
-
-          // [PATCH] 캐시 즉시 머지 → 공란 방지
-          const pid = rowIdOf(row);
-          let nextSel = sel;
-          if (pid) {
-            const cached = detailCacheRef.current.get(String(pid));
-            if (cached) nextSel = mergeDetail(nextSel, cached);
-          }
-          setSelected(nextSel);
+          setSelected(sel);
 
           // 🚫 카트/프로그램틱 클릭 시에는 퀵담기 자동 토글 1회 억제
           const suppress = suppressQuickToggleOnceRef.current;
@@ -709,30 +679,39 @@ export default function MapPage() {
             }
           }, 0);
 
-          // [PATCH] 상세 보강 RPC (최신요청만 반영 + 캐시 저장)
+          // ✅ 상세 보강 RPC
           (() => {
             const pid = rowIdOf(row);
             if (!pid) return;
-            const rid = Date.now();
-            detailReqRef.current[String(pid)] = rid;
-
             (async () => {
               const { data: detail, error: dErr } = await (supabase as any).rpc("get_public_place_detail", {
                 p_place_id: pid,
               });
-              if (dErr) {
+              if (!dErr && detail?.length) {
+                const d = detail[0];
+                setSelected((prev) =>
+                  prev && prev.rowKey === rowKey
+                    ? {
+                        ...prev,
+                        households: d.households ?? prev.households,
+                        residents: d.residents ?? prev.residents,
+                        monitors: d.monitors ?? prev.monitors,
+                        monthlyImpressions: d.monthly_impressions ?? prev.monthlyImpressions,
+                        costPerPlay: d.cost_per_play ?? prev.costPerPlay,
+                        hours: d.hours ?? prev.hours,
+                        address: d.address ?? prev.address,
+                        installLocation: d.install_location ?? d.installLocation ?? prev.installLocation,
+                        monthlyFee: d.monthly_fee ?? prev.monthlyFee,
+                        monthlyFeeY1: d.monthly_fee_y1 ?? prev.monthlyFeeY1,
+                        lat: d.lat ?? prev.lat,
+                        lng: d.lng ?? prev.lng,
+                        imageUrl: d.image_url ?? prev.imageUrl,
+                      }
+                    : prev,
+                );
+              } else if (dErr) {
                 console.warn("[RPC] get_public_place_detail error:", dErr.message);
-                return;
               }
-              const d = detail?.[0];
-              if (!d) return;
-
-              // 최신 요청만 반영
-              if (detailReqRef.current[String(pid)] !== rid) return;
-
-              // 캐시에 저장 후 병합 업데이트
-              detailCacheRef.current.set(String(pid), d);
-              setSelected((prev) => (prev && prev.rowKey === rowKey ? mergeDetail(prev, d) : prev));
             })();
           })();
 
@@ -890,15 +869,7 @@ export default function MapPage() {
             lng,
             selectedInCart: selectedRowKeySetRef.current.has(rowKey),
           };
-
-          // [PATCH] 캐시 즉시 머지 → 공란 방지
-          const pid = rowIdOf(row);
-          let nextSel = sel;
-          if (pid) {
-            const cached = detailCacheRef.current.get(String(pid));
-            if (cached) nextSel = mergeDetail(nextSel, cached);
-          }
-          setSelected(nextSel);
+          setSelected(sel);
 
           // 🚫 카트/프로그램틱 클릭 시에는 퀵담기 자동 토글 1회 억제
           const suppress = suppressQuickToggleOnceRef.current;
@@ -912,28 +883,39 @@ export default function MapPage() {
             }
           }, 0);
 
-          // [PATCH] 상세 보강 RPC (최신요청만 반영 + 캐시 저장)
+          // ✅ 상세 보강 RPC
           (() => {
             const pid = rowIdOf(row);
             if (!pid) return;
-            const rid = Date.now();
-            detailReqRef.current[String(pid)] = rid;
-
             (async () => {
               const { data: detail, error: dErr } = await (supabase as any).rpc("get_public_place_detail", {
                 p_place_id: pid,
               });
-              if (dErr) {
+              if (!dErr && detail?.length) {
+                const d = detail[0];
+                setSelected((prev) =>
+                  prev && prev.rowKey === rowKey
+                    ? {
+                        ...prev,
+                        households: d.households ?? prev.households,
+                        residents: d.residents ?? prev.residents,
+                        monitors: d.monitors ?? prev.monitors,
+                        monthlyImpressions: d.monthly_impressions ?? prev.monthlyImpressions,
+                        costPerPlay: d.cost_per_play ?? prev.costPerPlay,
+                        hours: d.hours ?? prev.hours,
+                        address: d.address ?? prev.address,
+                        installLocation: d.install_location ?? d.installLocation ?? prev.installLocation,
+                        monthlyFee: d.monthly_fee ?? prev.monthlyFee,
+                        monthlyFeeY1: d.monthly_fee_y1 ?? prev.monthlyFeeY1,
+                        lat: d.lat ?? prev.lat,
+                        lng: d.lng ?? prev.lng,
+                        imageUrl: d.image_url ?? prev.imageUrl,
+                      }
+                    : prev,
+                );
+              } else if (dErr) {
                 console.warn("[RPC] get_public_place_detail error:", dErr.message);
-                return;
               }
-              const d = detail?.[0];
-              if (!d) return;
-
-              if (detailReqRef.current[String(pid)] !== rid) return;
-
-              detailCacheRef.current.set(String(pid), d);
-              setSelected((prev) => (prev && prev.rowKey === rowKey ? mergeDetail(prev, d) : prev));
             })();
           })();
 
