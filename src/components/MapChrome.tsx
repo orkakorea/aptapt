@@ -2,8 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import QuoteModal, { QuoteLineItem } from "./QuoteModal";
 import InquiryModal from "./InquiryModal";
 import { supabase } from "@/integrations/supabase/client";
-/* ✅ 추가: 타이틀 오른쪽 패널 줌 버튼 */
-import PanelZoomButtons from "./PanelZoomButtons";
 
 /** ===== 타입 ===== */
 export type SelectedApt = {
@@ -672,13 +670,6 @@ export default function MapChrome({
           <div className="flex items-center">
             <div className="text-xl font-bold text-black">응답하라 입주민이여</div>
             {/* ✅ 여기서 패널-줌 이벤트를 직접 발생시킴 (좌/우 버튼) */}
-            <PanelZoomButtonsAny
-              className="ml-3"
-              onPrev={goPrevMode}
-              onNext={goNextMode}
-              onChange={(m: PanelZoomMode) => emitPanelZoom(m)}
-              onZoomChange={(m: PanelZoomMode) => emitPanelZoom(m)}
-            />
           </div>
           {/* 우측 비워둠(기존 레이아웃 유지) */}
           <div />
