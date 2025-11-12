@@ -449,11 +449,11 @@ export default function MapPage() {
     const onZoom = (ev: Event) => {
       const detail = (ev as CustomEvent).detail || {};
       const op: "expand" | "collapse" = detail.op || "expand";
-      const step: number = Number(detail.step) || 120;
+      const step: number = Number(detail.step) || 36;
       const target: "both" | "cart" | "detail" = detail.target || "both";
 
-      setCartW((w) => (target === "detail" ? w : clamp(w + (op === "expand" ? step : -step), 280, 560)));
-      setDetailW((w) => (target === "cart" ? w : clamp(w + (op === "expand" ? step : -step), 320, 720)));
+      setCartW((w) => (target === "detail" ? w : clamp(w + (op === "expand" ? step : -step), 280, 392)));
+      setDetailW((w) => (target === "cart" ? w : clamp(w + (op === "expand" ? step : -step), 320, 504)));
 
       // 지도의 가시 영역 갱신
       setTimeout(() => {
