@@ -1,5 +1,5 @@
 // src/pages/MapPage.tsx
-import React, { useCallback, useEffect, useRef, useState, useMemo } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import MapChrome, { SelectedApt } from "../components/MapChrome";
 import { LocateFixed, Zap, Plus, Minus } from "lucide-react";
@@ -166,15 +166,6 @@ function layoutMarkersSideBySide(map: any, group: KMarker[]) {
    ------------------------------------------------------------------------- */
 type SelectedAptX = SelectedApt & { selectedInCart?: boolean };
 
-/** ✅ 패널 줌 상태 */
-type PanelZoomMode = "normal" | "cartWide" | "detailWide" | "compact";
-const PANEL_PRESETS: Record<PanelZoomMode, { cart: number; detail: number }> = {
-  normal: { cart: 360, detail: 360 },
-  cartWide: { cart: 520, detail: 360 },
-  detailWide: { cart: 360, detail: 520 },
-  compact: { cart: 300, detail: 320 },
-};
-
 export default function MapPage() {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const mapObjRef = useRef<any>(null);
@@ -211,9 +202,9 @@ export default function MapPage() {
   const detailCacheRef = useRef<Map<string, any>>(new Map());
   const inflightDetailRef = useRef<Map<string, Promise<any>>>(new Map());
 
-  // ✅ 패널 줌 상태 (MapChrome에서 PanelZoomButtons가 던지는 이벤트 수신)
-  const [panelZoom, setPanelZoom] = useState<PanelZoomMode>("normal");
-  const { cart: cartW, detail: detailW } = useMemo(() => PANEL_PRESETS[panelZoom], [panelZoom]);
+  // ✅ 패널 폭 상태 (지도/패널 동적 레이아웃)
+  const [cartW, setCartW] = useState<number>(360);   // 1탭(카트)
+  const [detailW, setDetailW] = useState<number>(360); // 2탭(상세)
 
   // 상세 응답 → SelectedAptX에 병합
   const patchFromDetail = useCallback(
@@ -271,17 +262,6 @@ export default function MapPage() {
     selectedRef.current = selected ?? null;
     if (selected) lastSelectedSnapRef.current = selected;
   }, [selected]);
-
-  /** ✅ PanelZoomButtons → 커스텀 이벤트 수신 */
-  useEffect(() => {
-    const onZoom = (ev: any) => {
-      const mode = ev?.detail?.mode as PanelZoomMode | undefined;
-      if (mode && PANEL_PRESETS[mode]) setPanelZoom(mode);
-      else if (ev?.detail === "reset") setPanelZoom("normal");
-    };
-    window.addEventListener("orka:panel:zoom", onZoom as EventListener);
-    return () => window.removeEventListener("orka:panel:zoom", onZoom as EventListener);
-  }, []);
 
   /* ---------- 정렬/우선순위 ---------- */
   const orderAndApplyZIndex = useCallback((arr: KMarker[]) => {
@@ -389,7 +369,7 @@ export default function MapPage() {
           textAlign: "center",
           borderRadius: "999px",
           background: "rgba(108, 45, 255, 0.18)",
-          border: "1px solid rgba(108, 45, 255, 0.35)",
+          border: "1px solid rgba(108, 45, 255, 0.35)`,
           color: "#6C2DFF",
           fontWeight: "700",
           fontSize: "13px",
@@ -461,7 +441,43 @@ export default function MapPage() {
         m.relayout();
         applyStaticSeparationAll();
       }, 0);
-  }, [selected, applyStaticSeparationAll, cartW, detailW, panelZoom]);
+  }, [selected, applyStaticSeparationAll]);
+
+  /* ---------- 패널 줌 이벤트 연결 (MapChrome → MapPage) ---------- */
+  useEffect(() => {
+    const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+    const onZoom = (ev: Event) => {
+      const detail = (ev as CustomEvent).detail || {};
+      const op: "expand" | "collapse" = detail.op || "expand";
+      const step: number = Number(detail.step) || 120;
+      const target: "both" | "cart" | "detail" = detail.target || "both";
+
+      setCartW((w) => (target === "detail" ? w : clamp(w + (op === "expand" ? step : -step), 280, 560)));
+      setDetailW((w) => (target === "cart" ? w : clamp(w + (op === "expand" ? step : -step), 320, 720)));
+
+      // 지도의 가시 영역 갱신
+      setTimeout(() => {
+        try {
+          mapObjRef.current?.relayout();
+          applyStaticSeparationAll();
+        } catch {}
+      }, 0);
+    };
+
+    window.addEventListener("orka:panel:zoom", onZoom as EventListener);
+    return () => window.removeEventListener("orka:panel:zoom", onZoom as EventListener);
+  }, [applyStaticSeparationAll]);
+
+  /* ---------- 폭/선택 변화 시 지도 리레이아웃 보장 ---------- */
+  useEffect(() => {
+    const m = mapObjRef.current;
+    if (m) {
+      try {
+        m.relayout();
+        applyStaticSeparationAll();
+      } catch {}
+    }
+  }, [cartW, detailW, selected, applyStaticSeparationAll]);
 
   /* ---------- 마커 색 전환(행 키) ---------- */
   const setMarkerStateByRowKey = useCallback(
@@ -1248,14 +1264,16 @@ export default function MapPage() {
 
   const MapChromeAny = MapChrome as any;
 
+  const leftPx = selected ? cartW + detailW : cartW;
+
   return (
     <div className="w-screen h-[100dvh] bg-white">
-      {/* ✅ 지도 컨테이너: 패널 줌 상태에 맞춰 동적으로 left(px) 변경 */}
+      {/* 지도 컨테이너: left를 동적으로 적용 */}
       <div
         ref={mapRef}
         className="fixed top-16 right-0 bottom-0 z-[10]"
+        style={{ left: leftPx }}
         aria-label="map"
-        style={{ left: `${selected ? cartW + detailW : cartW}px` }}
       />
 
       {/* ▼ 지도 우상단 고정 오버레이 */}
@@ -1336,12 +1354,12 @@ export default function MapPage() {
         focusByLatLng={focusByLatLng}
         cartStickyTopPx={64}
         cartStickyUntil="bulkMonthsApply"
-        /* ▼ 퀵담기 */
-        quickMode={quickMode}
-        onToggleQuick={() => setQuickMode((v) => !v)}
-        /* ✅ 패널 줌: MapChrome에 폭 전달 */
+        /* ▼ 패널 폭 전달(연결 완료) */
         cartWidthPx={cartW}
         detailWidthPx={detailW}
+        /* ▼ 퀵담기 상태 */
+        quickMode={quickMode}
+        onToggleQuick={() => setQuickMode((v) => !v)}
       />
 
       {/* 에러 토스트들 */}
