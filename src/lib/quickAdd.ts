@@ -1,4 +1,4 @@
-// src/lib/quickAdd.ts
+// path: src/lib/quickAdd.ts
 /**
  * Kakao MarkerImage 팩토리 (Quick Add 전용)
  * - +/- 아이콘을 핀 머리 "정중앙"에 맞춰 그림
@@ -72,7 +72,6 @@ function drawQuickCanvas(size: number, mode: "plus" | "minus"): string {
   ctx.clearRect(0, 0, size, size);
 
   // ---- 핀 기본 형태(보라) ----
-  // 머리 원
   const CX = size / 2;
   const CY = Math.round(size * CY_RATIO);
   const HEAD_R = Math.round(size * 0.33);
@@ -83,7 +82,6 @@ function drawQuickCanvas(size: number, mode: "plus" | "minus"): string {
   ctx.fill();
 
   // 하단 꼬리(드롭 핀)
-  // 머리 원 하단에서 뾰족한 삼각형 모양으로 연결
   const tailTopY = CY + HEAD_R * 0.6;
   const tailHeight = Math.max(8, Math.round(size * 0.22));
   const tailWidth = Math.max(10, Math.round(size * 0.18));
@@ -195,7 +193,7 @@ export default function getQuickImageFactory(maps: KakaoMapsNS, opts?: FactoryOp
     get(o: GetOpts) {
       if (o.quickOn) {
         // 선택(=담김) 상태면 마이너스, 아니면 플러스
-        o.selected ? baseYellow() : quickPlus();
+        return o.selected || o.inCart ? quickMinus() : quickPlus();
       }
       // 일반 모드
       if (o.selected || o.inCart) return baseYellow();
