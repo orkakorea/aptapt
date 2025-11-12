@@ -188,27 +188,6 @@ export default function MapMobilePageV2() {
       recalcSheetMax();
     },
     externalSelectedRowKeys: selectedRowKeys,
-
-    /** ⬇️⬇️ 추가: 모바일 퀵담기 연결 (PNG가 아닌 dataURL 마커 사용 & 상세 RPC 우회) */
-    quickAddEnabled: quickMode,
-    onQuickToggle: (rowKey: string, apt: SelectedApt, wasSelected: boolean) => {
-      if (wasSelected) {
-        // 담김 → 취소
-        setCart((prev) => prev.filter((c) => c.rowKey !== rowKey));
-      } else {
-        // 미담김 → 담기
-        const monthsDefault = Math.max(1, Number(lastMonthsRef.current || 1));
-        const next: CartItem = {
-          rowKey,
-          aptName: apt.name,
-          productName: apt.productName ?? "기본상품",
-          months: monthsDefault,
-          baseMonthly: apt.monthlyFee ?? 0,
-          monthlyFeeY1: apt.monthlyFeeY1 ?? undefined,
-        };
-        setCart((prev) => [next, ...prev.filter((c) => c.rowKey !== rowKey)]);
-      }
-    },
   });
 
   useEffect(() => {
@@ -648,14 +627,9 @@ export default function MapMobilePageV2() {
               <circle cx="15" cy="18" r="1.5" fill="currentColor" />
               <line x1="3" y1="5" x2="6" y2="7" stroke="currentColor" strokeWidth="2" />
             </svg>
-            {cart.length > 99 && (
+            {cart.length > 0 && (
               <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-[#FF3B30] text-[10px] font-bold flex items-center justify-center">
-                99+
-              </span>
-            )}
-            {cart.length > 0 && cart.length <= 99 && (
-              <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-[#FF3B30] text-[10px] font-bold flex items-center justify-center">
-                {cart.length}
+                {cart.length > 99 ? "99+" : cart.length}
               </span>
             )}
           </button>
