@@ -323,8 +323,12 @@ export default function useMarkers({
 
       for (let i = 0; i < n; i++) {
         const angle = (2 * Math.PI * i) / n;
-        const px = basePt.getX() + radius * Math.cos(angle);
-        const py = basePt.getY() + radius * Math.sin(angle);
+        const baseX = typeof (basePt as any).getX === "function" ? (basePt as any).getX() : (basePt as any).x;
+        const baseY = typeof (basePt as any).getY === "function" ? (basePt as any).getY() : (basePt as any).y;
+
+        const px = baseX + radius * Math.cos(angle);
+        const py = baseY + radius * Math.sin(angle);
+
         const newLL = projection.coordsFromPoint(new kakao.maps.Point(px, py));
         out.push({ ...sorted[i], __posLat: newLL.getLat(), __posLng: newLL.getLng() });
       }
