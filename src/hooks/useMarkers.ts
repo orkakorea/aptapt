@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { buildRowKeyFromRow, groupKeyFromRow } from "@/core/map/rowKey";
 import type { SelectedApt } from "@/core/types";
+import getQuickImageFactory from "@/lib/quickAdd";
 
 /* =========================================================================
  * 로컬 유틸
@@ -124,7 +125,7 @@ export default function useMarkers({
   clusterer,
   onSelect,
   externalSelectedRowKeys = [],
-  // 퀵담기(선택 사항, 기본 false) — PC는 전달하지 않으면 기존 동작 유지
+  // 퀵담기(선택 사항, 기본 false)
   quickAddEnabled = false,
   onQuickToggle,
 }: {
@@ -143,9 +144,7 @@ export default function useMarkers({
   const selectedSetRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     selectedSetRef.current = new Set(externalSelectedRowKeys);
-    // 선택 상태 바뀌면 즉시 전체 리페인트
-    poolRef.current.forEach((mk) => colorByRule(mk));
-  }, [externalSelectedRowKeys]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [externalSelectedRowKeys]);
 
   // onSelect ref 고정(재렌더 영향 제거)
   const onSelectRef = useRef(onSelect);
@@ -181,16 +180,51 @@ export default function useMarkers({
     }
   }, [kakao]);
 
+  // ★ 퀵담기 이미지 팩토리 (캔버스 dataURL) — quick 모드일 때만 사용
+  const quickFactory = useMemo(
+    () => (kakao?.maps ? getQuickImageFactory(kakao.maps, { size: 51, offset: { x: 25.5, y: 51 } }) : null),
+    [kakao],
+  );
+
+  // ★ 실제 이미지 선택기(퀵모드 우선)
+  const computeImage = useCallback(
+    (mk: any, next: MarkerState) => {
+      const rowKey = mk?.__rowKey as string | undefined;
+      const inCart = !!rowKey && selectedSetRef.current.has(rowKey);
+
+      if (quickAddEnabled && quickFactory) {
+        // 퀵모드: 담김이면 마이너스, 아니면 플러스 (clicked는 무시)
+        return quickFactory.get({
+          quickOn: true,
+          selected: inCart,
+          inCart,
+          clicked: next === "clicked",
+        });
+      }
+      // 일반 모드
+      return imgs ? (imgs as any)[next] : null;
+    },
+    [imgs, quickAddEnabled, quickFactory],
+  );
+
   const setMarkerState = useCallback(
     (mk: any, next: MarkerState) => {
-      if (!imgs || !mk) return;
-      if (mk.__imgState === next) return;
+      if (!mk) return;
+      const img = computeImage(mk, next);
+      if (!img) return;
+
+      // 중복 setImage 방지: quick 모드/선택상태까지 캐시 키로 고려
+      const rowKey = mk.__rowKey as string | undefined;
+      const inCart = !!rowKey && selectedSetRef.current.has(rowKey);
+      const key = `${quickAddEnabled ? "q" : "n"}:${next}:${inCart ? 1 : 0}`;
+
+      if (mk.__imgKey === key) return;
       try {
-        mk.setImage(imgs[next]);
-        mk.__imgState = next;
+        mk.setImage(img);
+        mk.__imgKey = key;
       } catch {}
     },
-    [imgs],
+    [computeImage, quickAddEnabled],
   );
 
   // 클릭 강조 무시하고 '선택(담김)/보라'만 계산
@@ -215,6 +249,11 @@ export default function useMarkers({
     },
     [setMarkerState],
   );
+
+  // ★ 담기 상태/퀵모드/팩토리 변경 시 즉시 재칠하기
+  useEffect(() => {
+    poolRef.current.forEach((mk) => colorByRule(mk));
+  }, [externalSelectedRowKeys, quickAddEnabled, quickFactory, colorByRule]);
 
   /** 기본 선택 객체 생성: 목록 응답만으로도 패널을 최대 채움 */
   const toSelectedBase = useCallback((rowKey: string, row: PlaceRow, lat: number, lng: number): SelectedApt => {
@@ -415,10 +454,13 @@ export default function useMarkers({
             mk = new maps.Marker({
               position: pos,
               title,
-              image: imgs.purple,
+              image:
+                quickAddEnabled && quickFactory
+                  ? quickFactory.get({ quickOn: true, selected: false, inCart: false, clicked: false })
+                  : imgs.purple,
               clickable: true,
             });
-            mk.__imgState = "purple";
+            mk.__imgKey = quickAddEnabled ? "q:purple:0" : "n:purple:0";
           } catch {
             continue;
           }
@@ -434,16 +476,17 @@ export default function useMarkers({
               const isSelected = selectedSetRef.current.has(mk.__rowKey);
               if (isSelected) {
                 selectedSetRef.current.delete(mk.__rowKey);
-                setMarkerState(mk, "purple");
               } else {
                 selectedSetRef.current.add(mk.__rowKey);
-                setMarkerState(mk, "yellow");
               }
+              setMarkerState(mk, isSelected ? "purple" : "yellow");
+
               // 이전 클릭 강조 제거 및 클릭 강조 비활성
               if (lastClickedRef.current && lastClickedRef.current !== mk) {
                 paintNormal(lastClickedRef.current);
               }
               lastClickedRef.current = null;
+
               onQuickToggle?.(mk.__rowKey, baseSel, isSelected);
               return;
             }
@@ -525,7 +568,7 @@ export default function useMarkers({
         try {
           toRemove.forEach((mk) => {
             kakao.maps.event.removeListener(mk, "click", mk.__onClick);
-            if (lastClickedRef.current === mk) lastClickedRef.current = null;
+            if (lastClickedRef.current === mk) lastClickedRef.current = null; // 제거 시 클릭 강조 해제
           });
         } catch {}
       }
@@ -542,6 +585,7 @@ export default function useMarkers({
       enrichWithDetail,
       paintNormal,
       quickAddEnabled,
+      quickFactory,
       setMarkerState,
     ],
   );
