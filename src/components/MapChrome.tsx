@@ -533,7 +533,6 @@ export default function MapChrome({
           monitors: selected.monitors ?? prev[k]?.monitors,
         },
       }));
-      fetchStatsByNames([selected.name]);
     }
 
     if (selected.rowKey) setMarkerStateByRowKey?.(selected.rowKey, "selected", true);
@@ -587,8 +586,6 @@ export default function MapChrome({
     const need = cart.filter((c) => !c.hydrated || !c.baseMonthly || !c.productName);
     if (!need.length) return;
     need.forEach((c) => hydrateCartItemByRowKey(c.rowKey!, selectedRef.current ?? undefined));
-    const names = cart.map((c) => c.name).filter(Boolean);
-    if (names.length) fetchStatsByNames(names);
   }, [openQuote]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** ===== 견적서 빌더 ===== */
