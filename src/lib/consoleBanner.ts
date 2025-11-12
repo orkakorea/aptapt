@@ -17,7 +17,7 @@ export default function showOrkaConsoleBanner(): void {
   #######      ###   ###     ###   ###    ###   ### 
 `;
 
-  const message = "내가 해냈다.장하다!";
+  const message = "코드를 몰랐던 내가 해냈다.인간은 무엇이든 될수있다";
 
   try {
     // 아스키 아트
