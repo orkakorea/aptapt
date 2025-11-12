@@ -115,7 +115,15 @@ const GROUP_DECIMALS = 6; // 동일 좌표 그룹핑 정밀도(소수점 6)
 /** 배치 파라미터(겹침 분해용) */
 const BASE_RADIUS_PX = 16; // 원형 배치 반지름(픽셀)
 const RADIUS_GROW_PER_ITEM = 1; // 아이템수에 따른 가중
-const CHUNK_ADD = 250; // 마커 추가 배치 크기(성능)
+
+/** 청크 사이즈(동적) */
+function chunkSizeForMap(map: any): number {
+  const lvl = map?.getLevel?.();
+  if (typeof lvl !== "number") return 600;
+  if (lvl <= 4) return 400;
+  if (lvl <= 6) return 600;
+  return 800;
+}
 
 /* =========================================================================
  * 훅 본체
@@ -141,6 +149,18 @@ export default function useMarkers({
   useEffect(() => {
     selectedSetRef.current = new Set(externalSelectedRowKeys);
   }, [externalSelectedRowKeys]);
+
+  // ★ onSelect를 ref로 고정해 재렌더 시 리스너 교체/cleanup 방지
+  const onSelectRef = useRef(onSelect);
+  useEffect(() => {
+    onSelectRef.current = onSelect;
+  }, [onSelect]);
+
+  // ★ clusterer 참조 고정
+  const clustererRef = useRef<any | null>(clusterer ?? null);
+  useEffect(() => {
+    clustererRef.current = clusterer ?? null;
+  }, [clusterer]);
 
   const fetchInFlightRef = useRef(false);
   const requestVersionRef = useRef(0);
@@ -302,6 +322,8 @@ export default function useMarkers({
       const [latS, lngS] = key.split(",").map(Number);
       const baseLL = new kakao.maps.LatLng(latS, lngS);
       const basePt = projection.pointFromCoords(baseLL);
+      const baseX = typeof (basePt as any).getX === "function" ? (basePt as any).getX() : (basePt as any).x;
+      const baseY = typeof (basePt as any).getY === "function" ? (basePt as any).getY() : (basePt as any).y;
       const n = grp.length;
 
       if (n === 1) {
@@ -323,12 +345,8 @@ export default function useMarkers({
 
       for (let i = 0; i < n; i++) {
         const angle = (2 * Math.PI * i) / n;
-        const baseX = typeof (basePt as any).getX === "function" ? (basePt as any).getX() : (basePt as any).x;
-        const baseY = typeof (basePt as any).getY === "function" ? (basePt as any).getY() : (basePt as any).y;
-
         const px = baseX + radius * Math.cos(angle);
         const py = baseY + radius * Math.sin(angle);
-
         const newLL = projection.coordsFromPoint(new kakao.maps.Point(px, py));
         out.push({ ...sorted[i], __posLat: newLL.getLat(), __posLng: newLL.getLng() });
       }
@@ -338,17 +356,17 @@ export default function useMarkers({
   }
 
   /** 마커 대량 추가를 한 번에 막지 말고 조각내어 추가(UX 버벅임 완화) */
-  async function addMarkersInChunks(toAdd: any[], maps: any) {
+  async function addMarkersInChunks(toAdd: any[], maps: any, chunkSize: number) {
     if (!toAdd.length) return;
     let idx = 0;
     while (idx < toAdd.length) {
-      const slice = toAdd.slice(idx, idx + CHUNK_ADD);
+      const slice = toAdd.slice(idx, idx + chunkSize);
       try {
-        if (clusterer?.addMarkers) clusterer.addMarkers(slice);
+        if (clustererRef.current?.addMarkers) clustererRef.current.addMarkers(slice);
         else slice.forEach((m) => m.setMap(map));
       } catch {}
       slice.forEach((mk) => colorByRule(mk));
-      idx += CHUNK_ADD;
+      idx += chunkSize;
       // 다음 프레임으로 넘겨 메인스레드 블로킹 방지
       await new Promise((r) => setTimeout(r, 0));
     }
@@ -402,7 +420,7 @@ export default function useMarkers({
 
           const onClick = async () => {
             const baseSel = toSelectedBase(mk.__rowKey, mk.__row, Number(mk.__row.lat), Number(mk.__row.lng));
-            onSelect(baseSel);
+            onSelectRef.current(baseSel); // ★ ref 사용 (재렌더 영향 없음)
 
             if (lastClickedRef.current && lastClickedRef.current !== mk) colorByRule(lastClickedRef.current);
             lastClickedRef.current = mk;
@@ -432,7 +450,7 @@ export default function useMarkers({
                 if (mk.__detailVer !== myVer) return;
 
                 mk.__row = { ...mk.__row, ...d };
-                onSelect(enrichWithDetail(baseSel, d));
+                onSelectRef.current(enrichWithDetail(baseSel, d));
               } catch (e) {
                 console.warn("[useMarkers] detail fetch failed:", e);
               }
@@ -459,7 +477,7 @@ export default function useMarkers({
 
       if (toAdd.length) {
         // ★ 한 번에 안 넣고 조각 추가 → 버벅임/로딩지연 체감 개선
-        await addMarkersInChunks(toAdd, maps);
+        await addMarkersInChunks(toAdd, maps, chunkSizeForMap(map));
       }
 
       // 제거 대상만 정리
@@ -472,7 +490,7 @@ export default function useMarkers({
 
       if (toRemove.length) {
         try {
-          if (clusterer?.removeMarkers) clusterer.removeMarkers(toRemove);
+          if (clustererRef.current?.removeMarkers) clustererRef.current.removeMarkers(toRemove);
           else toRemove.forEach((m) => m.setMap(null));
         } catch {}
         try {
@@ -482,7 +500,7 @@ export default function useMarkers({
 
       rowKeyIndexRef.current = nextRowKeyIndex;
     },
-    [clusterer, colorByRule, imgs, kakao, map, onSelect, toSelectedBase, enrichWithDetail],
+    [clustererRef, colorByRule, imgs, kakao, map, toSelectedBase, enrichWithDetail],
   );
 
   /** 바운드 내 데이터 요청 (B 단독 public_map_places) */
@@ -575,6 +593,12 @@ export default function useMarkers({
     }
   }, [applyRows, kakao, map]);
 
+  // ★ refreshRef로 이벤트 핸들러의 함수 아이덴티티 고정
+  const refreshRef = useRef(() => {});
+  useEffect(() => {
+    refreshRef.current = refreshInBounds as any;
+  }, [refreshInBounds]);
+
   useEffect(() => {
     if (!kakao?.maps || !map) return;
     const { maps } = kakao;
@@ -583,22 +607,36 @@ export default function useMarkers({
       // ★ idle 이벤트 디바운스(과잉 호출 방지)
       if (idleDebounceRef.current) window.clearTimeout(idleDebounceRef.current);
       idleDebounceRef.current = window.setTimeout(() => {
-        refreshInBounds();
-      }, 200);
+        refreshRef.current();
+      }, 180);
+    };
+
+    // 초기 타일 로드가 끝난 직후 1회 강제 호출 보장
+    let tilesLoadedOnce = false;
+    const handleTilesLoaded = () => {
+      if (tilesLoadedOnce) return;
+      tilesLoadedOnce = true;
+      refreshRef.current();
+      try {
+        maps.event.removeListener(map, "tilesloaded", handleTilesLoaded);
+      } catch {}
     };
 
     maps.event.addListener(map, "idle", handleIdle);
-    // 첫 페인트
-    requestAnimationFrame(() => refreshInBounds());
+    maps.event.addListener(map, "tilesloaded", handleTilesLoaded);
+
+    // 첫 페인트 직후 강제 1회
+    setTimeout(() => refreshRef.current(), 0);
 
     return () => {
       try {
         maps.event.removeListener(map, "idle", handleIdle);
+        maps.event.removeListener(map, "tilesloaded", handleTilesLoaded);
       } catch {}
       const all: any[] = [];
       poolRef.current.forEach((mk) => all.push(mk));
       try {
-        if (clusterer?.removeMarkers) clusterer.removeMarkers(all);
+        if (clustererRef.current?.removeMarkers) clustererRef.current.removeMarkers(all);
         else all.forEach((m) => m.setMap(null));
       } catch {}
       try {
@@ -610,7 +648,7 @@ export default function useMarkers({
       if (idleDebounceRef.current) window.clearTimeout(idleDebounceRef.current);
       idleDebounceRef.current = null;
     };
-  }, [kakao, map, refreshInBounds, clusterer]);
+  }, [kakao, map]);
 
   const selectByRowKey = useCallback(
     async (rowKey: string) => {
@@ -621,14 +659,15 @@ export default function useMarkers({
       const lat = Number(row.lat);
       const lng = Number(row.lng);
 
-      try {
-        const pos = new kakao.maps.LatLng(lat, lng);
-        map.setLevel?.(4);
-        map.panTo?.(pos);
-      } catch {}
+      // ★ 요구사항: 선택 시 지도 확대/축소를 강제하지 않음(기존 setLevel 제거)
+      // 필요시 화면 이동만 원하면 아래 주석을 해제:
+      // try {
+      //   const pos = new kakao.maps.LatLng(lat, lng);
+      //   map.panTo?.(pos);
+      // } catch {}
 
       const baseSel = toSelectedBase(rowKey, row, lat, lng);
-      onSelect(baseSel);
+      onSelectRef.current(baseSel);
 
       if (lastClickedRef.current && lastClickedRef.current !== mk) colorByRule(lastClickedRef.current);
       lastClickedRef.current = mk;
@@ -652,13 +691,13 @@ export default function useMarkers({
           if (mk.__detailVer !== myVer) return;
 
           mk.__row = { ...mk.__row, ...d };
-          onSelect(enrichWithDetail(baseSel, d));
+          onSelectRef.current(enrichWithDetail(baseSel, d));
         } catch (e) {
           console.warn("[useMarkers] detail fetch failed:", e);
         }
       }
     },
-    [colorByRule, enrichWithDetail, kakao, map, onSelect, toSelectedBase],
+    [colorByRule, enrichWithDetail, kakao, map, toSelectedBase],
   );
 
   return { refreshInBounds, selectByRowKey };
