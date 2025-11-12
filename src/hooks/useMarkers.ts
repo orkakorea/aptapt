@@ -10,12 +10,12 @@ import type { SelectedApt } from "@/core/types";
 type PlaceRow = {
   id?: number | string;
   place_id?: number | string;
-  row_uid?: string; // ★ 행 고유 식별자(뷰에서 제공)
+  row_uid?: string; // 뷰에서 주는 행 고유 식별자
   row_hash?: string;
+
   lat?: number | null;
   lng?: number | null;
 
-  // public_map_places 표준 필드
   name?: string | null;
   product_name?: string | null;
   install_location?: string | null;
@@ -51,6 +51,16 @@ const toNum = (v: any) => {
   const n = Number(String(v).replace(/[^0-9.-]/g, ""));
   return Number.isFinite(n) ? n : undefined;
 };
+
+/** 간단 해시(행 순서 고정용) */
+function hashStr(s: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
 
 /** 상품 이미지 매핑(영문+한글 키워드 지원) */
 function imageForProduct(productName?: string | null): string {
@@ -96,10 +106,16 @@ function imageForProduct(productName?: string | null): string {
 
 type MarkerState = "purple" | "yellow" | "clicked";
 
-/** 오버스캔/최소 스팬 */
+/** 오버스캔/최소 스팬/그룹 소수점 */
 const OVERSCAN_RATIO = 0.2;
 const MIN_LAT_SPAN = 0.0001;
 const MIN_LNG_SPAN = 0.0001;
+const GROUP_DECIMALS = 6; // 동일 좌표 그룹핑 정밀도(소수점 6)
+
+/** 배치 파라미터(겹침 분해용) */
+const BASE_RADIUS_PX = 16; // 원형 배치 반지름(픽셀)
+const RADIUS_GROW_PER_ITEM = 1; // 아이템수에 따른 가중
+const CHUNK_ADD = 250; // 마커 추가 배치 크기(성능)
 
 /* =========================================================================
  * 훅 본체
@@ -129,6 +145,8 @@ export default function useMarkers({
   const fetchInFlightRef = useRef(false);
   const requestVersionRef = useRef(0);
   const emptyStreakRef = useRef(0);
+  const lastFetchBoundsRef = useRef<{ minLat: number; maxLat: number; minLng: number; maxLng: number } | null>(null);
+  const idleDebounceRef = useRef<number | null>(null);
 
   const imgs = useMemo(() => {
     if (!kakao?.maps) return null;
@@ -254,23 +272,104 @@ export default function useMarkers({
     return `geo:${lat5},${lng5}|${gk}|${prod}|${loc}`;
   }
 
+  /** 동일 좌표 그룹을 "나란히" 배치하기 위한 보조 구조 */
+  type AugRow = PlaceRow & { __posLat: number; __posLng: number };
+
+  function arrangeNonOverlapping(rows: PlaceRow[], maps: any): AugRow[] {
+    if (!rows.length) return [];
+    const projection = map?.getProjection?.();
+    if (!projection) {
+      // 프로젝션 없으면 그대로 리턴
+      return rows.map((r) => ({ ...r, __posLat: Number(r.lat), __posLng: Number(r.lng) }));
+    }
+
+    // 1) 좌표 그룹핑(소수점 6자리)
+    const groups = new Map<string, PlaceRow[]>();
+    for (const r of rows) {
+      const lat = toNum(r.lat);
+      const lng = toNum(r.lng);
+      if (!Number.isFinite(lat as number) || !Number.isFinite(lng as number)) continue;
+      const key = `${(lat as number).toFixed(GROUP_DECIMALS)},${(lng as number).toFixed(GROUP_DECIMALS)}`;
+      const arr = groups.get(key);
+      if (arr) arr.push(r);
+      else groups.set(key, [r]);
+    }
+
+    const out: AugRow[] = [];
+
+    // 2) 각 그룹 내에서 원형 배치(항상 같은 순서가 되도록 안정 정렬)
+    groups.forEach((grp, key) => {
+      const [latS, lngS] = key.split(",").map(Number);
+      const baseLL = new kakao.maps.LatLng(latS, lngS);
+      const basePt = projection.pointFromCoords(baseLL);
+      const n = grp.length;
+
+      if (n === 1) {
+        out.push({ ...grp[0], __posLat: latS, __posLng: lngS });
+        return;
+      }
+
+      // 안정 정렬: row_uid > product_name > install_location > place_id
+      const sorted = grp.slice().sort((a, b) => {
+        const ak = `${a.row_uid ?? ""}|${a.product_name ?? ""}|${a.install_location ?? ""}|${a.place_id ?? ""}`;
+        const bk = `${b.row_uid ?? ""}|${b.product_name ?? ""}|${b.install_location ?? ""}|${b.place_id ?? ""}`;
+        if (ak < bk) return -1;
+        if (ak > bk) return 1;
+        return 0;
+      });
+
+      // 반지름: 항목 수에 따라 약간 증가 (픽셀 단위, 줌과 무관)
+      const radius = BASE_RADIUS_PX + RADIUS_GROW_PER_ITEM * Math.min(n, 12);
+
+      for (let i = 0; i < n; i++) {
+        const angle = (2 * Math.PI * i) / n;
+        const px = basePt.getX() + radius * Math.cos(angle);
+        const py = basePt.getY() + radius * Math.sin(angle);
+        const newLL = projection.coordsFromPoint(new kakao.maps.Point(px, py));
+        out.push({ ...sorted[i], __posLat: newLL.getLat(), __posLng: newLL.getLng() });
+      }
+    });
+
+    return out;
+  }
+
+  /** 마커 대량 추가를 한 번에 막지 말고 조각내어 추가(UX 버벅임 완화) */
+  async function addMarkersInChunks(toAdd: any[], maps: any) {
+    if (!toAdd.length) return;
+    let idx = 0;
+    while (idx < toAdd.length) {
+      const slice = toAdd.slice(idx, idx + CHUNK_ADD);
+      try {
+        if (clusterer?.addMarkers) clusterer.addMarkers(slice);
+        else slice.forEach((m) => m.setMap(map));
+      } catch {}
+      slice.forEach((mk) => colorByRule(mk));
+      idx += CHUNK_ADD;
+      // 다음 프레임으로 넘겨 메인스레드 블로킹 방지
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  }
+
   const applyRows = useCallback(
-    (rows: PlaceRow[]) => {
+    async (rows: PlaceRow[]) => {
       if (!kakao?.maps || !map || !imgs) return;
       const { maps } = kakao;
 
       // 빈 배열이면서 기존 풀 존재 → 일시적 공백 보호(깜빡임 방지)
       if ((rows?.length ?? 0) === 0 && poolRef.current.size > 0) return;
 
+      // ★ 동일 좌표 그룹을 나란히 배치
+      const arranged: AugRow[] = arrangeNonOverlapping(rows, maps);
+
       const nextIdKeys = new Set<string>();
       const toAdd: any[] = [];
       const toRemove: any[] = [];
       const nextRowKeyIndex = new Map<string, any>();
 
-      for (const row of rows) {
-        if (row.lat == null || row.lng == null) continue;
-        const lat = Number(row.lat);
-        const lng = Number(row.lng);
+      for (const row of arranged) {
+        if (row.__posLat == null || row.__posLng == null) continue;
+        const lat = Number(row.__posLat);
+        const lng = Number(row.__posLng);
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
 
         const idKey = stableIdKeyFromRow(row);
@@ -295,17 +394,17 @@ export default function useMarkers({
           }
           mk.__idKey = idKey;
           mk.__rowKey = rowKey;
-          mk.__row = row;
+          mk.__row = row; // 원본 행(기본 lat/lng 포함)
 
           const onClick = async () => {
-            const baseSel = toSelectedBase(mk.__rowKey, mk.__row, lat, lng);
+            const baseSel = toSelectedBase(mk.__rowKey, mk.__row, Number(mk.__row.lat), Number(mk.__row.lng));
             onSelect(baseSel);
 
             if (lastClickedRef.current && lastClickedRef.current !== mk) colorByRule(lastClickedRef.current);
             lastClickedRef.current = mk;
             colorByRule(mk);
 
-            // 상세 RPC (모바일 B 전용). 함수 패치 전까지 에러 로깅만.
+            // 상세 RPC (모바일 B 전용). 에러는 로깅만.
             const pidText =
               mk.__row?.place_id != null
                 ? String(mk.__row.place_id)
@@ -321,7 +420,6 @@ export default function useMarkers({
                   p_place_id: pidText,
                 });
                 if (error) {
-                  // 42702는 서버 함수 모호성. 마커 표시와 무관하므로 여기서만 경고.
                   console.warn("[useMarkers] detail rpc (mobile B) error:", error.message);
                   return;
                 }
@@ -356,11 +454,8 @@ export default function useMarkers({
       }
 
       if (toAdd.length) {
-        try {
-          if (clusterer?.addMarkers) clusterer.addMarkers(toAdd);
-          else toAdd.forEach((m) => m.setMap(map));
-        } catch {}
-        toAdd.forEach((mk) => colorByRule(mk));
+        // ★ 한 번에 안 넣고 조각 추가 → 버벅임/로딩지연 체감 개선
+        await addMarkersInChunks(toAdd, maps);
       }
 
       // 제거 대상만 정리
@@ -389,6 +484,7 @@ export default function useMarkers({
   /** 바운드 내 데이터 요청 (B 단독 public_map_places) */
   const refreshInBounds = useCallback(async () => {
     if (!kakao?.maps || !map) return;
+
     const kbounds = map.getBounds?.();
     if (!kbounds) return;
 
@@ -406,6 +502,12 @@ export default function useMarkers({
     const minLng = Math.min(sw.getLng(), ne.getLng()) - lngPad;
     const maxLng = Math.max(sw.getLng(), ne.getLng()) + lngPad;
 
+    // ★ 불필요 재요청 방지: 이전 쿼리 영역이 새 영역을 충분히 포함하면 스킵
+    const last = lastFetchBoundsRef.current;
+    if (last && minLat >= last.minLat && maxLat <= last.maxLat && minLng >= last.minLng && maxLng <= last.maxLng) {
+      return;
+    }
+
     if (fetchInFlightRef.current) return;
     fetchInFlightRef.current = true;
     const myVersion = ++requestVersionRef.current;
@@ -416,7 +518,7 @@ export default function useMarkers({
         .select(
           [
             "place_id",
-            "row_uid", // ★ 키 충돌 방지용
+            "row_uid", // 키 충돌 방지용
             "name",
             "product_name",
             "install_location",
@@ -424,18 +526,6 @@ export default function useMarkers({
             "lng",
             "image_url",
             "is_active",
-            "city",
-            "district",
-            "updated_at",
-            "households",
-            "residents",
-            "monitors",
-            "monthly_impressions",
-            "cost_per_play",
-            "hours",
-            "address",
-            "monthly_fee",
-            "monthly_fee_y1",
           ].join(","),
         )
         .eq("is_active", true)
@@ -445,7 +535,7 @@ export default function useMarkers({
         .lte("lat", maxLat)
         .gte("lng", minLng)
         .lte("lng", maxLng)
-        .order("updated_at", { ascending: false })
+        // .order("updated_at", { ascending: false })  // 정렬은 비용이 커서 제거
         .limit(10000); // 넉넉히
 
       if (myVersion !== requestVersionRef.current) return;
@@ -454,8 +544,9 @@ export default function useMarkers({
         return;
       }
 
+      lastFetchBoundsRef.current = { minLat, maxLat, minLng, maxLng };
+
       const rows: PlaceRow[] = (data ?? []).map((r: any) => ({
-        // ★ 뷰에서 온 그대로 복사 — 키/패널 매핑 정확도 ↑
         place_id: r.place_id,
         row_uid: r.row_uid,
         lat: r.lat,
@@ -465,18 +556,6 @@ export default function useMarkers({
         install_location: r.install_location,
         image_url: r.image_url,
         is_active: r.is_active,
-        city: r.city,
-        district: r.district,
-        updated_at: r.updated_at,
-        households: r.households,
-        residents: r.residents,
-        monitors: r.monitors,
-        monthly_impressions: r.monthly_impressions,
-        cost_per_play: r.cost_per_play,
-        hours: r.hours,
-        address: r.address,
-        monthly_fee: r.monthly_fee,
-        monthly_fee_y1: r.monthly_fee_y1,
       }));
 
       if (rows.length === 0) {
@@ -486,7 +565,7 @@ export default function useMarkers({
         emptyStreakRef.current = 0;
       }
 
-      applyRows(rows);
+      await applyRows(rows);
     } finally {
       fetchInFlightRef.current = false;
     }
@@ -496,9 +575,16 @@ export default function useMarkers({
     if (!kakao?.maps || !map) return;
     const { maps } = kakao;
 
-    const handleIdle = () => refreshInBounds();
-    maps.event.addListener(map, "idle", handleIdle);
+    const handleIdle = () => {
+      // ★ idle 이벤트 디바운스(과잉 호출 방지)
+      if (idleDebounceRef.current) window.clearTimeout(idleDebounceRef.current);
+      idleDebounceRef.current = window.setTimeout(() => {
+        refreshInBounds();
+      }, 200);
+    };
 
+    maps.event.addListener(map, "idle", handleIdle);
+    // 첫 페인트
     requestAnimationFrame(() => refreshInBounds());
 
     return () => {
@@ -517,6 +603,8 @@ export default function useMarkers({
       poolRef.current.clear();
       rowKeyIndexRef.current.clear();
       lastClickedRef.current = null;
+      if (idleDebounceRef.current) window.clearTimeout(idleDebounceRef.current);
+      idleDebounceRef.current = null;
     };
   }, [kakao, map, refreshInBounds, clusterer]);
 
@@ -542,7 +630,6 @@ export default function useMarkers({
       lastClickedRef.current = mk;
       colorByRule(mk);
 
-      // 상세는 별도(마커 표시에 영향 X)
       const pidText = row.place_id != null ? String(row.place_id) : row.id != null ? String(row.id) : undefined;
 
       if (pidText) {
