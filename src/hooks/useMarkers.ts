@@ -12,6 +12,24 @@ type PlaceRow = {
   place_id?: number | string;
   lat?: number | null;
   lng?: number | null;
+  // 목록 뷰(public_map_places)의 표준 컬럼(존재하는 것만 들어옴)
+  name?: string;
+  product_name?: string;
+  install_location?: string;
+  image_url?: string | null;
+  is_active?: boolean | null;
+  city?: string | null;
+  district?: string | null;
+  updated_at?: string | null;
+  households?: number | null;
+  residents?: number | null;
+  monitors?: number | null;
+  monthly_impressions?: number | null;
+  cost_per_play?: number | null;
+  hours?: string | null;
+  address?: string | null;
+  monthly_fee?: number | null;
+  monthly_fee_y1?: number | null;
   [k: string]: any;
 };
 
@@ -147,45 +165,44 @@ export default function useMarkers({
     [setMarkerState],
   );
 
-  /** 기본 선택 객체 생성: 이미지 키를 넓게 탐색 */
+  /** 기본 선택 객체 생성: 목록 응답만으로도 패널을 최대 채움 */
   const toSelectedBase = useCallback((rowKey: string, row: PlaceRow, lat: number, lng: number): SelectedApt => {
-    const name = getField(row, ["단지명", "단지 명", "name", "아파트명", "apt_name", "aptName", "title"]) || "";
-    const productName = getField(row, ["상품명", "productName", "product_name", "mediaName"]) || "";
+    const name =
+      (row.name as string) ||
+      (getField(row, ["단지명", "단지 명", "아파트명", "apt_name", "aptName", "title"]) as string) ||
+      "";
+
+    const productName =
+      (row.product_name as string) || (getField(row, ["상품명", "productName", "mediaName"]) as string) || "";
+
     const rawImage =
-      getField(row, [
-        "imageUrl",
-        "image_url",
-        "image",
-        "thumbnail",
-        "thumb",
-        "thumb_url",
-        "thumbUrl",
-        "이미지",
-        "썸네일",
-      ]) || undefined;
+      (row.image_url as string | undefined) ||
+      (getField(row, ["imageUrl", "image", "thumbnail", "thumb", "thumb_url", "thumbUrl", "이미지", "썸네일"]) as
+        | string
+        | undefined);
 
     return {
       rowKey,
-      rowId: row.id != null ? String(row.id) : row.place_id != null ? String(row.place_id) : undefined,
+      rowId: row.place_id != null ? String(row.place_id) : row.id != null ? String(row.id) : undefined,
       name,
-      address: "",
+      address: (row.address as string) || "",
       productName,
-      installLocation: undefined,
-      households: undefined,
-      residents: undefined,
-      monitors: undefined,
-      monthlyImpressions: undefined,
-      costPerPlay: undefined,
-      hours: "",
-      monthlyFee: undefined,
-      monthlyFeeY1: undefined,
+      installLocation: (row.install_location as string) || undefined,
+      households: toNum(row.households),
+      residents: toNum(row.residents),
+      monitors: toNum(row.monitors),
+      monthlyImpressions: toNum(row.monthly_impressions),
+      costPerPlay: toNum(row.cost_per_play),
+      hours: (row.hours as string) || "",
+      monthlyFee: toNum(row.monthly_fee),
+      monthlyFeeY1: toNum(row.monthly_fee_y1),
       imageUrl: rawImage || imageForProduct(productName),
       lat,
       lng,
     };
   }, []);
 
-  /** 상세 응답 보강: 이미지/이름/상품명도 보강 */
+  /** 상세 응답 보강 */
   const enrichWithDetail = useCallback((base: SelectedApt, d: any): SelectedApt => {
     const detailName = (getField(d, ["name"]) as string) ?? (getField(d, ["apt_name"]) as string);
     const detailProduct =
@@ -200,10 +217,7 @@ export default function useMarkers({
       name: detailName ?? base.name,
       productName: detailProduct,
       imageUrl: detailImage ?? imageForProduct(detailProduct),
-      installLocation:
-        toNum(getField(d, ["install_location"])) != null
-          ? (getField(d, ["install_location"]) as any)
-          : (d.install_location ?? base.installLocation),
+      installLocation: (getField(d, ["install_location"]) as string) ?? base.installLocation,
       households: toNum(getField(d, ["households"])) ?? base.households,
       residents: toNum(getField(d, ["residents"])) ?? base.residents,
       monitors: toNum(getField(d, ["monitors"])) ?? base.monitors,
@@ -218,15 +232,21 @@ export default function useMarkers({
     };
   }, []);
 
+  /** 중복 덮어쓰기 방지: place_id + 좌표로 안정 키 생성 */
   function stableIdKeyFromRow(row: PlaceRow): string {
-    if (row.id != null) return `id:${String(row.id)}`;
-    if (row.place_id != null) return `pid:${String(row.place_id)}`;
-    const lat = Number(row.lat);
-    const lng = Number(row.lng);
-    const lat5 = Number.isFinite(lat) ? lat.toFixed(5) : "x";
-    const lng5 = Number.isFinite(lng) ? lng.toFixed(5) : "x";
+    const lat = toNum(row.lat);
+    const lng = toNum(row.lng);
+    const lat5 = Number.isFinite(lat as number) ? (lat as number).toFixed(5) : "x";
+    const lng5 = Number.isFinite(lng as number) ? (lng as number).toFixed(5) : "x";
+
+    const pid = row.place_id != null ? String(row.place_id) : undefined;
+    const id = row.id != null ? String(row.id) : undefined;
+
+    if (pid) return `pid:${pid}|${lat5},${lng5}`;
+    if (id) return `id:${id}|${lat5},${lng5}`;
+
     const prod = String(getField(row, ["상품명", "productName", "product_name"]) || "");
-    const loc = String(getField(row, ["설치위치", "installLocation"]) || "");
+    const loc = String(getField(row, ["설치위치", "install_location"]) || "");
     const gk = groupKeyFromRow(row);
     return `geo:${lat5},${lng5}|${gk}|${prod}|${loc}`;
   }
@@ -282,14 +302,23 @@ export default function useMarkers({
             lastClickedRef.current = mk;
             colorByRule(mk);
 
-            const pid = Number(mk.__row?.place_id ?? mk.__row?.id);
-            if (Number.isFinite(pid)) {
+            // 🔁 모바일(B 전용) 상세 RPC 호출: place_id(text) 사용
+            const pidText =
+              mk.__row?.place_id != null
+                ? String(mk.__row.place_id)
+                : mk.__row?.id != null
+                  ? String(mk.__row.id)
+                  : undefined;
+
+            if (pidText) {
               mk.__detailVer = (mk.__detailVer || 0) + 1;
               const myVer = mk.__detailVer;
               try {
-                const { data, error } = await (supabase as any).rpc("get_public_place_detail", { p_place_id: pid });
+                const { data, error } = await (supabase as any).rpc("get_public_place_detail_b", {
+                  p_place_id: pidText,
+                });
                 if (error) {
-                  console.warn("[useMarkers] detail rpc error:", error.message);
+                  console.warn("[useMarkers] detail rpc (mobile B) error:", error.message);
                   return;
                 }
                 const d = (data && (Array.isArray(data) ? data[0] : data)) || null;
@@ -352,7 +381,7 @@ export default function useMarkers({
     [clusterer, colorByRule, imgs, kakao, map, onSelect, toSelectedBase, enrichWithDetail],
   );
 
-  /** 바운드 내 데이터 요청 (존재하는 컬럼만 선택) */
+  /** 바운드 내 데이터 요청 (B 단독 public_map_places) */
   const refreshInBounds = useCallback(async () => {
     if (!kakao?.maps || !map) return;
     const kbounds = map.getBounds?.();
@@ -379,7 +408,30 @@ export default function useMarkers({
     try {
       const { data, error } = await (supabase as any)
         .from("public_map_places")
-        .select("place_id,name,product_name,lat,lng,image_url,is_active,city,district,updated_at")
+        .select(
+          [
+            "place_id",
+            "name",
+            "product_name",
+            "install_location",
+            "lat",
+            "lng",
+            "image_url",
+            "is_active",
+            "city",
+            "district",
+            "updated_at",
+            "households",
+            "residents",
+            "monitors",
+            "monthly_impressions",
+            "cost_per_play",
+            "hours",
+            "address",
+            "monthly_fee",
+            "monthly_fee_y1",
+          ].join(","),
+        )
         .eq("is_active", true)
         .not("lat", "is", null)
         .not("lng", "is", null)
@@ -397,16 +449,28 @@ export default function useMarkers({
       }
 
       const rows: PlaceRow[] = (data ?? []).map((r: any) => ({
+        // 표준 컬럼을 그대로 복사(마커/패널 매핑 정확도 ↑)
         place_id: r.place_id,
+        id: r.id, // 혹시 뷰에 id가 추가되어도 안전
         lat: r.lat,
         lng: r.lng,
         name: r.name ?? undefined,
         product_name: r.product_name,
-        productName: r.product_name,
-        image_url: r.image_url, // 존재하는 칼럼만 사용
+        install_location: r.install_location,
+        image_url: r.image_url,
+        is_active: r.is_active,
         city: r.city,
         district: r.district,
         updated_at: r.updated_at,
+        households: r.households,
+        residents: r.residents,
+        monitors: r.monitors,
+        monthly_impressions: r.monthly_impressions,
+        cost_per_play: r.cost_per_play,
+        hours: r.hours,
+        address: r.address,
+        monthly_fee: r.monthly_fee,
+        monthly_fee_y1: r.monthly_fee_y1,
       }));
 
       if (rows.length === 0) {
@@ -472,14 +536,18 @@ export default function useMarkers({
       lastClickedRef.current = mk;
       colorByRule(mk);
 
-      const pid = Number(mk.__row?.place_id ?? mk.__row?.id);
-      if (Number.isFinite(pid)) {
+      // 🔁 모바일(B 전용) 상세 RPC 호출: place_id(text) 사용
+      const pidText = row.place_id != null ? String(row.place_id) : row.id != null ? String(row.id) : undefined;
+
+      if (pidText) {
         mk.__detailVer = (mk.__detailVer || 0) + 1;
         const myVer = mk.__detailVer;
         try {
-          const { data, error } = await (supabase as any).rpc("get_public_place_detail", { p_place_id: pid });
+          const { data, error } = await (supabase as any).rpc("get_public_place_detail_b", {
+            p_place_id: pidText,
+          });
           if (error) {
-            console.warn("[useMarkers] detail rpc error:", error.message);
+            console.warn("[useMarkers] detail rpc (mobile B) error:", error.message);
             return;
           }
           const d = (data && (Array.isArray(data) ? data[0] : data)) || null;
