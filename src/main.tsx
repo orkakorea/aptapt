@@ -2,6 +2,22 @@
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
+import showOrkaConsoleBanner from "@/lib/consoleBanner"; // ✅ 콘솔 배너
+
+/** =========================================================
+ *  콘솔 배너: 앱 시작 시 가장 먼저 1회 출력 (HMR 중복 방지)
+ * ======================================================= */
+(() => {
+  try {
+    const w = window as any;
+    if (!w.__ORKA_BANNER_SHOWN) {
+      showOrkaConsoleBanner();
+      w.__ORKA_BANNER_SHOWN = true;
+    }
+  } catch (e) {
+    // noop
+  }
+})();
 
 /** =========================================================
  *  URL 강제 토글: ?forceTablet=1 또는 ?ft=1
@@ -12,11 +28,7 @@ import "./index.css";
     const params = new URLSearchParams(window.location.search);
     const raw = params.get("forceTablet") ?? params.get("ft");
     const enable =
-      raw !== null &&
-      (raw === "" ||
-        raw === "1" ||
-        raw.toLowerCase() === "true" ||
-        raw.toLowerCase() === "on");
+      raw !== null && (raw === "" || raw === "1" || raw.toLowerCase() === "true" || raw.toLowerCase() === "on");
     document.documentElement.classList.toggle("force-tablet", enable);
   } catch (e) {
     console.warn("[main] forceTablet parse skipped:", e);
@@ -41,9 +53,7 @@ import "./index.css";
 (function ensureFavicon() {
   const href = "/favicon2.ico.png"; // 네가 업로드한 파일명 그대로 사용
   const head = document.head;
-  const icons = Array.from(
-    head.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]')
-  );
+  const icons = Array.from(head.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]'));
 
   if (icons.length === 0) {
     const link = document.createElement("link");
