@@ -52,16 +52,6 @@ const toNum = (v: any) => {
   return Number.isFinite(n) ? n : undefined;
 };
 
-/** 간단 해시(행 순서 고정용) */
-function hashStr(s: string): number {
-  let h = 2166136261 >>> 0;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
 /** 상품 이미지 매핑(영문+한글 키워드 지원) */
 function imageForProduct(productName?: string | null): string {
   const raw = productName || "";
@@ -150,13 +140,13 @@ export default function useMarkers({
     selectedSetRef.current = new Set(externalSelectedRowKeys);
   }, [externalSelectedRowKeys]);
 
-  // ★ onSelect를 ref로 고정해 재렌더 시 리스너 교체/cleanup 방지
+  // ★ onSelect ref 고정(재렌더 영향 제거)
   const onSelectRef = useRef(onSelect);
   useEffect(() => {
     onSelectRef.current = onSelect;
   }, [onSelect]);
 
-  // ★ clusterer 참조 고정
+  // ★ clusterer ref 고정
   const clustererRef = useRef<any | null>(clusterer ?? null);
   useEffect(() => {
     clustererRef.current = clusterer ?? null;
@@ -196,17 +186,33 @@ export default function useMarkers({
     [imgs],
   );
 
+  // ★ 클릭 강조 무시하고 '선택(담김)/보라'만 계산하는 도우미
+  const paintNormal = useCallback(
+    (mk: any) => {
+      if (!mk) return;
+      const rowKey = mk.__rowKey as string | undefined;
+      const isSelected = !!rowKey && selectedSetRef.current.has(rowKey);
+      setMarkerState(mk, isSelected ? "yellow" : "purple");
+    },
+    [setMarkerState],
+  );
+
   const colorByRule = useCallback(
     (mk: any) => {
       if (!mk) return;
       const rowKey = mk.__rowKey as string | undefined;
       const isSelected = !!rowKey && selectedSetRef.current.has(rowKey);
-      if (isSelected) return setMarkerState(mk, "yellow");
+      if (isSelected) return setMarkerState(mk, "yellow"); // 담김 우선
       if (lastClickedRef.current === mk) return setMarkerState(mk, "clicked");
       setMarkerState(mk, "purple");
     },
     [setMarkerState],
   );
+
+  // ★ 담기 상태(externalSelectedRowKeys) 변경 시 즉시 재칠하기 → 담기 버튼 누르는 즉시 노란색 반영
+  useEffect(() => {
+    poolRef.current.forEach((mk) => colorByRule(mk));
+  }, [externalSelectedRowKeys, colorByRule]);
 
   /** 기본 선택 객체 생성: 목록 응답만으로도 패널을 최대 채움 */
   const toSelectedBase = useCallback((rowKey: string, row: PlaceRow, lat: number, lng: number): SelectedApt => {
@@ -420,13 +426,15 @@ export default function useMarkers({
 
           const onClick = async () => {
             const baseSel = toSelectedBase(mk.__rowKey, mk.__row, Number(mk.__row.lat), Number(mk.__row.lng));
-            onSelectRef.current(baseSel); // ★ ref 사용 (재렌더 영향 없음)
+            onSelectRef.current(baseSel);
 
-            if (lastClickedRef.current && lastClickedRef.current !== mk) colorByRule(lastClickedRef.current);
-            lastClickedRef.current = mk;
-            colorByRule(mk);
+            // ★ 이전 클릭 마커는 'clicked' 제거(담김이면 노란색, 아니면 보라)
+            const prev = lastClickedRef.current;
+            if (prev && prev !== mk) paintNormal(prev);
+            lastClickedRef.current = mk; // 이제 현재 마커를 클릭 강조 대상으로 지정
+            colorByRule(mk); // clicked 또는 yellow 규칙 적용
 
-            // 상세 RPC (모바일 B 전용). 에러는 로깅만.
+            // 상세 RPC (모바일 B). 에러는 로깅만.
             const pidText =
               mk.__row?.place_id != null
                 ? String(mk.__row.place_id)
@@ -476,7 +484,6 @@ export default function useMarkers({
       }
 
       if (toAdd.length) {
-        // ★ 한 번에 안 넣고 조각 추가 → 버벅임/로딩지연 체감 개선
         await addMarkersInChunks(toAdd, maps, chunkSizeForMap(map));
       }
 
@@ -494,16 +501,19 @@ export default function useMarkers({
           else toRemove.forEach((m) => m.setMap(null));
         } catch {}
         try {
-          toRemove.forEach((mk) => kakao.maps.event.removeListener(mk, "click", mk.__onClick));
+          toRemove.forEach((mk) => {
+            kakao.maps.event.removeListener(mk, "click", mk.__onClick);
+            if (lastClickedRef.current === mk) lastClickedRef.current = null; // ★ 제거 시 클릭 강조 해제
+          });
         } catch {}
       }
 
       rowKeyIndexRef.current = nextRowKeyIndex;
     },
-    [clustererRef, colorByRule, imgs, kakao, map, toSelectedBase, enrichWithDetail],
+    [clustererRef, colorByRule, imgs, kakao, map, toSelectedBase, enrichWithDetail, paintNormal],
   );
 
-  /** 바운드 내 데이터 요청 (B 단독 public_map_places) */
+  /** 바운드 내 데이터 요청 (현재 모바일: public_map_places 직접 조회) */
   const refreshInBounds = useCallback(async () => {
     if (!kakao?.maps || !map) return;
 
@@ -540,7 +550,7 @@ export default function useMarkers({
         .select(
           [
             "place_id",
-            "row_uid", // 키 충돌 방지용
+            "row_uid",
             "name",
             "product_name",
             "install_location",
@@ -557,8 +567,7 @@ export default function useMarkers({
         .lte("lat", maxLat)
         .gte("lng", minLng)
         .lte("lng", maxLng)
-        // .order("updated_at", { ascending: false })  // 정렬은 비용이 커서 제거
-        .limit(10000); // 넉넉히
+        .limit(10000);
 
       if (myVersion !== requestVersionRef.current) return;
       if (error) {
@@ -593,7 +602,7 @@ export default function useMarkers({
     }
   }, [applyRows, kakao, map]);
 
-  // ★ refreshRef로 이벤트 핸들러의 함수 아이덴티티 고정
+  // ★ refreshRef로 이벤트 핸들러 함수 아이덴티티 고정
   const refreshRef = useRef(() => {});
   useEffect(() => {
     refreshRef.current = refreshInBounds as any;
@@ -604,14 +613,14 @@ export default function useMarkers({
     const { maps } = kakao;
 
     const handleIdle = () => {
-      // ★ idle 이벤트 디바운스(과잉 호출 방지)
+      // idle 이벤트 디바운스(과잉 호출 방지)
       if (idleDebounceRef.current) window.clearTimeout(idleDebounceRef.current);
       idleDebounceRef.current = window.setTimeout(() => {
         refreshRef.current();
       }, 180);
     };
 
-    // 초기 타일 로드가 끝난 직후 1회 강제 호출 보장
+    // 초기 타일 로드 직후 1회 강제
     let tilesLoadedOnce = false;
     const handleTilesLoaded = () => {
       if (tilesLoadedOnce) return;
@@ -640,7 +649,9 @@ export default function useMarkers({
         else all.forEach((m) => m.setMap(null));
       } catch {}
       try {
-        all.forEach((mk) => kakao.maps.event.removeListener(mk, "click", mk.__onClick));
+        all.forEach((mk) => {
+          kakao.maps.event.removeListener(mk, "click", mk.__onClick);
+        });
       } catch {}
       poolRef.current.clear();
       rowKeyIndexRef.current.clear();
@@ -659,17 +670,12 @@ export default function useMarkers({
       const lat = Number(row.lat);
       const lng = Number(row.lng);
 
-      // ★ 요구사항: 선택 시 지도 확대/축소를 강제하지 않음(기존 setLevel 제거)
-      // 필요시 화면 이동만 원하면 아래 주석을 해제:
-      // try {
-      //   const pos = new kakao.maps.LatLng(lat, lng);
-      //   map.panTo?.(pos);
-      // } catch {}
-
       const baseSel = toSelectedBase(rowKey, row, lat, lng);
       onSelectRef.current(baseSel);
 
-      if (lastClickedRef.current && lastClickedRef.current !== mk) colorByRule(lastClickedRef.current);
+      // ★ 다른 항목 클릭 시 이전 클릭 강조 해제
+      const prev = lastClickedRef.current;
+      if (prev && prev !== mk) paintNormal(prev);
       lastClickedRef.current = mk;
       colorByRule(mk);
 
@@ -697,7 +703,7 @@ export default function useMarkers({
         }
       }
     },
-    [colorByRule, enrichWithDetail, kakao, map, toSelectedBase],
+    [colorByRule, enrichWithDetail, kakao, map, paintNormal, toSelectedBase],
   );
 
   return { refreshInBounds, selectByRowKey };
