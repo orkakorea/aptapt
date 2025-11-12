@@ -1,4 +1,3 @@
-// src/components/MapChrome.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import QuoteModal, { QuoteLineItem } from "./QuoteModal";
 import InquiryModal from "./InquiryModal";
@@ -203,6 +202,10 @@ function parseRowKey(rowKey?: string): { placeId?: string } {
   return {};
 }
 
+/** ===== ✅ 패널-줌: MapPage와 연결되는 이벤트 디스패처 ===== */
+type PanelZoomMode = "normal" | "cartWide" | "detailWide" | "compact";
+const PanelZoomButtonsAny = PanelZoomButtons as any;
+
 /** ===== 컴포넌트 ===== */
 export default function MapChrome({
   selected,
@@ -241,6 +244,28 @@ export default function MapChrome({
   useEffect(() => {
     selectedRef.current = selected ?? null;
   }, [selected]);
+
+  /** ===== ✅ 패널-줌 현재 모드 & 이벤트 발생 함수 (MapPage가 수신) ===== */
+  const [panelMode, setPanelMode] = useState<PanelZoomMode>("normal");
+  const emitPanelZoom = (mode: PanelZoomMode) => {
+    window.dispatchEvent(new CustomEvent("orka:panel:zoom", { detail: { mode } }));
+    setPanelMode(mode);
+  };
+  const MODES: PanelZoomMode[] = ["normal", "cartWide", "detailWide", "compact"];
+  const goPrevMode = () => {
+    const i = MODES.indexOf(panelMode);
+    const next = MODES[(i - 1 + MODES.length) % MODES.length];
+    emitPanelZoom(next);
+  };
+  const goNextMode = () => {
+    const i = MODES.indexOf(panelMode);
+    const next = MODES[(i + 1) % MODES.length];
+    emitPanelZoom(next);
+  };
+  // 선택 패널이 닫힐 때 detailWide가 의미 없으므로 normal로 자동 복귀(시각적 일관성)
+  useEffect(() => {
+    if (!selected && panelMode === "detailWide") emitPanelZoom("normal");
+  }, [selected]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** ====== Supabase로 카트아이템 보강 ====== */
   async function hydrateCartItemByRowKey(rowKey: string, hint?: SelectedApt) {
@@ -533,6 +558,7 @@ export default function MapChrome({
           monitors: selected.monitors ?? prev[k]?.monitors,
         },
       }));
+      fetchStatsByNames([selected.name]);
     }
 
     if (selected.rowKey) setMarkerStateByRowKey?.(selected.rowKey, "selected", true);
@@ -586,6 +612,8 @@ export default function MapChrome({
     const need = cart.filter((c) => !c.hydrated || !c.baseMonthly || !c.productName);
     if (!need.length) return;
     need.forEach((c) => hydrateCartItemByRowKey(c.rowKey!, selectedRef.current ?? undefined));
+    const names = cart.map((c) => c.name).filter(Boolean);
+    if (names.length) fetchStatsByNames(names);
   }, [openQuote]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** ===== 견적서 빌더 ===== */
@@ -646,7 +674,14 @@ export default function MapChrome({
           {/* ✅ 타이틀 + 패널 줌 버튼(타이틀 오른쪽) */}
           <div className="flex items-center">
             <div className="text-xl font-bold text-black">응답하라 입주민이여</div>
-            <PanelZoomButtons className="ml-3" />
+            {/* ✅ 여기서 패널-줌 이벤트를 직접 발생시킴 (좌/우 버튼) */}
+            <PanelZoomButtonsAny
+              className="ml-3"
+              onPrev={goPrevMode}
+              onNext={goNextMode}
+              onChange={(m: PanelZoomMode) => emitPanelZoom(m)}
+              onZoomChange={(m: PanelZoomMode) => emitPanelZoom(m)}
+            />
           </div>
           {/* 우측 비워둠(기존 레이아웃 유지) */}
           <div />
