@@ -1,4 +1,4 @@
-// src/hooks/useMarkers.ts
+// path: src/hooks/useMarkers.ts
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { buildRowKeyFromRow, groupKeyFromRow } from "@/core/map/rowKey";
@@ -124,12 +124,17 @@ export default function useMarkers({
   clusterer,
   onSelect,
   externalSelectedRowKeys = [],
+  // 퀵담기(선택 사항, 기본 false) — PC는 전달하지 않으면 기존 동작 유지
+  quickAddEnabled = false,
+  onQuickToggle,
 }: {
   kakao: any;
   map: any;
   clusterer?: any | null;
   onSelect: (apt: SelectedApt) => void;
   externalSelectedRowKeys?: string[];
+  quickAddEnabled?: boolean;
+  onQuickToggle?: (rowKey: string, apt: SelectedApt, currentlySelected: boolean) => void;
 }) {
   const poolRef = useRef<Map<string, any>>(new Map());
   const rowKeyIndexRef = useRef<Map<string, any>>(new Map());
@@ -138,15 +143,17 @@ export default function useMarkers({
   const selectedSetRef = useRef<Set<string>>(new Set());
   useEffect(() => {
     selectedSetRef.current = new Set(externalSelectedRowKeys);
-  }, [externalSelectedRowKeys]);
+    // 선택 상태 바뀌면 즉시 전체 리페인트
+    poolRef.current.forEach((mk) => colorByRule(mk));
+  }, [externalSelectedRowKeys]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ★ onSelect ref 고정(재렌더 영향 제거)
+  // onSelect ref 고정(재렌더 영향 제거)
   const onSelectRef = useRef(onSelect);
   useEffect(() => {
     onSelectRef.current = onSelect;
   }, [onSelect]);
 
-  // ★ clusterer ref 고정
+  // clusterer ref 고정
   const clustererRef = useRef<any | null>(clusterer ?? null);
   useEffect(() => {
     clustererRef.current = clusterer ?? null;
@@ -186,7 +193,7 @@ export default function useMarkers({
     [imgs],
   );
 
-  // ★ 클릭 강조 무시하고 '선택(담김)/보라'만 계산하는 도우미
+  // 클릭 강조 무시하고 '선택(담김)/보라'만 계산
   const paintNormal = useCallback(
     (mk: any) => {
       if (!mk) return;
@@ -208,11 +215,6 @@ export default function useMarkers({
     },
     [setMarkerState],
   );
-
-  // ★ 담기 상태(externalSelectedRowKeys) 변경 시 즉시 재칠하기 → 담기 버튼 누르는 즉시 노란색 반영
-  useEffect(() => {
-    poolRef.current.forEach((mk) => colorByRule(mk));
-  }, [externalSelectedRowKeys, colorByRule]);
 
   /** 기본 선택 객체 생성: 목록 응답만으로도 패널을 최대 채움 */
   const toSelectedBase = useCallback((rowKey: string, row: PlaceRow, lat: number, lng: number): SelectedApt => {
@@ -288,7 +290,7 @@ export default function useMarkers({
     const lat5 = Number.isFinite(lat as number) ? (lat as number).toFixed(5) : "x";
     const lng5 = Number.isFinite(lng as number) ? (lng as number).toFixed(5) : "x";
 
-    if (row.row_uid) return `uid:${row.row_uid}`; // ★ 최우선
+    if (row.row_uid) return `uid:${row.row_uid}`; // 최우선
     if (row.place_id != null) return `pid:${String(row.place_id)}|${lat5},${lng5}`;
     if (row.id != null) return `id:${String(row.id)}|${lat5},${lng5}`;
 
@@ -386,7 +388,7 @@ export default function useMarkers({
       // 빈 배열이면서 기존 풀 존재 → 일시적 공백 보호(깜빡임 방지)
       if ((rows?.length ?? 0) === 0 && poolRef.current.size > 0) return;
 
-      // ★ 동일 좌표 그룹을 나란히 배치
+      // 동일 좌표 그룹을 나란히 배치
       const arranged: AugRow[] = arrangeNonOverlapping(rows, maps);
 
       const nextIdKeys = new Set<string>();
@@ -426,13 +428,33 @@ export default function useMarkers({
 
           const onClick = async () => {
             const baseSel = toSelectedBase(mk.__rowKey, mk.__row, Number(mk.__row.lat), Number(mk.__row.lng));
+
+            // ── 퀵담기: 클릭=담기/취소 토글(바텀시트·상세RPC 우회)
+            if (quickAddEnabled) {
+              const isSelected = selectedSetRef.current.has(mk.__rowKey);
+              if (isSelected) {
+                selectedSetRef.current.delete(mk.__rowKey);
+                setMarkerState(mk, "purple");
+              } else {
+                selectedSetRef.current.add(mk.__rowKey);
+                setMarkerState(mk, "yellow");
+              }
+              // 이전 클릭 강조 제거 및 클릭 강조 비활성
+              if (lastClickedRef.current && lastClickedRef.current !== mk) {
+                paintNormal(lastClickedRef.current);
+              }
+              lastClickedRef.current = null;
+              onQuickToggle?.(mk.__rowKey, baseSel, isSelected);
+              return;
+            }
+
+            // 일반 경로: 선택 콜백(바텀시트), 클릭 강조 관리
             onSelectRef.current(baseSel);
 
-            // ★ 이전 클릭 마커는 'clicked' 제거(담김이면 노란색, 아니면 보라)
             const prev = lastClickedRef.current;
             if (prev && prev !== mk) paintNormal(prev);
-            lastClickedRef.current = mk; // 이제 현재 마커를 클릭 강조 대상으로 지정
-            colorByRule(mk); // clicked 또는 yellow 규칙 적용
+            lastClickedRef.current = mk;
+            colorByRule(mk);
 
             // 상세 RPC (모바일 B). 에러는 로깅만.
             const pidText =
@@ -503,17 +525,28 @@ export default function useMarkers({
         try {
           toRemove.forEach((mk) => {
             kakao.maps.event.removeListener(mk, "click", mk.__onClick);
-            if (lastClickedRef.current === mk) lastClickedRef.current = null; // ★ 제거 시 클릭 강조 해제
+            if (lastClickedRef.current === mk) lastClickedRef.current = null;
           });
         } catch {}
       }
 
       rowKeyIndexRef.current = nextRowKeyIndex;
     },
-    [clustererRef, colorByRule, imgs, kakao, map, toSelectedBase, enrichWithDetail, paintNormal],
+    [
+      clustererRef,
+      colorByRule,
+      imgs,
+      kakao,
+      map,
+      toSelectedBase,
+      enrichWithDetail,
+      paintNormal,
+      quickAddEnabled,
+      setMarkerState,
+    ],
   );
 
-  /** 바운드 내 데이터 요청 (현재 모바일: public_map_places 직접 조회) */
+  /** 바운드 내 데이터 요청 (모바일: public_map_places 직접 조회) */
   const refreshInBounds = useCallback(async () => {
     if (!kakao?.maps || !map) return;
 
@@ -534,7 +567,7 @@ export default function useMarkers({
     const minLng = Math.min(sw.getLng(), ne.getLng()) - lngPad;
     const maxLng = Math.max(sw.getLng(), ne.getLng()) + lngPad;
 
-    // ★ 불필요 재요청 방지: 이전 쿼리 영역이 새 영역을 충분히 포함하면 스킵
+    // 불필요 재요청 방지: 이전 쿼리 영역이 새 영역을 충분히 포함하면 스킵
     const last = lastFetchBoundsRef.current;
     if (last && minLat >= last.minLat && maxLat <= last.maxLat && minLng >= last.minLng && maxLng <= last.maxLng) {
       return;
@@ -602,7 +635,7 @@ export default function useMarkers({
     }
   }, [applyRows, kakao, map]);
 
-  // ★ refreshRef로 이벤트 핸들러 함수 아이덴티티 고정
+  // refreshRef로 이벤트 핸들러 함수 아이덴티티 고정
   const refreshRef = useRef(() => {});
   useEffect(() => {
     refreshRef.current = refreshInBounds as any;
@@ -673,7 +706,7 @@ export default function useMarkers({
       const baseSel = toSelectedBase(rowKey, row, lat, lng);
       onSelectRef.current(baseSel);
 
-      // ★ 다른 항목 클릭 시 이전 클릭 강조 해제
+      // 다른 항목 클릭 시 이전 클릭 강조 해제
       const prev = lastClickedRef.current;
       if (prev && prev !== mk) paintNormal(prev);
       lastClickedRef.current = mk;
