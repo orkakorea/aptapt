@@ -1,4 +1,4 @@
-// src/pages/mobile/index.tsx
+// path: src/pages/mobile/index.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
@@ -24,7 +24,6 @@ import type { SelectedApt, CartItem } from "@/core/types";
 import { calcMonthlyWithPolicy, normPolicyKey, DEFAULT_POLICY, rateFromRanges } from "@/core/pricing";
 
 const COLOR_PRIMARY = "#6F4BF2";
-
 type ActiveTab = "detail" | "cart" | "quote";
 
 export default function MapMobilePageV2() {
@@ -95,7 +94,7 @@ export default function MapMobilePageV2() {
    * 완료 모달 상태
    * ========================= */
   const [doneOpen, setDoneOpen] = useState(false);
-  const [receipt, setReceipt] = useState<any | null>(null); // ⚠️ 보안: 화면 표시용 메모리 객체. 콘솔/스토리지/URL로 내보내지 않음!
+  const [receipt, setReceipt] = useState<any | null>(null); // 🔒 화면 표시용(콘솔/스토리지 출력 금지)
 
   /** =========================
    * 바텀시트 상태
@@ -125,10 +124,10 @@ export default function MapMobilePageV2() {
   /** =========================
    * 퀵담기(모바일)
    * ========================= */
-  const quickModeRef = useRef(false);
   const [quickMode, setQuickMode] = useState(false);
+  const quickModeRef = useRef(false); // ← 콘솔 에러 원인: 이 ref가 반드시 선언되어야 함
   useEffect(() => {
-    quickModeRef.current = quickMode;
+    quickModeRef.current = quickMode; // 상태 ↔ ref 동기화
   }, [quickMode]);
 
   /** 카트에서 단지 클릭 시 1회용으로 퀵토글을 억제하는 플래그 */
@@ -149,6 +148,7 @@ export default function MapMobilePageV2() {
       baseMonthly: apt.monthlyFee ?? 0,
       monthlyFeeY1: apt.monthlyFeeY1 ?? undefined,
     };
+    // 중복 치환 후 prepend
     setCart((prev) => [next, ...prev.filter((c) => c.rowKey !== next.rowKey)]);
   }, []);
 
@@ -156,11 +156,12 @@ export default function MapMobilePageV2() {
     kakao,
     map,
     clusterer,
+    // ⬇️ 퀵담기/일반모드 분기를 onSelect에서 전부 처리
     onSelect: (apt) => {
       // 최신 상세 캐시
       if (apt?.rowKey) detailByRowKeyRef.current.set(apt.rowKey, apt);
 
-      // ① 카트에서 포커스만 하려고 들어온 1회 케이스: 자동 담기/취소/차단 없이 시트만 연다
+      // ① 카트에서 포커스만 하려고 들어온 1회 케이스 → 시트만 오픈
       if (suppressQuickToggleOnceRef.current) {
         suppressQuickToggleOnceRef.current = false;
         setSelected(apt);
@@ -170,15 +171,15 @@ export default function MapMobilePageV2() {
         return;
       }
 
-      // ② 퀵담기 ON: 시트 자동 오픈 없이 담기/취소만 수행
+      // ② 퀵담기 ON: 즉시 담기/해제만 수행(시트 자동 오픈 금지)
       if (quickModeRef.current) {
-        setSelected(apt); // 상태만 갱신(시트는 건드리지 않음)
+        setSelected(apt); // 선택 상태는 갱신 (시트는 열지 않음)
         if (isInCart(apt.rowKey)) {
-          setCart((prev) => prev.filter((c) => c.rowKey !== apt.rowKey));
+          setCart((prev) => prev.filter((c) => c.rowKey !== apt.rowKey)); // 해제 → 보라
         } else {
-          addAptToCartQuick(apt);
+          addAptToCartQuick(apt); // 담기 → 노랑
         }
-        return; // 시트 자동 오픈 금지
+        return; // ← 매우 중요: 일반 모드 흐름으로 내려가지 않게 즉시 반환
       }
 
       // ③ 일반 모드: 상세 탭 + 시트 오픈
@@ -187,30 +188,15 @@ export default function MapMobilePageV2() {
       setSheetOpen(true);
       recalcSheetMax();
     },
+
+    // 마커 색상 동기화를 위해 "담김 상태(rowKey 배열)"을 제공
     externalSelectedRowKeys: selectedRowKeys,
 
-    /** ⬇️⬇️ 추가: 모바일 퀵담기 연결 (PNG가 아닌 dataURL 마커 사용 & 상세 RPC 우회) */
+    // (선택) 퀵모드일 때 마커가 즉시 보라/노랑으로 바뀌도록 힌트
     quickAddEnabled: quickMode,
-    onQuickToggle: (rowKey: string, apt: SelectedApt, wasSelected: boolean) => {
-      if (wasSelected) {
-        // 담김 → 취소
-        setCart((prev) => prev.filter((c) => c.rowKey !== rowKey));
-      } else {
-        // 미담김 → 담기
-        const monthsDefault = Math.max(1, Number(lastMonthsRef.current || 1));
-        const next: CartItem = {
-          rowKey,
-          aptName: apt.name,
-          productName: apt.productName ?? "기본상품",
-          months: monthsDefault,
-          baseMonthly: apt.monthlyFee ?? 0,
-          monthlyFeeY1: apt.monthlyFeeY1 ?? undefined,
-        };
-        setCart((prev) => [next, ...prev.filter((c) => c.rowKey !== rowKey)]);
-      }
-    },
   });
 
+  // 최초 1회 refresh 보장
   useEffect(() => {
     if (map && kakao) {
       setTimeout(() => {
@@ -264,19 +250,18 @@ export default function MapMobilePageV2() {
     };
   }, []);
 
-  /** ✅ 검색창에만 blur 적용(입력 폼 키보드 유지) */
+  /** ✅ 검색창 외부 탭 시 검색 input만 blur */
   useEffect(() => {
     const blurActive = () => {
       const el = document.activeElement as HTMLElement | null;
       if (el && typeof el.blur === "function") el.blur();
     };
     const onPointerDown = (e: PointerEvent) => {
-      // 현재 포커스가 "검색 input"일 때만 외부 탭 시 blur
       const isSearchActive = document.activeElement === searchInputRef.current;
       if (!isSearchActive) return;
       const target = e.target as Node;
-      if (searchAreaRef.current?.contains(target)) return; // 검색영역 내부는 유지
-      blurActive(); // 검색창만 닫기
+      if (searchAreaRef.current?.contains(target)) return;
+      blurActive();
     };
     document.addEventListener("pointerdown", onPointerDown, true);
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
@@ -322,9 +307,8 @@ export default function MapMobilePageV2() {
 
   const updateMonths = useCallback(
     (rowKey: string, months: number) => {
-      // ✅ 최근 개월수 기억
       if (Number.isFinite(months) && months > 0) {
-        lastMonthsRef.current = months;
+        lastMonthsRef.current = months; // 최근 개월수 기억
       }
       setCart((prev) => {
         if (applyAll) return prev.map((c) => ({ ...c, months }));
@@ -345,8 +329,6 @@ export default function MapMobilePageV2() {
     _total: number;
     discPeriodRate?: number;
     discPrecompRate?: number;
-
-    // 🔹 견적상세/요약용 카운터들(최신 상세에서 보강)
     households?: number;
     residents?: number;
     monthlyImpressions?: number;
@@ -367,15 +349,12 @@ export default function MapMobilePageV2() {
       const name = c.productName ?? "기본상품";
       const base = c.baseMonthly ?? 0;
 
-      // 총 할인 적용 월가/율
       const { monthly, rate } = calcMonthlyWithPolicy(name, c.months, base, c.monthlyFeeY1, same);
 
-      // 분리 할인률(표시용)
       const rules: any = (DEFAULT_POLICY as any)[key as any];
       const discPeriodRate = rateFromRanges(rules?.period, c.months);
       const discPrecompRate = rateFromRanges(rules?.precomp, same);
 
-      // 🔹 최신 상세에서 카운터 보강
       const detail = detailByRowKeyRef.current.get(c.rowKey) || {};
       const households = Number(detail.households ?? NaN);
       const residents = Number(detail.residents ?? NaN);
@@ -404,8 +383,7 @@ export default function MapMobilePageV2() {
   /** 장바구니 → 특정 단지로 이동 */
   const goToRowKey = useCallback(
     (rk: string) => {
-      // ✅ 다음 onSelect 한 번만 "퀵담기 토글/자동오픈" 모두 억제하고 포커스만 하도록
-      suppressQuickToggleOnceRef.current = true;
+      suppressQuickToggleOnceRef.current = true; // 다음 onSelect 한 번만 퀵토글 억제
       markers.selectByRowKey(rk);
       setActiveTab("detail");
       setSheetOpen(true);
@@ -469,7 +447,6 @@ export default function MapMobilePageV2() {
         ? `${items[0].aptName}${items.length > 1 ? ` 외 ${items.length - 1}개 단지` : ""}`
         : "-";
 
-      // SeatInquiryTable 이 참조하는 최소 필드들만 구성
       const detailsItems = items.map((it) => ({
         apt_name: it.aptName,
         product_name: it.productName,
@@ -487,7 +464,7 @@ export default function MapMobilePageV2() {
         summary: { topAptLabel: topApt },
         form: { cart_snapshot: snapshot },
         details: { items: detailsItems },
-        customer: {}, // 고객입력은 보안/선택사항이라 비워둠(아래 merge에서 필요한 것만 화이트리스트 반영)
+        customer: {},
         meta: { step_ui: "mobile-2step" },
       };
     },
@@ -514,7 +491,7 @@ export default function MapMobilePageV2() {
     if (snap.customer && typeof snap.customer === "object") {
       const src = snap.customer;
       merged.customer = { ...(merged.customer || {}) };
-      const allow = ["company", "name", "phoneMasked", "email", "phone"]; // phoneMasked 우선 사용
+      const allow = ["company", "name", "phoneMasked", "email", "phone"];
       allow.forEach((k) => {
         if (src[k] != null && String(src[k]).trim() !== "") merged.customer[k] = src[k];
       });
@@ -524,7 +501,6 @@ export default function MapMobilePageV2() {
     if (snap.form && typeof snap.form === "object") {
       const f = snap.form;
       merged.form = { ...(merged.form || {}) };
-      // values
       if (f.values && typeof f.values === "object") {
         const srcv = f.values;
         const allowVals = ["campaign_type", "months", "desiredDate", "promoCode", "request_text"];
@@ -533,9 +509,8 @@ export default function MapMobilePageV2() {
           if (srcv[k] != null && String(srcv[k]).trim?.() !== "") merged.form.values[k] = srcv[k];
         });
       }
-      // cart_snapshot
       if (f.cart_snapshot && typeof f.cart_snapshot === "object") {
-        merged.form.cart_snapshot = f.cart_snapshot; // 금액/항목만 포함(이미 프론트 계산 결과)
+        merged.form.cart_snapshot = f.cart_snapshot;
       }
     }
 
@@ -559,7 +534,6 @@ export default function MapMobilePageV2() {
           <button
             className="px-3 py-1 rounded-full border text-sm font-semibold"
             onClick={() => {
-              // 바텀시트가 열려 있으면 닫고 문의 시트만 띄움
               setSheetOpen(false);
               setInqMode("PACKAGE");
               setInqPrefill(undefined);
@@ -576,7 +550,6 @@ export default function MapMobilePageV2() {
       <GestureHint map={map} autoHideMs={0} forceShow />
 
       {/* 검색창 */}
-
       <div ref={searchAreaRef} className="fixed z-[35] left-3 right-[76px] top-[64px] pointer-events-none">
         <form
           onSubmit={async (e) => {
@@ -599,7 +572,7 @@ export default function MapMobilePageV2() {
       {/* 우측 버튼 스택 */}
       <div className="fixed z-[35] right-3 top-[64px] pointer-events-none">
         <div className="flex flex-col gap-2 pointer-events-auto">
-          {/* ▶ 검색 (위쪽) */}
+          {/* 검색 */}
           <button
             onClick={runSearchAndBlur}
             className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow"
@@ -613,7 +586,7 @@ export default function MapMobilePageV2() {
             </svg>
           </button>
 
-          {/* ▶ 퀵담기 토글 (검색 아래로 이동) */}
+          {/* 퀵담기 토글 */}
           <button
             onClick={() => setQuickMode((v) => !v)}
             aria-label="빠른담기"
@@ -624,7 +597,6 @@ export default function MapMobilePageV2() {
             style={{ backgroundColor: quickMode ? "#FFD400" : COLOR_PRIMARY }}
             title="빠른담기"
           >
-            {/* 번개 아이콘 */}
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
               <path d="M13 2L3 14h7l-1 8 11-14h-7l0-6z" />
             </svg>
@@ -705,7 +677,7 @@ export default function MapMobilePageV2() {
             </svg>
           </button>
 
-          {/* ✅ 확대/축소 (+ / −) — 내 위치 아래 */}
+          {/* 확대/축소 */}
           <button
             onClick={zoomIn}
             disabled={!kakaoReady}
@@ -714,7 +686,6 @@ export default function MapMobilePageV2() {
             aria-label="확대"
             title="확대"
           >
-            {/* Plus icon */}
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
               <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
               <line x1="12" y1="7" x2="12" y2="17" stroke="currentColor" strokeWidth="2" />
@@ -729,7 +700,6 @@ export default function MapMobilePageV2() {
             aria-label="축소"
             title="축소"
           >
-            {/* Minus icon */}
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
               <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
               <line x1="7" y1="12" x2="17" y2="12" stroke="currentColor" strokeWidth="2" />
@@ -857,13 +827,9 @@ export default function MapMobilePageV2() {
         sourcePage="/mobile"
         onClose={() => setInqOpen(false)}
         onSubmitted={(newId, snap) => {
-          // 🔒 보안: 제출 후 민감정보는 화면 표시용 객체에만 유지. 콘솔/스토리지 기록 금지.
           setInqOpen(false);
 
-          // 기본 영수증 생성(카트/금액/항목)
           const base = buildReceiptFrom(computedCart, totalCost, newId, inqMode);
-
-          // 표시용 스냅샷(snap)과 화이트리스트 병합 → 고객/문의정보가 완료모달에 즉시 표시
           const merged = mergeReceiptSafe(base, snap);
 
           setReceipt(merged);
