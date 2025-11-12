@@ -5,6 +5,13 @@ import { buildRowKeyFromRow, groupKeyFromRow } from "@/core/map/rowKey";
 import type { SelectedApt } from "@/core/types";
 
 /* =========================================================================
+ * 마커 PNG (이 3개만 사용)
+ * ========================================================================= */
+const PIN_PURPLE_URL = "/makers/pin-purple@2x.png"; // 기본
+const PIN_YELLOW_URL = "/makers/pin-yellow@2x.png"; // 담김(선택)
+const PIN_CLICKED_URL = "/makers/pin-purple@3x.png"; // 클릭 강조(선택 아님일 때만)
+
+/* =========================================================================
  * 로컬 유틸
  * ========================================================================= */
 type PlaceRow = {
@@ -124,7 +131,7 @@ export default function useMarkers({
   clusterer,
   onSelect,
   externalSelectedRowKeys = [],
-  // 퀵담기 관련 파라미터는 시그니처 호환만 유지(내부 로직에선 이미지/상태 토글을 수행하지 않음)
+  // 퀵담기 관련 파라미터는 시그니처 호환만 유지(이미지 오버레이/팩토리 사용 없음)
   quickAddEnabled = false,
   onQuickToggle,
 }: {
@@ -136,8 +143,9 @@ export default function useMarkers({
   quickAddEnabled?: boolean;
   onQuickToggle?: (rowKey: string, apt: SelectedApt, currentlySelected: boolean) => void;
 }) {
+  // 시그니처 호환(내부에서 onQuickToggle은 사용하지 않음. 상위에서 토글 처리)
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  void onQuickToggle; // 사용 안 함(상위에서 토글 처리)
+  void onQuickToggle;
 
   const poolRef = useRef<Map<string, any>>(new Map());
   const rowKeyIndexRef = useRef<Map<string, any>>(new Map());
@@ -173,9 +181,9 @@ export default function useMarkers({
       new maps.MarkerImage(url, new maps.Size(size, size), { offset: new maps.Point(size / 2, size) });
     try {
       return {
-        purple: mk("/makers/pin-purple@2x.png", 51),
-        yellow: mk("/makers/pin-yellow@2x.png", 51),
-        clicked: mk("/makers/pin-purple@3x.png", 51),
+        purple: mk(PIN_PURPLE_URL, 51),
+        yellow: mk(PIN_YELLOW_URL, 51),
+        clicked: mk(PIN_CLICKED_URL, 51),
       };
     } catch {
       return null;
