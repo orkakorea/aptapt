@@ -10,17 +10,21 @@ import type { SelectedApt } from "@/core/types";
 type PlaceRow = {
   id?: number | string;
   place_id?: number | string;
+  row_uid?: string; // ★ 행 고유 식별자(뷰에서 제공)
+  row_hash?: string;
   lat?: number | null;
   lng?: number | null;
-  // 목록 뷰(public_map_places)의 표준 컬럼(존재하는 것만 들어옴)
-  name?: string;
-  product_name?: string;
-  install_location?: string;
+
+  // public_map_places 표준 필드
+  name?: string | null;
+  product_name?: string | null;
+  install_location?: string | null;
   image_url?: string | null;
   is_active?: boolean | null;
   city?: string | null;
   district?: string | null;
   updated_at?: string | null;
+
   households?: number | null;
   residents?: number | null;
   monitors?: number | null;
@@ -30,6 +34,7 @@ type PlaceRow = {
   address?: string | null;
   monthly_fee?: number | null;
   monthly_fee_y1?: number | null;
+
   [k: string]: any;
 };
 
@@ -48,7 +53,7 @@ const toNum = (v: any) => {
 };
 
 /** 상품 이미지 매핑(영문+한글 키워드 지원) */
-function imageForProduct(productName?: string): string {
+function imageForProduct(productName?: string | null): string {
   const raw = productName || "";
   const lower = raw.toLowerCase();
   const compactLower = lower.replace(/\s+/g, "");
@@ -232,18 +237,16 @@ export default function useMarkers({
     };
   }, []);
 
-  /** 중복 덮어쓰기 방지: place_id + 좌표로 안정 키 생성 */
+  /** 중복 덮어쓰기 방지: row_uid 우선 → place_id+좌표 → 기타 */
   function stableIdKeyFromRow(row: PlaceRow): string {
     const lat = toNum(row.lat);
     const lng = toNum(row.lng);
     const lat5 = Number.isFinite(lat as number) ? (lat as number).toFixed(5) : "x";
     const lng5 = Number.isFinite(lng as number) ? (lng as number).toFixed(5) : "x";
 
-    const pid = row.place_id != null ? String(row.place_id) : undefined;
-    const id = row.id != null ? String(row.id) : undefined;
-
-    if (pid) return `pid:${pid}|${lat5},${lng5}`;
-    if (id) return `id:${id}|${lat5},${lng5}`;
+    if (row.row_uid) return `uid:${row.row_uid}`; // ★ 최우선
+    if (row.place_id != null) return `pid:${String(row.place_id)}|${lat5},${lng5}`;
+    if (row.id != null) return `id:${String(row.id)}|${lat5},${lng5}`;
 
     const prod = String(getField(row, ["상품명", "productName", "product_name"]) || "");
     const loc = String(getField(row, ["설치위치", "install_location"]) || "");
@@ -256,7 +259,7 @@ export default function useMarkers({
       if (!kakao?.maps || !map || !imgs) return;
       const { maps } = kakao;
 
-      // 빈 배열이면서 기존 풀 존재 → 일시적 공백 보호
+      // 빈 배열이면서 기존 풀 존재 → 일시적 공백 보호(깜빡임 방지)
       if ((rows?.length ?? 0) === 0 && poolRef.current.size > 0) return;
 
       const nextIdKeys = new Set<string>();
@@ -302,7 +305,7 @@ export default function useMarkers({
             lastClickedRef.current = mk;
             colorByRule(mk);
 
-            // 🔁 모바일(B 전용) 상세 RPC 호출: place_id(text) 사용
+            // 상세 RPC (모바일 B 전용). 함수 패치 전까지 에러 로깅만.
             const pidText =
               mk.__row?.place_id != null
                 ? String(mk.__row.place_id)
@@ -318,6 +321,7 @@ export default function useMarkers({
                   p_place_id: pidText,
                 });
                 if (error) {
+                  // 42702는 서버 함수 모호성. 마커 표시와 무관하므로 여기서만 경고.
                   console.warn("[useMarkers] detail rpc (mobile B) error:", error.message);
                   return;
                 }
@@ -359,6 +363,7 @@ export default function useMarkers({
         toAdd.forEach((mk) => colorByRule(mk));
       }
 
+      // 제거 대상만 정리
       poolRef.current.forEach((mk, idKey) => {
         if (!nextIdKeys.has(idKey)) {
           toRemove.push(mk);
@@ -411,6 +416,7 @@ export default function useMarkers({
         .select(
           [
             "place_id",
+            "row_uid", // ★ 키 충돌 방지용
             "name",
             "product_name",
             "install_location",
@@ -440,7 +446,7 @@ export default function useMarkers({
         .gte("lng", minLng)
         .lte("lng", maxLng)
         .order("updated_at", { ascending: false })
-        .limit(5000);
+        .limit(10000); // 넉넉히
 
       if (myVersion !== requestVersionRef.current) return;
       if (error) {
@@ -449,9 +455,9 @@ export default function useMarkers({
       }
 
       const rows: PlaceRow[] = (data ?? []).map((r: any) => ({
-        // 표준 컬럼을 그대로 복사(마커/패널 매핑 정확도 ↑)
+        // ★ 뷰에서 온 그대로 복사 — 키/패널 매핑 정확도 ↑
         place_id: r.place_id,
-        id: r.id, // 혹시 뷰에 id가 추가되어도 안전
+        row_uid: r.row_uid,
         lat: r.lat,
         lng: r.lng,
         name: r.name ?? undefined,
@@ -536,7 +542,7 @@ export default function useMarkers({
       lastClickedRef.current = mk;
       colorByRule(mk);
 
-      // 🔁 모바일(B 전용) 상세 RPC 호출: place_id(text) 사용
+      // 상세는 별도(마커 표시에 영향 X)
       const pidText = row.place_id != null ? String(row.place_id) : row.id != null ? String(row.id) : undefined;
 
       if (pidText) {
