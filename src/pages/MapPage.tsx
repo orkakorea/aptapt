@@ -248,9 +248,6 @@ export default function MapPage() {
   const [selected, setSelected] = useState<SelectedAptX | null>(null);
   const [initialQ, setInitialQ] = useState("");
   const [kakaoError, setKakaoError] = useState<string | null>(null);
-  // ▼ 패널 폭 상태(초기 360px)
-  const [cartW, setCartW] = useState(360);
-  const [detailW, setDetailW] = useState(360);
 
   // 🔒 퀵담기 토글 억제 플래그(카트에서 단지명 클릭 → 프로그램틱 클릭 시 한 번 억제)
   const suppressQuickToggleOnceRef = useRef<boolean>(false);
@@ -1250,42 +1247,6 @@ export default function MapPage() {
       { enableHighAccuracy: true, maximumAge: 60_000, timeout: 10_000 },
     );
   }, [ensureUserOverlay]);
-  // ▼ 패널 확대/축소 이벤트 리스너
-  useEffect(() => {
-    const onPanelZoom = (ev: Event) => {
-      const { detail } = ev as CustomEvent<{
-        op: "expand" | "collapse";
-        target?: "both" | "cart" | "detail";
-        step?: number;
-      }>;
-      const op = detail?.op ?? "expand";
-      const target = detail?.target ?? "both";
-
-      // ✅ 두 줄 수정 포인트 ①: step 폴백(부드럽게)
-      const STEP = Number.isFinite(detail?.step) ? Number(detail.step) : 36;
-
-      // ✅ 두 줄 수정 포인트 ②: 맥시멈 30% 축소
-      const CART_MIN = 280,
-        CART_MAX = 392; // 560 × 0.7
-      const DETAIL_MIN = 320,
-        DETAIL_MAX = 504; // 720 × 0.7
-
-      const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
-      const delta = op === "expand" ? +STEP : -STEP;
-
-      if (target === "both") {
-        setCartW((v) => clamp(v + delta, CART_MIN, CART_MAX));
-        setDetailW((v) => clamp(v + delta, DETAIL_MIN, DETAIL_MAX));
-      } else if (target === "cart") {
-        setCartW((v) => clamp(v + delta, CART_MIN, CART_MAX));
-      } else {
-        setDetailW((v) => clamp(v + delta, DETAIL_MIN, DETAIL_MAX));
-      }
-    };
-
-    window.addEventListener("orka:panel:zoom", onPanelZoom as EventListener);
-    return () => window.removeEventListener("orka:panel:zoom", onPanelZoom as EventListener);
-  }, []);
 
   /* ---------- ✅ 확대/축소 버튼 행동 ---------- */
   const MIN_LEVEL = 1;
