@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { buildRowKeyFromRow, groupKeyFromRow } from "@/core/map/rowKey";
 import type { SelectedApt } from "@/core/types";
-import getQuickImageFactory from "@/lib/quickAdd";
 
 /* =========================================================================
  * 로컬 유틸
@@ -125,7 +124,7 @@ export default function useMarkers({
   clusterer,
   onSelect,
   externalSelectedRowKeys = [],
-  // 퀵담기(선택 사항, 기본 false)
+  // 퀵담기 관련 파라미터는 시그니처 호환만 유지(내부 로직에선 이미지/상태 토글을 수행하지 않음)
   quickAddEnabled = false,
   onQuickToggle,
 }: {
@@ -137,6 +136,9 @@ export default function useMarkers({
   quickAddEnabled?: boolean;
   onQuickToggle?: (rowKey: string, apt: SelectedApt, currentlySelected: boolean) => void;
 }) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  void onQuickToggle; // 사용 안 함(상위에서 토글 처리)
+
   const poolRef = useRef<Map<string, any>>(new Map());
   const rowKeyIndexRef = useRef<Map<string, any>>(new Map());
   const lastClickedRef = useRef<any | null>(null);
@@ -180,31 +182,12 @@ export default function useMarkers({
     }
   }, [kakao]);
 
-  // ★ 퀵담기 이미지 팩토리 (캔버스 dataURL) — quick 모드일 때만 사용
-  const quickFactory = useMemo(
-    () => (kakao?.maps ? getQuickImageFactory(kakao.maps, { size: 51, offset: { x: 25.5, y: 51 } }) : null),
-    [kakao],
-  );
-
-  // ★ 실제 이미지 선택기(퀵모드 우선)
+  // ★ 실제 이미지 선택기 — PNG 3종만 사용
   const computeImage = useCallback(
-    (mk: any, next: MarkerState) => {
-      const rowKey = mk?.__rowKey as string | undefined;
-      const inCart = !!rowKey && selectedSetRef.current.has(rowKey);
-
-      if (quickAddEnabled && quickFactory) {
-        // 퀵모드: 담김이면 마이너스, 아니면 플러스 (clicked는 무시)
-        return quickFactory.get({
-          quickOn: true,
-          selected: inCart,
-          inCart,
-          clicked: next === "clicked",
-        });
-      }
-      // 일반 모드
+    (_mk: any, next: MarkerState) => {
       return imgs ? (imgs as any)[next] : null;
     },
-    [imgs, quickAddEnabled, quickFactory],
+    [imgs],
   );
 
   const setMarkerState = useCallback(
@@ -213,10 +196,10 @@ export default function useMarkers({
       const img = computeImage(mk, next);
       if (!img) return;
 
-      // 중복 setImage 방지: quick 모드/선택상태까지 캐시 키로 고려
+      // 중복 setImage 방지: 선택상태 포함해서 키 구성(퀵모드 무관)
       const rowKey = mk.__rowKey as string | undefined;
       const inCart = !!rowKey && selectedSetRef.current.has(rowKey);
-      const key = `${quickAddEnabled ? "q" : "n"}:${next}:${inCart ? 1 : 0}`;
+      const key = `${next}:${inCart ? 1 : 0}`;
 
       if (mk.__imgKey === key) return;
       try {
@@ -224,10 +207,9 @@ export default function useMarkers({
         mk.__imgKey = key;
       } catch {}
     },
-    [computeImage, quickAddEnabled],
+    [computeImage],
   );
 
-  // 클릭 강조 무시하고 '선택(담김)/보라'만 계산
   const paintNormal = useCallback(
     (mk: any) => {
       if (!mk) return;
@@ -250,10 +232,10 @@ export default function useMarkers({
     [setMarkerState],
   );
 
-  // ★ 담기 상태/퀵모드/팩토리 변경 시 즉시 재칠하기
+  // 담기 상태 변경 시 즉시 재칠하기(퀵모드 여부와 무관)
   useEffect(() => {
     poolRef.current.forEach((mk) => colorByRule(mk));
-  }, [externalSelectedRowKeys, quickAddEnabled, quickFactory, colorByRule]);
+  }, [externalSelectedRowKeys, colorByRule]);
 
   /** 기본 선택 객체 생성: 목록 응답만으로도 패널을 최대 채움 */
   const toSelectedBase = useCallback((rowKey: string, row: PlaceRow, lat: number, lng: number): SelectedApt => {
@@ -454,13 +436,10 @@ export default function useMarkers({
             mk = new maps.Marker({
               position: pos,
               title,
-              image:
-                quickAddEnabled && quickFactory
-                  ? quickFactory.get({ quickOn: true, selected: false, inCart: false, clicked: false })
-                  : imgs.purple,
+              image: imgs.purple,
               clickable: true,
             });
-            mk.__imgKey = quickAddEnabled ? "q:purple:0" : "n:purple:0";
+            mk.__imgKey = "purple:0";
           } catch {
             continue;
           }
@@ -471,29 +450,17 @@ export default function useMarkers({
           const onClick = async () => {
             const baseSel = toSelectedBase(mk.__rowKey, mk.__row, Number(mk.__row.lat), Number(mk.__row.lng));
 
-            // ── 퀵담기: 클릭=담기/취소 토글(바텀시트·상세RPC 우회)
+            // 상위로 위임: 퀵모드든 일반모드든 onSelect가 장바구니 토글/시트 오픈을 결정
+            onSelectRef.current(baseSel);
+
+            // 퀵모드: 클릭 강조 없이 즉시 상태 시각화(담김/롤백)만 반영
             if (quickAddEnabled) {
-              const isSelected = selectedSetRef.current.has(mk.__rowKey);
-              if (isSelected) {
-                selectedSetRef.current.delete(mk.__rowKey);
-              } else {
-                selectedSetRef.current.add(mk.__rowKey);
-              }
-              setMarkerState(mk, isSelected ? "purple" : "yellow");
-
-              // 이전 클릭 강조 제거 및 클릭 강조 비활성
-              if (lastClickedRef.current && lastClickedRef.current !== mk) {
-                paintNormal(lastClickedRef.current);
-              }
-              lastClickedRef.current = null;
-
-              onQuickToggle?.(mk.__rowKey, baseSel, isSelected);
+              const wasSelected = selectedSetRef.current.has(mk.__rowKey);
+              setMarkerState(mk, wasSelected ? "purple" : "yellow");
               return;
             }
 
-            // 일반 경로: 선택 콜백(바텀시트), 클릭 강조 관리
-            onSelectRef.current(baseSel);
-
+            // 일반 모드: 클릭 강조 처리
             const prev = lastClickedRef.current;
             if (prev && prev !== mk) paintNormal(prev);
             lastClickedRef.current = mk;
@@ -584,9 +551,8 @@ export default function useMarkers({
       toSelectedBase,
       enrichWithDetail,
       paintNormal,
-      quickAddEnabled,
-      quickFactory,
       setMarkerState,
+      quickAddEnabled, // 클릭 강조 억제/즉시 색상 반영 용도
     ],
   );
 
