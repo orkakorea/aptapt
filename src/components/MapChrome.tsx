@@ -741,8 +741,8 @@ export default function MapChrome({
 
           <div className="space-y-2">
             <div className="text-sm font-semibold">총 비용</div>
-            <div className="h-10 rounded-[10px] bg-[#F4F0FB] flex items-center px-3 text-sm text-[#6C2DFF] font-bold">
-              {fmtWon(cartTotal)}원 <span className="ml-1 text-[11px] font-normal">(VAT별도)</span>
+            <div className="h-10 rounded-[10px] bg-[#F4F0FB] flex items-center justify-center px-3 text-sm text-[#6C2DFF] font-bold">
+              {fmtWon(cartTotal)}원<span className="ml-1 text-[11px] font-normal">(VAT별도)</span>
             </div>
           </div>
 
