@@ -1,10 +1,11 @@
 // src/App.tsx
 import { BrowserRouter, HashRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
-import { Suspense, lazy, PropsWithChildren } from "react";
+import { Suspense, lazy, PropsWithChildren, useEffect, useState } from "react";
 import NavBar from "@/components/layout/NavBar";
 import MobileRedirectGuard from "@/components/routing/MobileRedirectGuard";
 
 const HomePage = lazy(() => import("./pages/HomePage"));
+const MobileHomePage = lazy(() => import("./pages/mobile/home")); // ✅ 모바일 전용 홈
 const MapPage = lazy(() => import("./pages/MapPage"));
 const InquiriesPage = lazy(() => import("./pages/admin/InquiriesPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -35,14 +36,42 @@ function AppLayout({ children }: PropsWithChildren) {
   );
 }
 
+// ✅ 세로/가로 비율에 따라 PC 홈 vs 모바일 홈을 선택하는 래퍼
+function ResponsiveHomeRoute() {
+  const [isPortrait, setIsPortrait] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return window.innerWidth < window.innerHeight;
+    } catch {
+      return false;
+    }
+  });
+
+  useEffect(() => {
+    function handleResize() {
+      try {
+        setIsPortrait(window.innerWidth < window.innerHeight);
+      } catch {
+        // noop
+      }
+    }
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  // 세로(가로 < 세로)면 모바일 "/" 홈, 아니면 기존 PC 홈
+  return isPortrait ? <MobileHomePage /> : <HomePage />;
+}
+
 export default function App() {
   return (
     <Router>
       <Suspense fallback={<div className="p-6">WELCOME !</div>}>
         <AppLayout>
           <Routes>
-            {/* 데스크톱 홈 */}
-            <Route path="/" element={<HomePage />} />
+            {/* 홈: 화면 비율에 따라 PC/모바일 분기 */}
+            <Route path="/" element={<ResponsiveHomeRoute />} />
 
             {/* 데스크톱 맵 */}
             <Route path="/map" element={<MapPage />} />
