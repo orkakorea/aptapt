@@ -51,25 +51,46 @@ export default function MapMobilePageV2() {
   const searchAreaRef = useRef<HTMLDivElement>(null);
   const search = usePlaceSearch({ kakao, map, defaultLevel: 4, smoothPan: true });
 
+  // ✅ 초기 q 적용 여부 (한 번만 적용하기 위한 플래그)
+  const initialAppliedRef = useRef(false);
+
   /** ✅ 초기 검색어 적용 — /mobile?q=... 로 진입하면 자동 실행 */
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const initialQ = (searchParams.get("q") || "").trim();
+
   useEffect(() => {
     const ready = !!(kakao && map);
     if (!ready) return;
     if (!initialQ) return;
 
+    // 이미 한 번 초기 검색을 적용했다면 더 이상 실행하지 않음
+    if (initialAppliedRef.current) return;
+    initialAppliedRef.current = true;
+
     setSearchQ(initialQ);
     try {
+      // 처음 진입 시에만 한 번 blur 처리
       searchInputRef.current?.blur();
       (document.activeElement as HTMLElement | null)?.blur?.();
     } catch {}
+
     (async () => {
       try {
         await search.run(initialQ);
       } catch {}
     })();
-  }, [kakao, map, initialQ, search]);
+
+    // URL에서 q 파라미터 제거 → 이후에는 특정 검색어에 고정되지 않도록
+    try {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("q");
+        return next;
+      });
+    } catch {
+      // 실패해도 동작에 치명적 영향 없음
+    }
+  }, [kakao, map, initialQ, search, setSearchParams]);
 
   /** =========================
    * 선택/카트
@@ -206,7 +227,7 @@ export default function MapMobilePageV2() {
           baseMonthly: apt.monthlyFee ?? 0,
           monthlyFeeY1: apt.monthlyFeeY1 ?? undefined,
         };
-        setCart((prev) => [next, ...prev.filter((c) => c.rowKey !== rowKey)]);
+        setCart((prev) => [next, ...prev.filter((c) => c.rowKey !== next.rowKey)]);
       }
     },
   });
@@ -487,7 +508,7 @@ export default function MapMobilePageV2() {
         summary: { topAptLabel: topApt },
         form: { cart_snapshot: snapshot },
         details: { items: detailsItems },
-        customer: {}, // 고객입력은 보안/선택사항이라 비워둠(아래 merge에서 필요한 것만 화이트리스트 반영)
+        customer: {}, // 고객입력은 보안/선택사항이라 비워둠
         meta: { step_ui: "mobile-2step" },
       };
     },
@@ -576,7 +597,6 @@ export default function MapMobilePageV2() {
       <GestureHint map={map} autoHideMs={0} forceShow />
 
       {/* 검색창 */}
-
       <div ref={searchAreaRef} className="fixed z-[35] left-3 right-[76px] top-[64px] pointer-events-none">
         <form
           onSubmit={async (e) => {
@@ -613,7 +633,7 @@ export default function MapMobilePageV2() {
             </svg>
           </button>
 
-          {/* ▶ 퀵담기 토글 (검색 아래로 이동) */}
+          {/* ▶ 퀵담기 토글 */}
           <button
             onClick={() => setQuickMode((v) => !v)}
             aria-label="빠른담기"
@@ -705,7 +725,7 @@ export default function MapMobilePageV2() {
             </svg>
           </button>
 
-          {/* ✅ 확대/축소 (+ / −) — 내 위치 아래 */}
+          {/* 확대 */}
           <button
             onClick={zoomIn}
             disabled={!kakaoReady}
@@ -714,13 +734,14 @@ export default function MapMobilePageV2() {
             aria-label="확대"
             title="확대"
           >
-            {/* Plus icon */}
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
               <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
               <line x1="12" y1="7" x2="12" y2="17" stroke="currentColor" strokeWidth="2" />
               <line x1="7" y1="12" x2="17" y2="12" stroke="currentColor" strokeWidth="2" />
             </svg>
           </button>
+
+          {/* 축소 */}
           <button
             onClick={zoomOut}
             disabled={!kakaoReady}
@@ -729,7 +750,6 @@ export default function MapMobilePageV2() {
             aria-label="축소"
             title="축소"
           >
-            {/* Minus icon */}
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
               <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
               <line x1="7" y1="12" x2="17" y2="12" stroke="currentColor" strokeWidth="2" />
@@ -880,7 +900,7 @@ export default function MapMobilePageV2() {
 }
 
 /** =========================
- * 소형 버튼
+ * 소형 탭 버튼
  * ========================= */
 function TabBtn({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
   return (
