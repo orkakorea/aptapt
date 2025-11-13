@@ -713,7 +713,7 @@ export default function MapChrome({
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && runSearch()}
               className="w-full h-10 rounded-md border border-[#E5E7EB] pl-3 pr-10 text-sm placeholder:text-[#757575] outline-none"
-              placeholder="지역명, 아파트 이름, 단지명, 건물명"
+              placeholder="지역명, 단지명, 건물명을 입력하세요"
             />
             <button
               onClick={runSearch}
@@ -1002,19 +1002,20 @@ function CartItemCard({ item, onChangeMonths, onRemove, onTitleClick }: CartItem
       </div>
 
       <div className="mt-3 flex items-center justify-between">
-        <div className="text-[#6B7280] text:[13px]">월광고료</div>
-        <div className="text-sm font-semibold text-black whitespace-nowrap">{displayMonthly.toLocaleString()}원</div>
+        <div className="text-sm text-[#6B7280]">월광고료</div>
+        <div className="text-sm text-black whitespace-nowrap">{displayMonthly.toLocaleString()}원</div>
       </div>
 
       <div className="mt-2 flex items-center justify-between">
-        <div className="text-[#6B7280] text-[13px]">총광고료</div>
-        <div className="text-right whitespace-nowrap">
+        <div className="text-sm text-[#6B7280]">총광고료</div>
+        <div className="text-sm text-right text-black whitespace-nowrap">
           {discountCombined > 0 ? (
             <span className="inline-flex items-center rounded-md bg-[#F4F0FB] text-[#6C2DFF] text-[11px] font-semibold px-2 py-[2px] mr-2 align-middle">
-              {(Math.round(discountCombined * 1000) / 10).toFixed(1).replace(/\.0$/, "")}%할인
+              {(Math.round(discountCombined * 1000) / 10).toFixed(1).replace(/\.0$/, "")}
+              %할인
             </span>
           ) : null}
-          <span className="text-[#6C2DFF] text-base font-bold align-middle">{total.toLocaleString()}원</span>
+          <span className="align-middle">{total.toLocaleString()}원</span>
         </div>
       </div>
     </div>
