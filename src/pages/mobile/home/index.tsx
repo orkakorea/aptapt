@@ -1,3 +1,4 @@
+// src/pages/mobile/home/index.tsx
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Search } from "lucide-react";
@@ -10,7 +11,8 @@ export default function HomePage() {
   function goSearch() {
     const v = q.trim();
     if (!v) return;
-    nav(`/map?q=${encodeURIComponent(v)}`);
+    // ✅ 모바일 홈에서 검색 → 모바일 지도 페이지로 이동
+    nav(`/mobile?q=${encodeURIComponent(v)}`);
   }
 
   return (
@@ -35,8 +37,13 @@ export default function HomePage() {
             <input
               value={q}
               onChange={(e) => setQ(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && goSearch()}
-              placeholder="우리 사업장 상호명으로고 검색이 가능해요 "
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === "Search") {
+                  e.preventDefault();
+                  goSearch();
+                }
+              }}
+              placeholder="우리 사업장 상호명으로도 검색이 가능해요"
               className="w-full h-12 pl-4 pr-12 text-[16px] text-[#111827] placeholder:text-[#9CA3AF] bg-transparent outline-none"
               aria-label="검색어 입력"
               inputMode="search"
