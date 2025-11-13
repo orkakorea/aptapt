@@ -503,7 +503,7 @@ export default function MobileInquirySheet({
                   <div className={LABEL}>요청사항</div>
                   <textarea
                     className={`${INPUT} h-32 resize-none`}
-                    placeholder="관심 상품/예산/지역/기간 등을 적어주세요."
+                    placeholder="궁금하신 내용을 자유롭게 작성해주세요."
                     value={requestText}
                     onChange={(e) => setRequestText(e.target.value)}
                   />
