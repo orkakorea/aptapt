@@ -654,7 +654,10 @@ export default function CompleteModalMobile({ open, onClose, data, confirmLabel 
                   >
                     이미지로 문의 내용 저장하기
                   </button>
-                  <p className="mt-1 text-xs text-red-500">정확한 상담을 위해 문의 내용을 반드시 저장 해두세요</p>
+                  <p className="mt-1 text-xs text-red-500">
+                    정확한 상담을 위해 문의 내용을 반드시 저장 해두세요. 이 팝업 닫기 후에는 문의는 전송되지만, 작성
+                    내용은 확인할 수 없어요
+                  </p>
 
                   {/* 참고 링크(외부) */}
                   <div className="rounded-xl border border-gray-100 p-4">
