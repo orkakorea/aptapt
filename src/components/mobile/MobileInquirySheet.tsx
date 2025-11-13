@@ -404,18 +404,7 @@ export default function MobileInquirySheet({
                 className="space-y-5"
               >
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <div className={LABEL}>
-                      브랜드명 <span className="text-red-500">*</span>
-                    </div>
-                    <input
-                      className={INPUT}
-                      placeholder="오르카 코리아"
-                      value={brand}
-                      onChange={(e) => setBrand(e.target.value)}
-                    />
-                  </div>
-
+                  {/* 🔁 순서 변경: 캠페인 유형 먼저, 그 다음 브랜드명 */}
                   <div>
                     <div className={LABEL}>
                       캠페인유형 <span className="text-red-500">*</span>
@@ -428,6 +417,18 @@ export default function MobileInquirySheet({
                       <CampaignBtn value="광고대행사" label="광고대행사" />
                       <CampaignBtn value="기타" label="기타" />
                     </div>
+                  </div>
+
+                  <div>
+                    <div className={LABEL}>
+                      브랜드명 <span className="text-red-500">*</span>
+                    </div>
+                    <input
+                      className={INPUT}
+                      placeholder="오르카 코리아"
+                      value={brand}
+                      onChange={(e) => setBrand(e.target.value)}
+                    />
                   </div>
 
                   <div>
