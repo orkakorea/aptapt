@@ -21,7 +21,9 @@ export default function HomePage() {
       <section className="bg-[#F4ECFF]">
         <div className="w-full max-w-[420px] mx-auto px-4 pt-16 pb-12 text-center">
           <h1 className="text-[26px] leading-[36px] font-bold text-[#0A0A0A] font-pretendard tracking-[-0.01em] mb-4">
-            원하는 지역의 광고 가능 단지를 확인하세요
+            원하는 지역의
+            <br />
+            광고 가능한 단지를 확인하세요
           </h1>
 
           <p className="text-[14px] leading-[22px] text-[#9CA3AF] text-center mb-5">
@@ -34,7 +36,7 @@ export default function HomePage() {
               value={q}
               onChange={(e) => setQ(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && goSearch()}
-              placeholder="주소, 지역명, 아파트명, 건물명을 입력해주세요"
+              placeholder="우리 사업장 상호명으로고 검색이 가능해요 "
               className="w-full h-12 pl-4 pr-12 text-[16px] text-[#111827] placeholder:text-[#9CA3AF] bg-transparent outline-none"
               aria-label="검색어 입력"
               inputMode="search"
