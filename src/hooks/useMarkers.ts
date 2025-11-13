@@ -156,6 +156,12 @@ export default function useMarkers({
     selectedSetRef.current = new Set(externalSelectedRowKeys);
   }, [externalSelectedRowKeys]);
 
+  // 퀵담기 모드 최신값(ref) — 마커 onClick/색칠에서 사용
+  const quickAddEnabledRef = useRef<boolean>(!!quickAddEnabled);
+  useEffect(() => {
+    quickAddEnabledRef.current = !!quickAddEnabled;
+  }, [quickAddEnabled]);
+
   // onSelect ref 고정(재렌더 영향 제거)
   const onSelectRef = useRef(onSelect);
   useEffect(() => {
@@ -233,11 +239,17 @@ export default function useMarkers({
       if (!mk) return;
       const rowKey = mk.__rowKey as string | undefined;
       const isSelected = !!rowKey && selectedSetRef.current.has(rowKey);
-      if (isSelected) return setMarkerState(mk, "yellow"); // 담김 우선
-      if (lastClickedRef.current === mk) return setMarkerState(mk, "clicked");
+      if (isSelected) {
+        // 담김 상태는 항상 노랑
+        return setMarkerState(mk, "yellow");
+      }
+      // 퀵담기 모드에서는 클릭 강조(보라 3x)를 사용하지 않고, 항상 기본 보라만 사용
+      if (!quickAddEnabled && lastClickedRef.current === mk) {
+        return setMarkerState(mk, "clicked");
+      }
       setMarkerState(mk, "purple");
     },
-    [setMarkerState],
+    [setMarkerState, quickAddEnabled],
   );
 
   // 담기 상태 변경 시 즉시 재칠하기(퀵모드 여부와 무관)
@@ -461,8 +473,8 @@ export default function useMarkers({
             // 상위로 위임: 퀵모드든 일반모드든 onSelect가 장바구니 토글/시트 오픈을 결정
             onSelectRef.current(baseSel);
 
-            // 퀵모드: 클릭 강조 없이 즉시 상태 시각화(담김/롤백)만 반영
-            if (quickAddEnabled) {
+            // 퀵모드: 클릭 강조/상세 RPC 없이 담기/취소만 수행
+            if (quickAddEnabledRef.current) {
               const wasSelected = selectedSetRef.current.has(mk.__rowKey);
               setMarkerState(mk, wasSelected ? "purple" : "yellow");
               return;
@@ -560,7 +572,7 @@ export default function useMarkers({
       enrichWithDetail,
       paintNormal,
       setMarkerState,
-      quickAddEnabled, // 클릭 강조 억제/즉시 색상 반영 용도
+      quickAddEnabled, // 클릭 강조 규칙에 사용
     ],
   );
 
