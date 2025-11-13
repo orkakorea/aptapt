@@ -136,7 +136,7 @@ export default function MobileInquirySheet({
     return null;
   }
 
-  /* 상단 요약 카드(좌측 상단) */
+  /* 상단 요약 카드(좌측 상단) - SEAT 전용 */
   const seatSummary = useMemo(() => {
     if (mode !== "SEAT") return null;
     const snap: any = prefill?.cart_snapshot || null;
@@ -313,6 +313,13 @@ export default function MobileInquirySheet({
     </button>
   );
 
+  /* 헤더 문구: SEAT / PACKAGE 분기 */
+  const isPackage = mode === "PACKAGE";
+  const headerTitle = isPackage ? "시,군,구 등 단위 / 패키지문의" : "구좌(T.O) 문의";
+  const headerDesc = isPackage
+    ? "브랜드·캠페인유형·희망일 등을 알려주시면 빠르게 제안드립니다."
+    : "*선택하신 단지/상품 정보를 포함해 접수됩니다.";
+
   if (!open) return null;
 
   return (
@@ -329,8 +336,8 @@ export default function MobileInquirySheet({
           {/* Header */}
           <div className="sticky top-0 z-10 flex items-start justify-between px-5 sm:px-6 py-4 bg-white border-b border-gray-100">
             <div>
-              <div className="text-[18px] font-extrabold text-gray-900">구좌(T.O) 문의</div>
-              <div className="text-[12px] text-gray-500 mt-1">*선택하신 단지/상품 정보를 포함해 접수됩니다.</div>
+              <div className="text-[18px] font-extrabold text-gray-900">{headerTitle}</div>
+              <div className="text-[12px] text-gray-500 mt-1">{headerDesc}</div>
             </div>
             <button
               className="rounded-full p-2 hover:bg-gray-50"
