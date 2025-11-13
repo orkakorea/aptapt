@@ -83,16 +83,51 @@ function loadKakao(): Promise<any> {
 /* =========================================================================
    ③ 헬퍼
    ------------------------------------------------------------------------- */
+// ✅ HashRouter(#/map?q=...)와 BrowserRouter(/map?q=...) 둘 다 지원
 function readQuery() {
   const u = new URL(window.location.href);
+
+  // 1) HashRouter: "#/map?q=산본역" 형태에서 q 추출
+  const hash = u.hash || ""; // 예: "#/map?q=산본역"
+  const qFromHash = (() => {
+    if (!hash) return "";
+    const qIndex = hash.indexOf("?");
+    if (qIndex === -1) return "";
+    const searchInHash = hash.slice(qIndex + 1); // "q=산본역"
+    const sp = new URLSearchParams(searchInHash);
+    return (sp.get("q") || "").trim();
+  })();
+  if (qFromHash) return qFromHash;
+
+  // 2) BrowserRouter: "/map?q=산본역" 형태에서 q 추출
   return (u.searchParams.get("q") || "").trim();
 }
+
 function writeQuery(v: string) {
   const u = new URL(window.location.href);
-  if (v) u.searchParams.set("q", v);
-  else u.searchParams.delete("q");
+
+  // 1) HashRouter: "#/map?q=..." 안의 q를 갱신
+  if (u.hash) {
+    const hash = u.hash; // 예: "#/map?q=산본역" 또는 "#/map"
+    const qIndex = hash.indexOf("?");
+    const hashPath = qIndex === -1 ? hash : hash.slice(0, qIndex); // "#/map"
+    const hashSearch = qIndex === -1 ? "" : hash.slice(qIndex + 1); // "q=산본역" 또는 ""
+
+    const sp = new URLSearchParams(hashSearch);
+    if (v) sp.set("q", v);
+    else sp.delete("q");
+
+    const newHashSearch = sp.toString();
+    u.hash = newHashSearch ? `${hashPath}?${newHashSearch}` : hashPath; // "#/map?q=..." 또는 "#/map"
+  } else {
+    // 2) BrowserRouter: 일반 쿼리(/map?q=...) 갱신
+    if (v) u.searchParams.set("q", v);
+    else u.searchParams.delete("q");
+  }
+
   window.history.replaceState(null, "", u.toString());
 }
+
 function toNumLoose(v: any): number | undefined {
   if (v == null) return undefined;
   if (typeof v === "number") return Number.isFinite(v) ? v : undefined;
