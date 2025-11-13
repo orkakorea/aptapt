@@ -621,6 +621,16 @@ export default function useMarkers({
             "lng",
             "image_url",
             "is_active",
+            // 🔹 퀵담기에서도 바로 쓸 상세 필드들 추가
+            "households",
+            "residents",
+            "monitors",
+            "monthly_impressions",
+            "cost_per_play",
+            "hours",
+            "address",
+            "monthly_fee",
+            "monthly_fee_y1",
           ].join(","),
         )
         .eq("is_active", true)
@@ -650,6 +660,16 @@ export default function useMarkers({
         install_location: r.install_location,
         image_url: r.image_url,
         is_active: r.is_active,
+        // 🔹 추가된 필드들을 PlaceRow에 그대로 매핑
+        households: r.households,
+        residents: r.residents,
+        monitors: r.monitors,
+        monthly_impressions: r.monthly_impressions,
+        cost_per_play: r.cost_per_play,
+        hours: r.hours,
+        address: r.address,
+        monthly_fee: r.monthly_fee,
+        monthly_fee_y1: r.monthly_fee_y1,
       }));
 
       if (rows.length === 0) {
