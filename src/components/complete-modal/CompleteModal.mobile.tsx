@@ -312,6 +312,11 @@ function prepareCaptureLayout(root: HTMLElement) {
     });
   });
 
+  // 4) 캡처 시에만 숨길 열/셀 처리
+  root.querySelectorAll<HTMLElement>("[data-capture-hide]").forEach((el) => {
+    setStyle(el, "display", "none");
+  });
+
   return () => {
     // 복구
     for (let i = touched.length - 1; i >= 0; i--) {
@@ -511,10 +516,16 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
             <tr className="[&>th]:px-4 [&>th]:py-2">
               <th className="text-left">단지명</th>
               <th className="text-left">상품명</th>
-              <th className="text-right">월광고료</th>
+              <th className="text-right" data-capture-hide>
+                월광고료
+              </th>
               <th className="text-right">광고기간</th>
-              <th className="text-right">기준금액</th>
-              <th className="text-right">할인율</th>
+              <th className="text-right" data-capture-hide>
+                기준금액
+              </th>
+              <th className="text-right" data-capture-hide>
+                할인율
+              </th>
               <th className="text-right text-[#6C2DFF]">총광고료</th>
             </tr>
           </thead>
@@ -524,10 +535,14 @@ function SeatInquiryTable({ data }: { data: ReceiptSeat }) {
                 <tr key={i} className="border-t border-gray-100 bg-white align-top">
                   <td className="font-medium text-gray-900 whitespace-pre-wrap break-words">{r.aptName}</td>
                   <td className="whitespace-pre-wrap break-words">{r.productName}</td>
-                  <td className="text-right">{formatWon(r.monthlyFee)}</td>
+                  <td className="text-right" data-capture-hide>
+                    {formatWon(r.monthlyFee)}
+                  </td>
                   <td className="text-right">{r.periodLabel}</td>
-                  <td className="text-right">{formatWon(r.baseTotal)}</td>
-                  <td className="text-right">
+                  <td className="text-right" data-capture-hide>
+                    {formatWon(r.baseTotal)}
+                  </td>
+                  <td className="text-right" data-capture-hide>
                     {typeof r.discountPct === "number" ? `${r.discountPct}%` : r.discountPct}
                   </td>
                   <td className="text-right font-semibold text-[#6C2DFF]">{formatWon(r.lineTotal)}</td>
