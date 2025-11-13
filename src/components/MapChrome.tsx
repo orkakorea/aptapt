@@ -1015,7 +1015,7 @@ function CartItemCard({ item, onChangeMonths, onRemove, onTitleClick }: CartItem
               %할인
             </span>
           ) : null}
-          <span className="align-middle">{total.toLocaleString()}원</span>
+          <span className="text-[#6C2DFF] font-bold align-middle">{total.toLocaleString()}원</span>
         </div>
       </div>
     </div>
