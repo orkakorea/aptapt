@@ -408,7 +408,8 @@ const InquiriesPage: React.FC = () => {
                     </div>
                   </Td>
 
-                  <Td>{r.campaign_type || "—"}</Td>
+                  {/* 캠페인 유형 (컬럼 + extra JSON 둘 다 지원) */}
+                  <Td>{r.campaign_type || r.extra?.campaign_type || "—"}</Td>
 
                   {/* 프로모션 코드 표시 (컬럼 + extra JSON 둘 다 지원) */}
                   <Td>{r.promo_code || r.extra?.promo_code || "—"}</Td>
@@ -994,7 +995,7 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
       ["브랜드", row.company ?? ""],
       ["문의일시", formatDateTime(row.created_at)],
       ["유입경로", row.inquiry_kind ?? ""],
-      ["캠페인 유형", row.campaign_type ?? ""],
+      ["캠페인 유형", row.campaign_type ?? row.extra?.campaign_type ?? ""],
       ["담당자명(광고주)", row.customer_name ?? ""],
       ["연락처", row.phone ?? ""],
       ["이메일주소", row.email ?? ""],
