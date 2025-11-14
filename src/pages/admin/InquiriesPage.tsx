@@ -735,7 +735,9 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
     return "period";
   }
 
-  /** === 핵심: 완료모달 로직과 동일한 정규화 파서 (PC는 유지, 모바일만 '단일 할인' 보정) === */
+  /** === 핵심: 완료모달 로직과 동일한 정규화 파서
+   *      (PC는 유지, 모바일은 기준금액/할인율 복원 포함)
+   *  === */
   function normalizeSnapshotItems(snap: any): FinalLine[] {
     if (!snap) return [];
 
@@ -873,9 +875,7 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
         baseTotalField != null ? baseTotalField : baseMonthlyEff != null && months > 0 ? baseMonthlyEff * months : 0;
 
       // ───────────────────────────────────────────────────────────
-      // ② 모바일 전용 보정 (엘리베이터TV만 ‘단일 할인’ 적용)
-      //     - 월광고료(기준): DB 기준값(= 할인 전)로 고정
-      //     - 할인은 사전보상 or 기간할인 중 '하나'만 적용
+      // ② 모바일 전용 보정 (엘리베이터TV: 단일 할인 확정)
       // ───────────────────────────────────────────────────────────
       if (mobile && key === "ELEVATOR TV" && months > 0) {
         // (1) 할인 전 기준 월가 확정
@@ -889,10 +889,10 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
           const periodRate = rateFromRanges(DEFAULT_POLICY["ELEVATOR TV"]?.period ?? [], months) || 0;
           const precompRate = rateFromRanges(DEFAULT_POLICY["ELEVATOR TV"]?.precomp ?? [], months) || 0;
           if (monthlyAfter != null && monthlyAfter > 0) {
-            // 두 후보를 역산해보고 정수 오차가 적은 쪽을 취함
-            const candPeriod = Math.round(monthlyAfter / (1 - periodRate || 1));
-            const candPre = Math.round(monthlyAfter / (1 - precompRate || 1));
-            // 둘 다 유효하면 더 "그럴듯"한 쪽 선택
+            const denomP = 1 - periodRate;
+            const denomC = 1 - precompRate;
+            const candPeriod = Math.round(monthlyAfter / (denomP || 1));
+            const candPre = Math.round(monthlyAfter / (denomC || 1));
             if (candPeriod > 0 && candPre > 0) {
               baseForCalc = Math.abs(candPeriod - candPre) <= 1 ? candPeriod : Math.max(candPeriod, candPre);
             } else {
@@ -914,8 +914,42 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
           monthlyAfter = monthlyOne;
           lineTotal = Math.round(monthlyOne * months); // 총광고료
           baseTotal = Math.round(baseForCalc * months); // 기준금액
+        } else if (monthlyAfter != null && monthlyAfter > 0) {
+          // 정책 역산이 실패해도 기준값이 비지 않도록 최소한 0% 할인 기준으로 복원
+          baseMonthlyView = monthlyAfter;
+          baseTotal = monthlyAfter * months;
         }
-        // ⚠️ 주의: 이 블록에서는 이중할인(기간×사전보상) 금지
+      }
+      // ───────────────────────────────────────────────────────────
+      // ②-2 모바일 일반 상품(ETV 외) 기준금액/할인율 복원
+      // ───────────────────────────────────────────────────────────
+      else if (mobile && months > 0) {
+        const needsBase = !baseMonthlyView || baseMonthlyView <= 0;
+        const needsTotal = !baseTotal || baseTotal <= 0;
+
+        if ((needsBase || needsTotal) && monthlyAfter != null && monthlyAfter > 0) {
+          const policy = (DEFAULT_POLICY as any)[key] || {};
+          const periodRate = rateFromRanges(policy.period ?? [], months) || 0;
+          const precompRate = rateFromRanges(policy.precomp ?? [], months) || 0;
+
+          let effRate = 0;
+          if (periodRate > 0 || precompRate > 0) {
+            // 우선순위: discount_mode 명시 → 더 큰 할인율
+            let mode: "period" | "precomp" = "period";
+            const rawMode = (it?.discount_mode ?? it?.discountMode ?? "").toString().toLowerCase();
+            if (/precomp|사전|pre/i.test(rawMode)) mode = "precomp";
+            else if (/period|기간/i.test(rawMode)) mode = "period";
+            else {
+              mode = precompRate > periodRate ? "precomp" : "period";
+            }
+            effRate = mode === "precomp" ? precompRate : periodRate;
+          }
+
+          const baseCandidate = effRate > 0 && effRate < 1 ? Math.round(monthlyAfter / (1 - effRate)) : monthlyAfter;
+
+          if (needsBase) baseMonthlyView = baseCandidate;
+          if (needsTotal) baseTotal = baseCandidate * months;
+        }
       }
       // ───────────────────────────────────────────────────────────
       // ③ PC/기타 상품: 기존 로직 유지
@@ -955,9 +989,9 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
           ) || "",
         product_name: productName,
         months: Math.max(0, months || 0),
-        // 표의 ‘월광고료(기준)’은 항상 할인 전 수치(모바일+TV 보정 포함)
+        // 표의 ‘월광고료(기준)’은 항상 할인 전 수치(모바일 보정 포함)
         baseMonthly: baseMonthlyView ?? (months > 0 && baseTotal > 0 ? Math.round(baseTotal / months) : null),
-        // ‘월광고료(할인후)’는 단일 할인 적용 결과(모바일+TV 보정), 그 외 기존 분기
+        // ‘월광고료(할인후)’는 단일 할인 적용 결과(모바일 보정), 그 외 기존 분기
         monthlyAfter: monthlyAfter ?? (months > 0 && lineTotal > 0 ? Math.round(lineTotal / months) : null),
         lineTotal: Math.max(0, lineTotal || 0),
       };
