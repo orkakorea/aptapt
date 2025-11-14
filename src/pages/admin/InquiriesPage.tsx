@@ -50,6 +50,9 @@ type InquiryRow = {
   email?: string | null;
   memo?: string | null;
 
+  /** 프로모션 코드 */
+  promo_code?: string | null;
+
   /** 최종 확인 스냅샷(문자열/JSON 둘 다 허용) */
   cart_snapshot?: any;
 
@@ -95,6 +98,9 @@ const COL = {
   phone: "phone",
   email: "email",
   memo: "memo",
+
+  promoCode: "promo_code",
+
   cartSnapshot: "cart_snapshot",
 
   /** 추가 (있으면 사용) */
@@ -239,6 +245,7 @@ const InquiriesPage: React.FC = () => {
           customer_name: d[COL.customerName],
           phone: d[COL.phone],
           email: d[COL.email],
+          promo_code: d[COL.promoCode],
           memo: d[COL.memo],
           cart_snapshot: d[COL.cartSnapshot],
 
@@ -368,6 +375,7 @@ const InquiriesPage: React.FC = () => {
                 <Th className="text-center">유입경로</Th>
                 <Th>브랜드명</Th>
                 <Th>캠페인 유형</Th>
+                <Th>프로모션 코드</Th>
                 <Th>진행상황</Th>
                 <Th>유효성</Th>
                 <Th>담당자</Th>
@@ -401,6 +409,9 @@ const InquiriesPage: React.FC = () => {
                   </Td>
 
                   <Td>{r.campaign_type || "—"}</Td>
+
+                  {/* 프로모션 코드 표시 */}
+                  <Td>{r.promo_code || "—"}</Td>
 
                   {/* 진행상황 인라인 수정 */}
                   <Td>
@@ -988,6 +999,7 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
       ["연락처", row.phone ?? ""],
       ["이메일주소", row.email ?? ""],
       ["요청사항", row.memo ?? ""],
+      ["프로모션 코드", row.promo_code ?? row.extra?.promo_code ?? ""],
     ];
 
     const metaLines = [["항목", "값"].join(","), ...metaPairs.map(([k, v]) => [safeCSV(k), safeCSV(v)].join(","))].join(
@@ -1057,6 +1069,7 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
           <InfoItem label="연락처" value={row.phone || "—"} />
           <InfoItem label="이메일주소" value={row.email || "—"} />
           <InfoItem label="요청사항" value={row.memo || "—"} />
+          <InfoItem label="프로모션 코드" value={row.promo_code || row.extra?.promo_code || "—"} />
 
           {/* ===== 광고주 최종 확인(금액) ===== */}
           <div className="border-t border-gray-100 pt-4">
