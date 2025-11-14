@@ -410,8 +410,8 @@ const InquiriesPage: React.FC = () => {
 
                   <Td>{r.campaign_type || "—"}</Td>
 
-                  {/* 프로모션 코드 표시 */}
-                  <Td>{r.promo_code || "—"}</Td>
+                  {/* 프로모션 코드 표시 (컬럼 + extra JSON 둘 다 지원) */}
+                  <Td>{r.promo_code || r.extra?.promo_code || "—"}</Td>
 
                   {/* 진행상황 인라인 수정 */}
                   <Td>
