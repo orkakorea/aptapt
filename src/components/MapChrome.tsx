@@ -1,3 +1,4 @@
+// src/components/MapChrome.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import QuoteModal, { QuoteLineItem } from "./QuoteModal";
 import InquiryModal from "./InquiryModal";
@@ -190,6 +191,7 @@ type CartItem = {
   months: number;
   lat?: number;
   lng?: number;
+  installLocation?: string; // 설치 위치
   /** 내부 상태: 정보 미충분 → fetch 보강 필요 */
   hydrated?: boolean;
 };
@@ -289,6 +291,7 @@ export default function MapChrome({
           baseMonthly: Number.isFinite(hint.monthlyFee!) ? hint.monthlyFee : next.baseMonthly,
           lat: hint.lat ?? next.lat,
           lng: hint.lng ?? next.lng,
+          installLocation: hint.installLocation ?? next.installLocation,
         };
       }
       const place = parseRowKey(rowKey);
@@ -331,6 +334,8 @@ export default function MapChrome({
                 : (d.monthly_fee ?? curItem.baseMonthly),
             lat: curItem.lat ?? d.lat ?? hint?.lat,
             lng: curItem.lng ?? d.lng ?? hint?.lng,
+            installLocation:
+              curItem.installLocation ?? hint?.installLocation ?? d.install_location ?? d.installLocation,
             hydrated: true,
           };
           const out = cur.slice();
@@ -403,6 +408,7 @@ export default function MapChrome({
             months: defaultMonths,
             lat: snap?.lat,
             lng: snap?.lng,
+            installLocation: snap?.installLocation,
             hydrated: Boolean(snap?.monthlyFee && snap?.productName),
           };
 
@@ -530,6 +536,7 @@ export default function MapChrome({
                 baseMonthly: selected.monthlyFee,
                 lat: selected.lat,
                 lng: selected.lng,
+                installLocation: selected.installLocation ?? x.installLocation,
                 hydrated: true,
               }
             : x,
@@ -546,6 +553,7 @@ export default function MapChrome({
         months: defaultMonths,
         lat: selected.lat,
         lng: selected.lng,
+        installLocation: selected.installLocation,
         hydrated: true,
       };
       return [newItem, ...prev];
@@ -658,6 +666,7 @@ export default function MapChrome({
         residents: s?.residents,
         monthlyImpressions: s?.monthlyImpressions,
         monitors: s?.monitors,
+        installLocation: c.installLocation,
       };
     });
   };
@@ -861,7 +870,7 @@ export default function MapChrome({
 
               <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  <div className="text-xl font-bold text-black whitespace-pre-wrap break-words">{selected.name}</div>
+                  <div className="text-xl font-bold text.black whitespace-pre-wrap break-words">{selected.name}</div>
                   <div className="mt-1 text-sm text-[#6B7280]">
                     {fmtNum(selected.households, "세대")} · {fmtNum(selected.residents, "명")}
                   </div>
