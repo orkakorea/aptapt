@@ -105,7 +105,7 @@ export default function CartPanel({
                 </div>
 
                 <div className="text-sm text-gray-600">월광고료</div>
-                <div className="text-right font-semibold tabular-nums">{fmtWon(item._monthly)}</div>
+                <div className="text-right font-semibold tabular-nums">{fmtWon(item.baseMonthly ?? item._monthly)}</div>
 
                 <div className="text-sm text-gray-600">총광고료</div>
                 <div className="text-right">
