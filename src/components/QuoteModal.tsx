@@ -403,7 +403,16 @@ export default function QuoteModal({
                             <Td center>{fmtWon(baseMonthly)}</Td>
                             <Td center>{fmtNum(it.months, "개월")}</Td>
                             <Td center>{fmtWon(baseTotal)}</Td>
-                            <Td center>{fmtDiscountRate(combinedRate)}</Td>
+                            <Td center>
+                              {fmtDiscountRate(combinedRate) === "-" ? (
+                                "-"
+                              ) : (
+                                <span className="inline-flex items-center rounded-md bg-[#F4F0FB] text-[#6C2DFF] text-[11px] font-semibold px-2 py-[2px] align-middle">
+                                  {fmtDiscountRate(combinedRate)}할인
+                                </span>
+                              )}
+                            </Td>
+
                             <Td center className="font-bold text-[#6C2DFF]">
                               {fmtWon(lineTotal)}
                             </Td>
