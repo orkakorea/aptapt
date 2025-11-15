@@ -14,7 +14,7 @@ export type QuoteLineItem = {
   endDate?: string;
 
   mediaName?: string; // 상품명
-  installLocation?: string; // 설치위치
+  installLocation?: string; // 설치 위치
   households?: number;
   residents?: number;
   monthlyImpressions?: number;
@@ -86,10 +86,12 @@ const DEFAULT_POLICY: DiscountPolicy = {
 };
 
 const norm = (s?: string) => (s ? s.replace(/\s+/g, "").toLowerCase() : "");
+
 function findRate(rules: RangeRule[] | undefined, months: number): number {
   if (!rules || !Number.isFinite(months)) return 0;
   return rules.find((r) => months >= r.min && months <= r.max)?.rate ?? 0;
 }
+
 function classifyProductForPolicy(productName?: string): keyof DiscountPolicy | undefined {
   const pn = norm(productName);
   if (!pn) return undefined;
@@ -126,14 +128,12 @@ const fmtNum = (n?: number, unit = "") =>
   typeof n === "number" && Number.isFinite(n) ? `${n.toLocaleString()}${unit ? unit : ""}` : "—";
 const safe = (s?: string) => (s && s.trim().length > 0 ? s : "—");
 
-// 할인율: 딱 떨어지면 정수, 아니면 소수 1자리
+/** 할인율 포맷 (카트 뱃지와 동일 규칙) */
 const fmtDiscountRate = (rate?: number) => {
   if (typeof rate !== "number" || !Number.isFinite(rate) || rate <= 0) return "-";
-  const raw = rate * 100;
-  const rounded1 = Math.round(raw * 10) / 10; // 소수 1자리까지 반올림
-  const isInt = Math.abs(rounded1 - Math.round(rounded1)) < 1e-6;
-  const display = isInt ? Math.round(rounded1).toString() : rounded1.toFixed(1);
-  return `${display}%`;
+  const rounded = Math.round(rate * 1000) / 10; // 소수 1자리 기준 반올림
+  const text = rounded.toFixed(1).replace(/\.0$/, "");
+  return `${text}%`;
 };
 
 /** =========================
@@ -228,20 +228,18 @@ export default function QuoteModal({
       const baseTotal = baseMonthly * it.months;
       const monthlyAfter = Math.round(baseMonthly * (1 - precompRate) * (1 - periodRate));
       const lineTotal = monthlyAfter * it.months;
-
-      // 카트 뱃지처럼: 기간할인 + 사전보상할인 합산
-      const combinedRate = periodRate + precompRate;
+      const combinedRate = 1 - (1 - precompRate) * (1 - periodRate); // 복합 할인율
 
       return {
         it,
         productKey,
         periodRate,
         precompRate,
+        combinedRate,
         baseMonthly,
         baseTotal,
         monthlyAfter,
         lineTotal,
-        combinedRate,
       };
     });
 
@@ -316,11 +314,11 @@ export default function QuoteModal({
         {/* 딤드 */}
         <div className="absolute inset-0 bg-black/60" onClick={onClose} aria-hidden="true" />
 
-        {/* 패널 래퍼: 세로 스크롤만 */}
-        <div className="absolute inset-0 overflow-y-auto">
+        {/* 패널 컨테이너: 세로 스크롤만, 가로는 테이블에서만 */}
+        <div className="absolute inset-0 flex items-start justify-center overflow-y-auto">
           <div
             ref={panelRef}
-            className="relative w-full max-w-[1600px] mx-auto my-10 bg-white rounded-2xl shadow-xl border border-[#E5E7EB] overflow-hidden"
+            className="relative w-full max-w-[1200px] mx-4 my-10 bg-white rounded-2xl shadow-xl border border-[#E5E7EB] overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             {/* 워터마크 오버레이 (대각선, 빽빽) */}
@@ -331,8 +329,8 @@ export default function QuoteModal({
               {/* 헤더 */}
               <div className="px-6 py-5 border-b border-[#E5E7EB] flex items-start justify-between sticky top-0 bg-white/95 backdrop-blur rounded-t-2xl">
                 <div>
-                  <div className="text-lg font-bold text-black whitespace-nowrap">{title}</div>
-                  <div className="text-sm text-[#6B7280] mt-1 whitespace-nowrap">{subtitle}</div>
+                  <div className="text-lg font-bold text-black">{title}</div>
+                  <div className="text-sm text-[#6B7280] mt-1">{subtitle}</div>
                 </div>
                 <button
                   onClick={onClose}
@@ -348,27 +346,27 @@ export default function QuoteModal({
               {/* 상단 카운터 + (단위) */}
               <div className="px-6 pt-4 pb-2 flex items-center justify-between">
                 <div className="text-sm text-[#4B5563] flex flex-wrap gap-x-4 gap-y-1">
-                  <span className="font-semibold whitespace-nowrap">{`총 ${computed.totals.count}개 단지`}</span>
-                  <span className="whitespace-nowrap">
+                  <span className="font-semibold">{`총 ${computed.totals.count}개 단지`}</span>
+                  <span>
                     · 세대수 <b>{fmtNum(computed.totals.households)}</b> 세대
                   </span>
-                  <span className="whitespace-nowrap">
+                  <span>
                     · 거주인원 <b>{fmtNum(computed.totals.residents)}</b> 명
                   </span>
-                  <span className="whitespace-nowrap">
+                  <span>
                     · 송출횟수 <b>{fmtNum(computed.totals.monthlyImpressions)}</b> 회
                   </span>
-                  <span className="whitespace-nowrap">
+                  <span>
                     · 모니터수량 <b>{fmtNum(computed.totals.monitors)}</b> 대
                   </span>
                 </div>
                 <div className="text-xs text-[#9CA3AF] whitespace-nowrap">(단위 · 원 / VAT별도)</div>
               </div>
 
-              {/* 테이블 */}
+              {/* 테이블: 이 영역만 가로 스크롤 */}
               <div className="px-6 pb-4">
                 <div className="rounded-xl border border-[#E5E7EB] overflow-x-auto">
-                  <table className="min-w-[1200px] w-full text-sm">
+                  <table className="w-full min-w-[1200px] text-sm">
                     <thead>
                       <tr className="bg-[#F9FAFB] text-[#111827]">
                         <Th className="text-left">단지명</Th>
@@ -377,7 +375,7 @@ export default function QuoteModal({
                         <Th>세대수</Th>
                         <Th>거주인원</Th>
                         <Th>모니터 수량</Th>
-                        <Th>월송출횟수</Th>
+                        <Th>월 송출 횟수</Th>
                         <Th>월광고료(FMK=4주)</Th>
                         <Th>광고기간</Th>
                         <Th>기준금액</Th>
@@ -393,7 +391,7 @@ export default function QuoteModal({
                           </td>
                         </tr>
                       ) : (
-                        computed.rows.map(({ it, baseMonthly, baseTotal, lineTotal, combinedRate }) => (
+                        computed.rows.map(({ it, combinedRate, baseMonthly, baseTotal, lineTotal }) => (
                           <tr key={it.id} className="border-t border-[#F3F4F6]">
                             <Td className="text-left font-medium text-black">{it.name}</Td>
                             <Td center>{safe(it.mediaName)}</Td>
@@ -434,11 +432,11 @@ export default function QuoteModal({
               <div className="px-6 pb-6">
                 <div className="rounded-xl border border-[#E5E7EB] bg-[#F8F7FF] p-4">
                   <div className="flex items-center justify-between text-sm text-[#6B7280]">
-                    <span className="whitespace-nowrap">부가세</span>
-                    <span className="text-black whitespace-nowrap">{fmtWon(computed.vat)}</span>
+                    <span>부가세</span>
+                    <span className="text-black">{fmtWon(computed.vat)}</span>
                   </div>
                   <div className="mt-2 flex items-center justify-between">
-                    <span className="text-[18px] text-[#6C2DFF] font-semibold whitespace-nowrap">최종광고료</span>
+                    <span className="text-[18px] text-[#6C2DFF] font-semibold">최종광고료</span>
                     <span className="text-[21px] font-bold text-[#6C2DFF] whitespace-nowrap">
                       {fmtWon(computed.total)} <span className="text-xs text-[#6B7280] font-medium">(VAT 포함)</span>
                     </span>
@@ -492,16 +490,16 @@ function Th({ children, className = "" }: React.PropsWithChildren<{ className?: 
   );
 }
 
-/** 데이터 셀: 기본 가운데, 줄바꿈 없음 */
+/** 데이터 셀: 기본 가운데, 필요 시 text-left/nowrap 조합 사용 */
 function Td({
   children,
   className = "",
   center,
-  nowrap,
+  nowrap = true,
 }: React.PropsWithChildren<{ className?: string; center?: boolean; nowrap?: boolean }>) {
   return (
     <td
-      className={`px-6 py-4 align-middle text-[#111827] whitespace-nowrap ${
+      className={`px-6 py-4 align-middle text-[#111827] ${
         center ? "text-center" : ""
       } ${nowrap ? "whitespace-nowrap" : ""} ${className}`}
     >
