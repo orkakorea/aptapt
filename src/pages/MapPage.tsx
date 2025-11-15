@@ -175,6 +175,12 @@ const buildRowKeyFromRow = (row: PlaceRow) => {
   const installLocation = String(getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "");
   return idPart ? `id:${idPart}` : `xy:${lat.toFixed(7)},${lng.toFixed(7)}|p:${productName}|loc:${installLocation}`;
 };
+// ✅ rowKey("id:1234" 형태)에서 place_id 추출
+const parsePlaceIdFromRowKey = (rowKey?: string): string | undefined => {
+  if (!rowKey) return undefined;
+  const m = /^id:([^|]+)$/i.exec(rowKey.trim());
+  return m ? m[1] : undefined;
+};
 
 /* =========================================================================
    ⑤ ‘정적 분리(항상 나란히)’ 레이아웃
@@ -601,6 +607,134 @@ export default function MapPage() {
       else addToCartByRowKey(rowKey);
     },
     [addToCartByRowKey, removeFromCartByRowKey],
+  );
+  /* ---------- 카트 아파트 클릭 → 2탭 상세 선택 ---------- */
+  const handleCartItemSelectByRowKey = useCallback(
+    async (rowKey: string) => {
+      if (!rowKey) return;
+
+      // 1) 이미 로드된 마커/행에서 바로 SelectedAptX 구성
+      const list = keyIndexRef.current[rowKey];
+      const row = (list?.[0]?.__row as PlaceRow) || undefined;
+
+      if (row) {
+        const lat = Number(row.lat);
+        const lng = Number(row.lng);
+        const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
+        const address = getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
+        const productName =
+          getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "";
+        const installLocation = getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "";
+        const households = toNumLoose(
+          getField(row, ["세대수", "세대 수", "세대", "가구수", "가구 수", "세대수(가구)", "households"]),
+        );
+        const residents = toNumLoose(
+          getField(row, ["거주인원", "거주 인원", "인구수", "총인구", "입주민수", "거주자수", "residents"]),
+        );
+        const monitors = toNumLoose(
+          getField(row, ["모니터수량", "모니터 수량", "모니터대수", "엘리베이터TV수", "monitors"]),
+        );
+        const monthlyImpressions = toNumLoose(
+          getField(row, ["월송출횟수", "월 송출횟수", "월 송출 횟수", "월송출", "노출수(월)", "monthlyImpressions"]),
+        );
+        const monthlyFee = monthlyFeeOf(row);
+        const monthlyFeeY1 = toNumLoose(
+          getField(row, [
+            "1년 계약 시 월 광고료",
+            "1년계약시월광고료",
+            "연간월광고료",
+            "할인 월 광고료",
+            "연간_월광고료",
+            "monthlyFeeY1",
+          ]),
+        );
+        const costPerPlay = toNumLoose(getField(row, ["1회당 송출비용", "송출 1회당 비용", "costPerPlay"]));
+        const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
+        const imageUrl = getField(row, ["imageUrl", "image_url", "이미지", "썸네일", "thumbnail"]) || undefined;
+
+        const sel: SelectedAptX = {
+          rowKey,
+          rowId: rowIdOf(row) != null ? String(rowIdOf(row)) : undefined,
+          name,
+          address,
+          productName,
+          installLocation,
+          households,
+          residents,
+          monitors,
+          monthlyImpressions,
+          costPerPlay,
+          hours,
+          monthlyFee,
+          monthlyFeeY1,
+          imageUrl,
+          lat,
+          lng,
+          selectedInCart: selectedRowKeySetRef.current.has(rowKey),
+        };
+        setSelected(sel);
+
+        const pid = rowIdOf(row);
+        if (pid) {
+          try {
+            const d = await fetchDetailCached(pid, rowKey);
+            if (d) {
+              setSelected((prev) => (prev && prev.rowKey === rowKey ? { ...prev, ...patchFromDetail(d, prev) } : prev));
+            }
+          } catch (e: any) {
+            console.warn("[handleCartItemSelectByRowKey] detail RPC error:", e?.message || e);
+          }
+        }
+        return;
+      }
+
+      // 2) 현재 마커가 없으면 rowKey에서 place_id 파싱 후 RPC만으로 상세/좌표 구성
+      const placeId = parsePlaceIdFromRowKey(rowKey);
+      if (!placeId) return;
+
+      try {
+        const d = await fetchDetailCached(placeId, rowKey);
+        if (!d) return;
+
+        const lat = d.lat;
+        const lng = d.lng;
+
+        const sel: SelectedAptX = {
+          rowKey,
+          rowId: String(placeId),
+          name: d.name ?? "",
+          address: d.address ?? "",
+          productName: d.product_name ?? d.productName ?? "",
+          installLocation: d.install_location ?? d.installLocation ?? "",
+          households: d.households ?? undefined,
+          residents: d.residents ?? undefined,
+          monitors: d.monitors ?? undefined,
+          monthlyImpressions: d.monthly_impressions ?? undefined,
+          costPerPlay: d.cost_per_play ?? undefined,
+          hours: d.hours ?? "",
+          monthlyFee: d.monthly_fee ?? undefined,
+          monthlyFeeY1: d.monthly_fee_y1 ?? undefined,
+          imageUrl: d.image_url ?? undefined,
+          lat,
+          lng,
+          selectedInCart: selectedRowKeySetRef.current.has(rowKey),
+        };
+        setSelected(sel);
+
+        // 지도도 같이 이동(마커가 아직 없어도)
+        const kakao = (window as KakaoNS).kakao;
+        const maps = kakao?.maps;
+        const map = mapObjRef.current;
+        if (maps && map && Number.isFinite(lat) && Number.isFinite(lng)) {
+          const latlng = new maps.LatLng(lat, lng);
+          map.setLevel(4);
+          map.setCenter(latlng);
+        }
+      } catch (e: any) {
+        console.warn("[handleCartItemSelectByRowKey] RPC from rowKey error:", e?.message || e);
+      }
+    },
+    [fetchDetailCached, patchFromDetail],
   );
 
   /* ---------- 포커스(카트에서 단지 클릭 시) ---------- */
@@ -1380,6 +1514,7 @@ export default function MapPage() {
         removeFromCartByRowKey={removeFromCartByRowKey}
         toggleCartByRowKey={toggleCartByRowKey}
         /* 🔎 카트에서 단지 클릭 → 지도 이동 + 2탭 오픈 */
+        onCartItemSelectByRowKey={handleCartItemSelectByRowKey}
         focusByRowKey={focusByRowKey}
         focusByLatLng={focusByLatLng}
         cartStickyTopPx={64}
