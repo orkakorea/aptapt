@@ -318,7 +318,7 @@ export default function QuoteModal({
         <div className="absolute inset-0 flex items-start justify-center overflow-y-auto">
           <div
             ref={panelRef}
-            className="relative w-full max-w-[1200px] mx-4 my-10 bg-white rounded-2xl shadow-xl border border-[#E5E7EB] overflow-hidden"
+            className="relative w-full max-w-[1600px] mx-4 my-10 bg-white rounded-2xl shadow-xl border border-[#E5E7EB] overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             {/* 워터마크 오버레이 (대각선, 빽빽) */}
@@ -354,7 +354,7 @@ export default function QuoteModal({
                     · 거주인원 <b>{fmtNum(computed.totals.residents)}</b> 명
                   </span>
                   <span>
-                    · 송출횟수 <b>{fmtNum(computed.totals.monthlyImpressions)}</b> 회
+                    · 월송출횟수 <b>{fmtNum(computed.totals.monthlyImpressions)}</b> 회
                   </span>
                   <span>
                     · 모니터수량 <b>{fmtNum(computed.totals.monitors)}</b> 대
