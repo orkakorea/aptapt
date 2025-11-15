@@ -739,25 +739,37 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
    *      (PC는 유지, 모바일은 기준금액/할인율 복원 포함)
    *  === */
   function normalizeSnapshotItems(snap: any): FinalLine[] {
-    if (!snap) return [];
+  if (!snap) return [];
 
-    // ① 항목 배열 우선순위 (경로 보강: 모바일 스냅샷 변형 대응)
-    const candidates: any[] =
-      (Array.isArray(snap?.receipt_v1?.items) && snap.receipt_v1.items) ||
-      (Array.isArray(snap?.receipt_mobile?.items) && snap.receipt_mobile.items) ||
-      (Array.isArray(snap?.mobile?.items) && snap.mobile.items) ||
-      (Array.isArray(snap?.items) && snap.items) ||
-      (Array.isArray(snap?.computedCart) && snap.computedCart) ||
-      (Array.isArray(snap?.cart?.items) && snap.cart.items) ||
-      [];
+  // ✅ 먼저 이 문의가 모바일인지 판별
+  const mobile = isMobileInquiry(row, snap);
 
-    if (!Array.isArray(candidates) || candidates.length === 0) return [];
+  // ① 항목 배열 우선순위 (경로 보강: 모바일 스냅샷 변형 대응)
+  // ✅ 모바일이면 baseMonthly가 들어 있는 computedCart를 최우선으로 사용
+  const candidates: any[] =
+    (mobile && Array.isArray(snap?.computedCart) && snap.computedCart.length > 0 && snap.computedCart) ||
+    (Array.isArray(snap?.receipt_v1?.items) && snap.receipt_v1.items) ||
+    (Array.isArray(snap?.receipt_mobile?.items) && snap.receipt_mobile.items) ||
+    (Array.isArray(snap?.mobile?.items) && snap.mobile.items) ||
+    (Array.isArray(snap?.items) && snap.items) ||
+    (Array.isArray(snap?.computedCart) && snap.computedCart) || // PC 등 나머지는 기존처럼 fallback
+    (Array.isArray(snap?.cart?.items) && snap.cart.items) ||
+    [];
 
-    // 상단 라벨 폴백
-    const topAptFallback: string =
-      typeof snap?.summary?.topAptLabel === "string" ? String(snap.summary.topAptLabel).replace(/\s*외.*$/, "") : "";
+  if (!Array.isArray(candidates) || candidates.length === 0) return [];
 
-    const mobile = isMobileInquiry(row, snap);
+  // 상단 라벨 폴백
+  const topAptFallback: string =
+    typeof snap?.summary?.topAptLabel === "string"
+      ? String(snap.summary.topAptLabel).replace(/\s*외.*$/, "")
+      : "";
+
+  // ✅ 아래에 이미 있던 `const mobile = ...` 줄은 삭제해도 됨 (위에서 계산했으므로)
+  // const mobile = isMobileInquiry(row, snap);
+
+  const lines: FinalLine[] = candidates.map((it: any) => {
+    ...
+
 
     const lines: FinalLine[] = candidates.map((it: any) => {
       // months 추출(문자/단위 혼입 대비)
