@@ -7,8 +7,16 @@ export default function MobileRedirectGuard() {
   const isMobile = useIsMobile();
   const loc = useLocation();
 
-  // 모바일에서 PC 전용 경로로 들어오면 → /mobile로 강제 이동 (쿼리 그대로 유지)
-  if (isMobile && loc.pathname === "/map") {
+  // ✅ 처음 진입했을 때의 모드만 한 번 기억 (이후 창 크기 변화와 무관)
+  const initialModeRef = React.useRef<"mobile" | "pc" | null>(null);
+  if (initialModeRef.current === null) {
+    initialModeRef.current = isMobile ? "mobile" : "pc";
+  }
+  const initialMode = initialModeRef.current;
+
+  // ✅ "모바일로 시작한 경우"에만 /map → /mobile 리다이렉트
+  //    (PC로 시작했다가 창을 줄여도 더 이상 /mobile로 튀지 않음)
+  if (initialMode === "mobile" && loc.pathname === "/map") {
     return <Navigate to={`/mobile${loc.search || ""}`} replace />;
   }
 
