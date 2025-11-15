@@ -618,7 +618,7 @@ export default function CompleteModalDesktop({ open, onClose, data, confirmLabel
                   </button>
                   {/* 붉은 안내 문구 */}
                   <p className="mt-2 text-xs text-red-500">
-                    정확한 상담을 위해 문의 내용을 반드시 저장 해두세요. 이 팝업 닫기 후에는 문의는 전송되지만, 작성
+                    정확한 상담을 위해 문의 내용을 반드시 저장 해두세요. 이 팝업 닫기 후에 문의는 전송되지만, 작성
                     내용은 확인할 수 없어요
                   </p>
 
