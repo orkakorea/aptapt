@@ -126,6 +126,16 @@ const fmtNum = (n?: number, unit = "") =>
   typeof n === "number" && Number.isFinite(n) ? `${n.toLocaleString()}${unit ? unit : ""}` : "—";
 const safe = (s?: string) => (s && s.trim().length > 0 ? s : "—");
 
+// 할인율: 딱 떨어지면 정수, 아니면 소수 1자리
+const fmtDiscountRate = (rate?: number) => {
+  if (typeof rate !== "number" || !Number.isFinite(rate) || rate <= 0) return "-";
+  const raw = rate * 100;
+  const rounded1 = Math.round(raw * 10) / 10; // 소수 1자리까지 반올림
+  const isInt = Math.abs(rounded1 - Math.round(rounded1)) < 1e-6;
+  const display = isInt ? Math.round(rounded1).toString() : rounded1.toFixed(1);
+  return `${display}%`;
+};
+
 /** =========================
  *  워터마크 유틸
  *  ========================= */
@@ -218,7 +228,8 @@ export default function QuoteModal({
       const baseTotal = baseMonthly * it.months;
       const monthlyAfter = Math.round(baseMonthly * (1 - precompRate) * (1 - periodRate));
       const lineTotal = monthlyAfter * it.months;
-      // 카트 뱃지 느낌처럼 기간할인 + 사전보상할인 합산
+
+      // 카트 뱃지처럼: 기간할인 + 사전보상할인 합산
       const combinedRate = periodRate + precompRate;
 
       return {
@@ -320,8 +331,8 @@ export default function QuoteModal({
               {/* 헤더 */}
               <div className="px-6 py-5 border-b border-[#E5E7EB] flex items-start justify-between sticky top-0 bg-white/95 backdrop-blur rounded-t-2xl">
                 <div>
-                  <div className="text-lg font-bold text-black">{title}</div>
-                  <div className="text-sm text-[#6B7280] mt-1">{subtitle}</div>
+                  <div className="text-lg font-bold text-black whitespace-nowrap">{title}</div>
+                  <div className="text-sm text-[#6B7280] mt-1 whitespace-nowrap">{subtitle}</div>
                 </div>
                 <button
                   onClick={onClose}
@@ -337,21 +348,21 @@ export default function QuoteModal({
               {/* 상단 카운터 + (단위) */}
               <div className="px-6 pt-4 pb-2 flex items-center justify-between">
                 <div className="text-sm text-[#4B5563] flex flex-wrap gap-x-4 gap-y-1">
-                  <span className="font-semibold">{`총 ${computed.totals.count}개 단지`}</span>
-                  <span>
+                  <span className="font-semibold whitespace-nowrap">{`총 ${computed.totals.count}개 단지`}</span>
+                  <span className="whitespace-nowrap">
                     · 세대수 <b>{fmtNum(computed.totals.households)}</b> 세대
                   </span>
-                  <span>
+                  <span className="whitespace-nowrap">
                     · 거주인원 <b>{fmtNum(computed.totals.residents)}</b> 명
                   </span>
-                  <span>
+                  <span className="whitespace-nowrap">
                     · 송출횟수 <b>{fmtNum(computed.totals.monthlyImpressions)}</b> 회
                   </span>
-                  <span>
+                  <span className="whitespace-nowrap">
                     · 모니터수량 <b>{fmtNum(computed.totals.monitors)}</b> 대
                   </span>
                 </div>
-                <div className="text-xs text-[#9CA3AF]">(단위 · 원 / VAT별도)</div>
+                <div className="text-xs text-[#9CA3AF] whitespace-nowrap">(단위 · 원 / VAT별도)</div>
               </div>
 
               {/* 테이블 */}
@@ -377,7 +388,7 @@ export default function QuoteModal({
                     <tbody>
                       {computed.rows.length === 0 ? (
                         <tr>
-                          <td colSpan={12} className="px-6 py-10 text-center text-[#6B7280]">
+                          <td colSpan={12} className="px-6 py-10 text-center text-[#6B7280] whitespace-nowrap">
                             담은 단지가 없습니다.
                           </td>
                         </tr>
@@ -385,37 +396,17 @@ export default function QuoteModal({
                         computed.rows.map(({ it, baseMonthly, baseTotal, lineTotal, combinedRate }) => (
                           <tr key={it.id} className="border-t border-[#F3F4F6]">
                             <Td className="text-left font-medium text-black">{it.name}</Td>
-                            <Td center nowrap>
-                              {safe(it.mediaName)}
-                            </Td>
-                            <Td center nowrap>
-                              {safe(it.installLocation)}
-                            </Td>
-                            <Td center nowrap>
-                              {fmtNum(it.households, "세대")}
-                            </Td>
-                            <Td center nowrap>
-                              {fmtNum(it.residents, "명")}
-                            </Td>
-                            <Td center nowrap>
-                              {fmtNum(it.monitors, "대")}
-                            </Td>
-                            <Td center nowrap>
-                              {fmtNum(it.monthlyImpressions, "회")}
-                            </Td>
-                            <Td center nowrap>
-                              {fmtWon(baseMonthly)}
-                            </Td>
-                            <Td center nowrap>
-                              {fmtNum(it.months, "개월")}
-                            </Td>
-                            <Td center nowrap>
-                              {fmtWon(baseTotal)}
-                            </Td>
-                            <Td center nowrap>
-                              {combinedRate > 0 ? `${Math.round(combinedRate * 100)}%` : "-"}
-                            </Td>
-                            <Td center nowrap className="font-bold text-[#6C2DFF]">
+                            <Td center>{safe(it.mediaName)}</Td>
+                            <Td center>{safe(it.installLocation)}</Td>
+                            <Td center>{fmtNum(it.households, "세대")}</Td>
+                            <Td center>{fmtNum(it.residents, "명")}</Td>
+                            <Td center>{fmtNum(it.monitors, "대")}</Td>
+                            <Td center>{fmtNum(it.monthlyImpressions, "회")}</Td>
+                            <Td center>{fmtWon(baseMonthly)}</Td>
+                            <Td center>{fmtNum(it.months, "개월")}</Td>
+                            <Td center>{fmtWon(baseTotal)}</Td>
+                            <Td center>{fmtDiscountRate(combinedRate)}</Td>
+                            <Td center className="font-bold text-[#6C2DFF]">
                               {fmtWon(lineTotal)}
                             </Td>
                           </tr>
@@ -424,10 +415,13 @@ export default function QuoteModal({
                     </tbody>
                     <tfoot>
                       <tr className="border-t border-[#E5E7EB]">
-                        <td colSpan={11} className="text-right px-4 py-4 bg-[#F7F5FF] text-[#6B7280] font-medium">
+                        <td
+                          colSpan={11}
+                          className="text-right px-4 py-4 bg-[#F7F5FF] text-[#6B7280] font-medium whitespace-nowrap"
+                        >
                           TOTAL
                         </td>
-                        <td className="px-4 py-4 bg-[#F7F5FF] text-right font-bold text-[#6C2DFF]">
+                        <td className="px-4 py-4 bg-[#F7F5FF] text-right font-bold text-[#6C2DFF] whitespace-nowrap">
                           {fmtWon(computed.subtotal)}
                         </td>
                       </tr>
@@ -440,12 +434,12 @@ export default function QuoteModal({
               <div className="px-6 pb-6">
                 <div className="rounded-xl border border-[#E5E7EB] bg-[#F8F7FF] p-4">
                   <div className="flex items-center justify-between text-sm text-[#6B7280]">
-                    <span>부가세</span>
-                    <span className="text-black">{fmtWon(computed.vat)}</span>
+                    <span className="whitespace-nowrap">부가세</span>
+                    <span className="text-black whitespace-nowrap">{fmtWon(computed.vat)}</span>
                   </div>
                   <div className="mt-2 flex items-center justify-between">
-                    <span className="text-[18px] text-[#6C2DFF] font-semibold">최종광고료</span>
-                    <span className="text-[21px] font-bold text-[#6C2DFF]">
+                    <span className="text-[18px] text-[#6C2DFF] font-semibold whitespace-nowrap">최종광고료</span>
+                    <span className="text-[21px] font-bold text-[#6C2DFF] whitespace-nowrap">
                       {fmtWon(computed.total)} <span className="text-xs text-[#6B7280] font-medium">(VAT 포함)</span>
                     </span>
                   </div>
@@ -465,7 +459,7 @@ export default function QuoteModal({
                     // 필요 시 모달 열기:
                     // setInquiryOpen(true);
                   }}
-                  className="w-full h-12 rounded-xl bg-[#6C2DFF] text-white font-semibold hover:opacity-95"
+                  className="w-full h-12 rounded-xl bg-[#6C2DFF] text-white font-semibold hover:opacity-95 whitespace-nowrap"
                 >
                   위 견적으로 구좌 (T.O.) 문의하기
                 </button>
@@ -492,11 +486,13 @@ export default function QuoteModal({
 /** 헤더 셀: 가운데 정렬 + 내용과 동일한 크기(text-sm) + Bold */
 function Th({ children, className = "" }: React.PropsWithChildren<{ className?: string }>) {
   return (
-    <th className={`px-6 py-4 text-center text-sm font-bold border-b border-[#E5E7EB] ${className}`}>{children}</th>
+    <th className={`px-6 py-4 text-center text-sm font-bold border-b border-[#E5E7EB] whitespace-nowrap ${className}`}>
+      {children}
+    </th>
   );
 }
 
-/** 데이터 셀: 기본 가운데, 필요 시 text-left/nowrap 조합 사용 */
+/** 데이터 셀: 기본 가운데, 줄바꿈 없음 */
 function Td({
   children,
   className = "",
@@ -505,9 +501,9 @@ function Td({
 }: React.PropsWithChildren<{ className?: string; center?: boolean; nowrap?: boolean }>) {
   return (
     <td
-      className={`px-6 py-4 align-middle text-[#111827] ${center ? "text-center" : ""} ${
-        nowrap ? "whitespace-nowrap" : ""
-      } ${className}`}
+      className={`px-6 py-4 align-middle text-[#111827] whitespace-nowrap ${
+        center ? "text-center" : ""
+      } ${nowrap ? "whitespace-nowrap" : ""} ${className}`}
     >
       {children}
     </td>
