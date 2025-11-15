@@ -77,7 +77,16 @@ function maskEmail(email?: string | null) {
   const maskedLocal = local.length <= 2 ? "**" : `**${local.slice(2)}`;
   return `${maskedLocal}@${domain.replace(/^@/, "")}`;
 }
-
+/** 전화번호 가운데 마스킹 (예: 010-****-1234) */
+function maskPhoneMiddle(phone?: string | null) {
+  if (!phone) return "-";
+  const digits = String(phone).replace(/\D/g, "");
+  if (!digits) return "-";
+  if (digits.length < 7) return "****";
+  const head = digits.slice(0, 3);
+  const tail = digits.slice(-4);
+  return `${head}-****-${tail}`;
+}
 /** 얕은 객체 여러 개에서 첫 번째 일치 값 반환 */
 function pickFirstString(objs: any[], keys: string[]): string | undefined {
   for (const obj of objs) {
@@ -425,7 +434,9 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
   } else if (c.emailDomain) {
     emailMasked = `**@${String(c.emailDomain).replace(/^@/, "")}`;
   }
+  const phoneSource = c.phoneMasked ?? form.phoneMasked ?? c.phone ?? form.phone ?? form.contactPhone ?? c.contactPhone;
 
+  const phoneMasked = phoneSource ? maskPhoneMiddle(phoneSource) : "-";
   const campaignType =
     pickFirstString(
       [form, summary, c, meta],
@@ -481,7 +492,7 @@ function CustomerInquirySection({ data }: { data: ReceiptData }) {
       <div className="px-4">
         <RowLine label="상호명" value={c.company ?? form.company} />
         <RowLine label="담당자" value={c.name ?? form.manager ?? form.contactName} />
-        <RowLine label="연락처" value={c.phoneMasked ?? form.phoneMasked ?? form.phone} />
+        <RowLine label="연락처" value={phoneMasked} />
         <RowLine label="이메일" value={emailMasked} />
         <RowLine label="캠페인 유형" value={campaignType} />
         <RowLine label="광고 송출 예정(희망)일" value={desiredValue} />
