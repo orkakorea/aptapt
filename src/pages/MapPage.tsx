@@ -191,7 +191,7 @@ function layoutMarkersSideBySide(map: any, group: KMarker[]) {
   const center = group[0].__basePos;
   const cpt = proj.containerPointFromCoords(center);
   const N = group.length,
-    GAP = 26,
+    GAP = PIN_SIZE + 6, // ✅ 핀 너비(51px) + 여백 6px → 아이콘이 겹치지 않고 나란히 배치
     totalW = GAP * (N - 1),
     startX = cpt.x - totalW / 2,
     y = cpt.y;
