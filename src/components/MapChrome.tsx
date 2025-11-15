@@ -51,6 +51,9 @@ type Props = {
   focusByRowKey?: (rowKey: string, opts?: { level?: number }) => void | Promise<void>;
   focusByLatLng?: (lat: number, lng: number, opts?: { level?: number }) => void | Promise<void>;
 
+  // ✅ 추가: 카트에서 클릭한 단지를 2탭 상세로 띄우기 위한 콜백
+  onCartItemSelectByRowKey?: (rowKey: string) => void;
+
   cartStickyTopPx?: number;
   cartStickyUntil?: string;
 
@@ -216,6 +219,7 @@ export default function MapChrome({
   setMarkerStateByRowKey,
   isRowKeySelected,
   addToCartByRowKey,
+  onCartItemSelectByRowKey,
   removeFromCartByRowKey,
   toggleCartByRowKey,
   focusByRowKey,
@@ -601,8 +605,20 @@ export default function MapChrome({
 
   /* ===== 카트 아파트명 클릭 → 지도 포커스 & 2탭 ===== */
   const focusFromCart = (item: CartItem) => {
-    if (item.rowKey && focusByRowKey) focusByRowKey(item.rowKey, { level: 4 });
-    else if (item.lat != null && item.lng != null && focusByLatLng) focusByLatLng(item.lat, item.lng, { level: 4 });
+    // ✅ 1) 2탭 상세에 이 단지를 선택해 달라고 MapPage에 알려줌
+    if (item.rowKey) {
+      onCartItemSelectByRowKey?.(item.rowKey);
+      // ✅ 2) 지도 이동(기존 기능 유지)
+      if (focusByRowKey) {
+        focusByRowKey(item.rowKey, { level: 4 });
+        return;
+      }
+    }
+
+    // rowKey 없거나 focusByRowKey 미구현 시, 좌표 기반 포커스 (기존 fallback 유지)
+    if (item.lat != null && item.lng != null && focusByLatLng) {
+      focusByLatLng(item.lat, item.lng, { level: 4 });
+    }
   };
 
   /** ===== 견적 모달 열릴 때 미보강 아이템 보강 ===== */
