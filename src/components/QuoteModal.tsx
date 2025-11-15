@@ -14,6 +14,7 @@ export type QuoteLineItem = {
   endDate?: string;
 
   mediaName?: string; // 상품명
+  installLocation?: string; // 설치위치
   households?: number;
   residents?: number;
   monthlyImpressions?: number;
@@ -217,8 +218,20 @@ export default function QuoteModal({
       const baseTotal = baseMonthly * it.months;
       const monthlyAfter = Math.round(baseMonthly * (1 - precompRate) * (1 - periodRate));
       const lineTotal = monthlyAfter * it.months;
+      // 카트 뱃지 느낌처럼 기간할인 + 사전보상할인 합산
+      const combinedRate = periodRate + precompRate;
 
-      return { it, productKey, periodRate, precompRate, baseMonthly, baseTotal, monthlyAfter, lineTotal };
+      return {
+        it,
+        productKey,
+        periodRate,
+        precompRate,
+        baseMonthly,
+        baseTotal,
+        monthlyAfter,
+        lineTotal,
+        combinedRate,
+      };
     });
 
     const subtotal = rows.reduce((s, r) => s + r.lineTotal, 0);
@@ -292,11 +305,11 @@ export default function QuoteModal({
         {/* 딤드 */}
         <div className="absolute inset-0 bg-black/60" onClick={onClose} aria-hidden="true" />
 
-        {/* 패널 */}
-        <div className="absolute inset-0 overflow-x-auto overflow-y-auto">
+        {/* 패널 래퍼: 세로 스크롤만 */}
+        <div className="absolute inset-0 overflow-y-auto">
           <div
             ref={panelRef}
-            className="relative min-w-[1600px] max-w-[1600px] mx-auto my-10 bg-white rounded-2xl shadow-xl border border-[#E5E7EB] overflow-hidden"
+            className="relative w-full max-w-[1600px] mx-auto my-10 bg-white rounded-2xl shadow-xl border border-[#E5E7EB] overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             {/* 워터마크 오버레이 (대각선, 빽빽) */}
@@ -343,22 +356,21 @@ export default function QuoteModal({
 
               {/* 테이블 */}
               <div className="px-6 pb-4">
-                <div className="rounded-xl border border-[#E5E7EB]">
-                  <table className="w-full text-sm">
+                <div className="rounded-xl border border-[#E5E7EB] overflow-x-auto">
+                  <table className="min-w-[1200px] w-full text-sm">
                     <thead>
                       <tr className="bg-[#F9FAFB] text-[#111827]">
                         <Th className="text-left">단지명</Th>
-                        <Th>광고기간</Th>
-                        {/* 날짜열 삭제됨 */}
                         <Th>상품명</Th>
+                        <Th>설치위치</Th>
                         <Th>세대수</Th>
                         <Th>거주인원</Th>
-                        <Th>월송출횟수</Th>
                         <Th>모니터 수량</Th>
+                        <Th>월송출횟수</Th>
                         <Th>월광고료(FMK=4주)</Th>
+                        <Th>광고기간</Th>
                         <Th>기준금액</Th>
-                        <Th>기간할인</Th>
-                        <Th>사전보상할인</Th>
+                        <Th>할인율</Th>
                         <Th className="!text-[#6C2DFF]">총광고료</Th>
                       </tr>
                     </thead>
@@ -370,14 +382,14 @@ export default function QuoteModal({
                           </td>
                         </tr>
                       ) : (
-                        computed.rows.map(({ it, periodRate, precompRate, baseMonthly, baseTotal, lineTotal }) => (
+                        computed.rows.map(({ it, baseMonthly, baseTotal, lineTotal, combinedRate }) => (
                           <tr key={it.id} className="border-t border-[#F3F4F6]">
                             <Td className="text-left font-medium text-black">{it.name}</Td>
                             <Td center nowrap>
-                              {fmtNum(it.months, "개월")}
+                              {safe(it.mediaName)}
                             </Td>
                             <Td center nowrap>
-                              {safe(it.mediaName)}
+                              {safe(it.installLocation)}
                             </Td>
                             <Td center nowrap>
                               {fmtNum(it.households, "세대")}
@@ -386,22 +398,22 @@ export default function QuoteModal({
                               {fmtNum(it.residents, "명")}
                             </Td>
                             <Td center nowrap>
-                              {fmtNum(it.monthlyImpressions, "회")}
+                              {fmtNum(it.monitors, "대")}
                             </Td>
                             <Td center nowrap>
-                              {fmtNum(it.monitors, "대")}
+                              {fmtNum(it.monthlyImpressions, "회")}
                             </Td>
                             <Td center nowrap>
                               {fmtWon(baseMonthly)}
                             </Td>
                             <Td center nowrap>
+                              {fmtNum(it.months, "개월")}
+                            </Td>
+                            <Td center nowrap>
                               {fmtWon(baseTotal)}
                             </Td>
                             <Td center nowrap>
-                              {periodRate > 0 ? `${Math.round(periodRate * 100)}%` : "-"}
-                            </Td>
-                            <Td center nowrap>
-                              {precompRate > 0 ? `${Math.round(precompRate * 100)}%` : "-"}
+                              {combinedRate > 0 ? `${Math.round(combinedRate * 100)}%` : "-"}
                             </Td>
                             <Td center nowrap className="font-bold text-[#6C2DFF]">
                               {fmtWon(lineTotal)}
