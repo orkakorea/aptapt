@@ -1285,7 +1285,7 @@ function deriveDeviceLabel(row: InquiryRow): string {
   if (step.startsWith("mobile")) return "모바일";
 
   // 4) 알 수 없음
-  return "—";
+  return "PC";
 }
 function fmtWon(n: number | null | undefined): string {
   const v = Number(n ?? 0);
