@@ -852,7 +852,10 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
       if ((!lineTotal || lineTotal <= 0) && months > 0 && baseMonthlyRaw != null && baseMonthlyRaw > 0) {
         lineTotal = Math.round(baseMonthlyRaw * months);
       }
-
+      // ①-1) lineTotal만 있는 경우 monthlyAfter 보강 (모바일 스냅샷용)
+      if ((monthlyAfter == null || monthlyAfter <= 0) && months > 0 && lineTotal > 0) {
+        monthlyAfter = Math.round(lineTotal / months);
+      }
       // 표시용 기본값(가용 원자료로 1차 구성)
       const baseMonthlyEff =
         baseMonthlyRaw != null && baseMonthlyRaw > 0
