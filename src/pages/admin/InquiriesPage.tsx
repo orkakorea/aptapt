@@ -1121,8 +1121,7 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
                     <tr>
                       <th className="px-3 py-2 text-left">단지명</th>
                       <th className="px-3 py-2 text-left">상품명</th>
-                      <th className="px-3 py-2 text-right">월광고료(기준)</th>
-                      <th className="px-3 py-2 text-right">월광고료(할인후)</th>
+                      <th className="px-3 py-2 text-right">월광고료</th>
                       <th className="px-3 py-2 text-right">광고기간</th>
                       <th className="px-3 py-2 text-right">기준금액</th>
                       <th className="px-3 py-2 text-right">할인율</th>
@@ -1141,12 +1140,11 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
                         <tr key={i} className="border-t">
                           <td className="px-3 py-2">{l.apt_name || "—"}</td>
                           <td className="px-3 py-2">{l.product_name || "—"}</td>
+                          {/* ✅ 월광고료(기준) → 월광고료 */}
                           <td className="px-3 py-2 text-right">
                             {l.baseMonthly != null ? fmtWon(l.baseMonthly) : "—"}
                           </td>
-                          <td className="px-3 py-2 text-right">
-                            {l.monthlyAfter != null ? fmtWon(l.monthlyAfter) : "—"}
-                          </td>
+                          {/* ✅ '월광고료(할인후)' 셀 완전히 제거 → 바로 광고기간 */}
                           <td className="px-3 py-2 text-right">{l.months?.toLocaleString?.() ?? "—"}</td>
                           <td className="px-3 py-2 text-right">{l.baseMonthly != null ? fmtWon(baseTotal) : "—"}</td>
                           <td className="px-3 py-2 text-right">{rate != null ? fmtPercent(rate) : "—"}</td>
@@ -1156,9 +1154,10 @@ const DetailDrawer: React.FC<{ row: InquiryRow; onClose: () => void }> = ({ row,
                         </tr>
                       );
                     })}
+
                     {/* 합계 */}
                     <tr className="border-t bg-gray-50 font-medium">
-                      <td className="px-3 py-2 text-right" colSpan={7}>
+                      <td className="px-3 py-2 text-right" colSpan={6}>
                         합계
                       </td>
                       <td className="px-3 py-2 text-right">{fmtWon(totals.total)}</td>
