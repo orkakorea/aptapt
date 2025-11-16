@@ -361,9 +361,9 @@ export default function MapMobilePageV2() {
   type ComputedItem = Omit<CartItem, "productName" | "baseMonthly"> & {
     productName: string;
     baseMonthly: number;
-    _monthly: number;
-    _discountRate: number;
-    _total: number;
+    _monthly: number; // 할인 적용 월요금
+    _discountRate: number; // 0~1 (사전보상 × 기간 복합 할인율)
+    _total: number; // 총광고료
     discPeriodRate?: number;
     discPrecompRate?: number;
 
@@ -375,28 +375,25 @@ export default function MapMobilePageV2() {
   };
 
   const computedCart: ComputedItem[] = useMemo(() => {
-    const cnt = new Map<string, number>();
-    cart.forEach((c) => {
-      const k = normPolicyKey(c.productName);
-      cnt.set(k, (cnt.get(k) ?? 0) + 1);
-    });
-
     return cart.map((c) => {
-      const key = normPolicyKey(c.productName);
-      const same = cnt.get(key) ?? 1;
-
       const name = c.productName ?? "기본상품";
       const base = c.baseMonthly ?? 0;
+      const months = c.months || 0;
 
-      // 총 할인 적용 월가/율
-      const { monthly, rate } = calcMonthlyWithPolicy(name, c.months, base, c.monthlyFeeY1, same);
-
-      // 분리 할인률(표시용)
+      // ✅ 정책 키 (핵심 상품코드) — PC의 productKey 역할
+      const key = normPolicyKey(name);
       const rules: any = (DEFAULT_POLICY as any)[key as any];
-      const discPeriodRate = rateFromRanges(rules?.period, c.months);
-      const discPrecompRate = rateFromRanges(rules?.precomp, same);
 
-      // 🔹 최신 상세에서 카운터 보강
+      // ✅ 기간 할인율 / 사전보상 할인율 (PC MapChrome과 동일하게 '개월 수' 기준)
+      const discPeriodRate = rateFromRanges(rules?.period, months);
+      const discPrecompRate = rateFromRanges(rules?.precomp, months);
+
+      // ✅ 최종 월광고료 & 총광고료 (사전보상 × 기간 복합할인)
+      const monthly = Math.round(base * (1 - discPrecompRate) * (1 - discPeriodRate));
+      const discountCombined = 1 - (1 - discPrecompRate) * (1 - discPeriodRate);
+      const total = monthly * months;
+
+      // 🔹 최신 상세에서 카운터 보강 (기존 로직 그대로 유지)
       const detail = detailByRowKeyRef.current.get(c.rowKey) || {};
       const households = Number(detail.households ?? NaN);
       const residents = Number(detail.residents ?? NaN);
@@ -408,8 +405,8 @@ export default function MapMobilePageV2() {
         productName: name,
         baseMonthly: base,
         _monthly: monthly,
-        _discountRate: rate,
-        _total: monthly * c.months,
+        _discountRate: discountCombined,
+        _total: total,
         discPeriodRate,
         discPrecompRate,
         households: Number.isFinite(households) ? households : undefined,
