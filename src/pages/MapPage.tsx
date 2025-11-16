@@ -428,7 +428,8 @@ export default function MapPage() {
         kakao.maps.event.addListener(map, "idle", async () => {
           await loadMarkersInBounds();
           applyStaticSeparationAll();
-          prefetchTopDetails(8); // ✅ 가까운 것들 미리 상세 로드
+          // PC에서는 지도 idle 시 상세 RPC를 미리 호출하지 않음 (모바일과 동일 패턴)
+          // prefetchTopDetails(8);
         });
 
         setTimeout(() => map && map.relayout(), 0);
