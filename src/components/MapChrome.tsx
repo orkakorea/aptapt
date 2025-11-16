@@ -280,31 +280,20 @@ export default function MapChrome({
       if (idx < 0) return prev;
 
       const it = prev[idx];
-       // ✅ hint가 이 rowKey에 해당하는 경우에만 사용
-    const sameRowHint =
-      hint && hint.rowKey && hint.rowKey === rowKey ? hint : undefined;
-
-    // 힌트로 먼저 보강
-    let next: CartItem = { ...it };
-    if (sameRowHint) {
-      next = {
-        ...next,
-        name: sameRowHint.name ?? next.name,
-        productName: sameRowHint.productName ?? next.productName,
-        productKey:
-          next.productKey ??
-          classifyProductForPolicy(
-            sameRowHint.productName,
-            sameRowHint.installLocation,
-          ),
-        baseMonthly: Number.isFinite(sameRowHint.monthlyFee!)
-          ? sameRowHint.monthlyFee
-          : next.baseMonthly,
-        lat: sameRowHint.lat ?? next.lat,
-        lng: sameRowHint.lng ?? next.lng,
-        installLocation: sameRowHint.installLocation ?? next.installLocation,
-      };
-    }
+      // 힌트로 먼저 보강
+      let next: CartItem = { ...it };
+      if (hint) {
+        next = {
+          ...next,
+          name: hint.name ?? next.name,
+          productName: hint.productName ?? next.productName,
+          productKey: next.productKey ?? classifyProductForPolicy(hint.productName, hint.installLocation),
+          baseMonthly: Number.isFinite(hint.monthlyFee!) ? hint.monthlyFee : next.baseMonthly,
+          lat: hint.lat ?? next.lat,
+          lng: hint.lng ?? next.lng,
+          installLocation: hint.installLocation ?? next.installLocation,
+        };
+      }
       const place = parseRowKey(rowKey);
       if (next.baseMonthly && next.productName && next.installLocation) {
         next.hydrated = true;
@@ -328,45 +317,33 @@ export default function MapChrome({
         const d = data?.[0];
         if (!d) return;
 
-              setCart((cur) => {
-        const j = cur.findIndex((x) => x.rowKey === rowKey);
-        if (j < 0) return cur;
-        const curItem = cur[j];
-        const updated: CartItem = {
-          ...curItem,
-          name: (sameRowHint?.name ?? curItem.name) || d.name || curItem.name,
-          productName:
-            sameRowHint?.productName ??
-            curItem.productName ??
-            d.product_name ??
-            curItem.productName,
-          productKey:
-            curItem.productKey ??
-            classifyProductForPolicy(
-              sameRowHint?.productName ?? d.product_name,
-              d.install_location ?? d.installLocation,
-            ),
-          baseMonthly:
-            Number.isFinite(curItem.baseMonthly as number) &&
-            (curItem.baseMonthly as number) > 0
-              ? curItem.baseMonthly
-              : d.monthly_fee ?? curItem.baseMonthly,
-          lat: curItem.lat ?? d.lat ?? sameRowHint?.lat,
-          lng: curItem.lng ?? d.lng ?? sameRowHint?.lng,
-          installLocation:
-            curItem.installLocation ??
-            sameRowHint?.installLocation ??
-            d.install_location ??
-            d.installLocation,
-          hydrated: true,
-        };
-        const out = cur.slice();
-        out[j] = updated;
-        return out;
-      });
+        setCart((cur) => {
+          const j = cur.findIndex((x) => x.rowKey === rowKey);
+          if (j < 0) return cur;
+          const curItem = cur[j];
+          const updated: CartItem = {
+            ...curItem,
+            name: (hint?.name ?? curItem.name) || d.name || curItem.name,
+            productName: hint?.productName ?? curItem.productName ?? d.product_name ?? curItem.productName,
+            productKey:
+              curItem.productKey ??
+              classifyProductForPolicy(hint?.productName ?? d.product_name, d.install_location ?? d.installLocation),
+            baseMonthly:
+              Number.isFinite(curItem.baseMonthly as number) && (curItem.baseMonthly as number) > 0
+                ? curItem.baseMonthly
+                : (d.monthly_fee ?? curItem.baseMonthly),
+            lat: curItem.lat ?? d.lat ?? hint?.lat,
+            lng: curItem.lng ?? d.lng ?? hint?.lng,
+            installLocation:
+              curItem.installLocation ?? hint?.installLocation ?? d.install_location ?? d.installLocation,
+            hydrated: true,
+          };
+          const out = cur.slice();
+          out[j] = updated;
+          return out;
+        });
 
-      const key = keyName(sameRowHint?.name ?? d.name ?? "");
-
+        const key = keyName(hint?.name ?? d.name ?? "");
         if (key) {
           setStatsMap((prev) => ({
             ...prev,
@@ -657,7 +634,8 @@ export default function MapChrome({
     if (!openQuote) return;
     const need = cart.filter((c) => !c.hydrated || !c.baseMonthly || !c.productName || !c.installLocation);
     if (!need.length) return;
-    need.forEach((c) => hydrateCartItemByRowKey(c.rowKey!));
+    need.forEach((c) => hydrateCartItemByRowKey(c.rowKey!, selectedRef.current ?? undefined));
+  }, [openQuote]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** ===== 견적서 빌더 ===== */
   function yyyy_mm_dd(d: Date) {
