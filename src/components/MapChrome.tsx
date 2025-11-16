@@ -291,7 +291,7 @@ export default function MapChrome({
           baseMonthly: Number.isFinite(hint.monthlyFee!) ? hint.monthlyFee : next.baseMonthly,
           lat: hint.lat ?? next.lat,
           lng: hint.lng ?? next.lng,
-          installLocation: hint.installLocation ?? next.installLocation,
+          installLocation: hint.installLocation ?? (hint as any).install_location ?? next.installLocation,
         };
       }
       const place = parseRowKey(rowKey);
@@ -335,7 +335,12 @@ export default function MapChrome({
             lat: curItem.lat ?? d.lat ?? hint?.lat,
             lng: curItem.lng ?? d.lng ?? hint?.lng,
             installLocation:
-              curItem.installLocation ?? hint?.installLocation ?? d.install_location ?? d.installLocation,
+              curItem.installLocation ??
+              hint?.installLocation ??
+              (hint as any)?.install_location ??
+              d.install_location ??
+              d.installLocation,
+
             hydrated: true,
           };
           const out = cur.slice();
@@ -408,7 +413,7 @@ export default function MapChrome({
             months: defaultMonths,
             lat: snap?.lat,
             lng: snap?.lng,
-            installLocation: snap?.installLocation,
+            installLocation: snap?.installLocation ?? (snap as any)?.install_location,
             hydrated: Boolean(snap?.monthlyFee && snap?.productName),
           };
 
