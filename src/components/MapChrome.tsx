@@ -334,12 +334,15 @@ export default function MapChrome({
                 : (d.monthly_fee ?? curItem.baseMonthly),
             lat: curItem.lat ?? d.lat ?? hint?.lat,
             lng: curItem.lng ?? d.lng ?? hint?.lng,
+            // ⚠️ 설치위치: 빈 문자열("")은 값 없는 것으로 보고, DB 값/힌트 값으로 보강
             installLocation:
-              curItem.installLocation ??
-              hint?.installLocation ??
-              (hint as any)?.install_location ??
-              d.install_location ??
-              d.installLocation,
+              (curItem.installLocation && curItem.installLocation.trim()) ||
+              (hint?.installLocation && hint.installLocation.trim()) ||
+              (d.install_location && String(d.install_location).trim()) ||
+              (d.installLocation && String(d.installLocation).trim()) ||
+              (d["설치위치"] && String(d["설치위치"]).trim()) ||
+              (d["설치 위치"] && String(d["설치 위치"]).trim()) ||
+              undefined,
 
             hydrated: true,
           };
