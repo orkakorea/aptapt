@@ -639,7 +639,24 @@ export default function MapChrome({
     if (!openQuote) return;
     const need = cart.filter((c) => !c.hydrated || !c.baseMonthly || !c.productName || !c.installLocation);
     if (!need.length) return;
-    need.forEach((c) => hydrateCartItemByRowKey(c.rowKey!));
+
+    // 🔧 각 아이템 "자기 자신"의 정보를 힌트로 넘긴다.
+    //    → selectedRef.current 같은 공통 객체는 전혀 사용하지 않으므로
+    //      "마지막 단지로 싹 바뀌는" 버그는 다시 생기지 않는다.
+    need.forEach((c) =>
+      hydrateCartItemByRowKey(
+        c.rowKey!,
+        {
+          rowKey: c.rowKey,
+          name: c.name,
+          productName: c.productName,
+          installLocation: c.installLocation,
+          monthlyFee: c.baseMonthly,
+          lat: c.lat,
+          lng: c.lng,
+        } as any, // SelectedApt 형태로 최소 필드만 맞춰서 힌트로 사용
+      ),
+    );
   }, [openQuote]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** ===== 견적서 빌더 ===== */
