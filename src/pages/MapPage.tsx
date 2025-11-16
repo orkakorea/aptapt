@@ -423,7 +423,25 @@ export default function MapPage() {
           gridSize: 80,
           styles: clusterStyles,
         });
+        // ✅ 클러스터 클릭 시: 해당 클러스터 범위로 지도 이동/확대
+        kakao.maps.event.addListener(clustererRef.current, "clusterclick", (cluster: any) => {
+          const m = mapObjRef.current;
+          if (!m || !cluster) return;
 
+          // 클러스터 안에 포함된 마커들의 범위를 얻어서 그 범위로 지도 이동
+          const bounds = cluster.getBounds();
+          if (bounds) {
+            m.setBounds(bounds);
+          } else {
+            // 혹시 bounds가 없으면 센터만 이동
+            const center = cluster.getCenter?.();
+            if (center) {
+              m.setCenter(center);
+              const curLevel = m.getLevel();
+              m.setLevel(Math.max(curLevel - 1, 1));
+            }
+          }
+        });
         kakao.maps.event.addListener(map, "zoom_changed", applyStaticSeparationAll);
         kakao.maps.event.addListener(map, "idle", async () => {
           await loadMarkersInBounds();
