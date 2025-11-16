@@ -295,7 +295,7 @@ export default function MapChrome({
         };
       }
       const place = parseRowKey(rowKey);
-      if (next.baseMonthly && next.productName) {
+      if (next.baseMonthly && next.productName && next.installLocation) {
         next.hydrated = true;
         const copy = prev.slice();
         copy[idx] = next;
@@ -632,7 +632,7 @@ export default function MapChrome({
   /** ===== 견적 모달 열릴 때 미보강 아이템 보강 ===== */
   useEffect(() => {
     if (!openQuote) return;
-    const need = cart.filter((c) => !c.hydrated || !c.baseMonthly || !c.productName);
+    const need = cart.filter((c) => !c.hydrated || !c.baseMonthly || !c.productName || !c.installLocation);
     if (!need.length) return;
     need.forEach((c) => hydrateCartItemByRowKey(c.rowKey!, selectedRef.current ?? undefined));
   }, [openQuote]); // eslint-disable-line react-hooks/exhaustive-deps
