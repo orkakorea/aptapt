@@ -651,8 +651,21 @@ export default function MapChrome({
   }
   const buildQuoteItems = (): QuoteLineItem[] => {
     const today = new Date();
+
     return cart.map((c) => {
       const s = statsMap[keyName(c.name)];
+
+      // ✅ 이 카트 아이템과 현재 selected가 같은 rowKey인지 확인
+      const selectedForRow =
+        selectedRef.current && selectedRef.current.rowKey && c.rowKey && selectedRef.current.rowKey === c.rowKey
+          ? selectedRef.current
+          : null;
+
+      // ✅ 1순위: cart에 들어있는 installLocation
+      //    2순위: 같은 rowKey를 가진 selected의 installLocation
+      const installLocation =
+        c.installLocation ?? selectedForRow?.installLocation ?? (selectedForRow as any)?.install_location ?? undefined;
+
       return {
         id: c.id,
         name: c.name,
@@ -666,10 +679,11 @@ export default function MapChrome({
         residents: s?.residents,
         monthlyImpressions: s?.monthlyImpressions,
         monitors: s?.monitors,
-        installLocation: c.installLocation,
+        installLocation, // 👈 여기
       };
     });
   };
+
   const buildSeatPrefill = () => {
     const first = cart[0];
     const aptName = selected?.name ?? first?.name ?? null;
