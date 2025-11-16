@@ -634,7 +634,7 @@ export default function MapChrome({
     if (!openQuote) return;
     const need = cart.filter((c) => !c.hydrated || !c.baseMonthly || !c.productName || !c.installLocation);
     if (!need.length) return;
-    need.forEach((c) => hydrateCartItemByRowKey(c.rowKey!, selectedRef.current ?? undefined));
+    need.forEach((c) => hydrateCartItemByRowKey(c.rowKey!));
   }, [openQuote]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** ===== 견적서 빌더 ===== */
