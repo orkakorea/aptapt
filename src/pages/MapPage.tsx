@@ -574,72 +574,6 @@ export default function MapPage() {
     [],
   );
 
-  // ✅ rowKey 기준으로 항상 같은 단지 스냅샷을 만들어주는 헬퍼
-  const buildSnapshotFromRowKey = useCallback((rowKey: string): SelectedAptX | null => {
-    if (!rowKey) return null;
-    const list = keyIndexRef.current[rowKey];
-    const row = (list?.[0]?.__row as PlaceRow) || undefined;
-    if (!row) return null;
-
-    const lat = Number(row.lat);
-    const lng = Number(row.lng);
-
-    const name = getField(row, ["단지명", "단지 명", "name", "아파트명"]) || "";
-    const address = getField(row, ["주소", "도로명주소", "지번주소", "address"]) || "";
-    const productName =
-      getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "";
-    const installLocation = getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "";
-
-    const households = toNumLoose(
-      getField(row, ["세대수", "세대 수", "세대", "가구수", "가구 수", "세대수(가구)", "households"]),
-    );
-    const residents = toNumLoose(
-      getField(row, ["거주인원", "거주 인원", "인구수", "총인구", "입주민수", "거주자수", "residents"]),
-    );
-    const monitors = toNumLoose(
-      getField(row, ["모니터수량", "모니터 수량", "모니터대수", "엘리베이터TV수", "monitors"]),
-    );
-    const monthlyImpressions = toNumLoose(
-      getField(row, ["월송출횟수", "월 송출횟수", "월 송출 횟수", "월송출", "노출수(월)", "monthlyImpressions"]),
-    );
-
-    const monthlyFee = monthlyFeeOf(row);
-    const monthlyFeeY1 = toNumLoose(
-      getField(row, [
-        "1년 계약 시 월 광고료",
-        "1년계약시월광고료",
-        "연간월광고료",
-        "할인 월 광고료",
-        "연간_월광고료",
-        "monthlyFeeY1",
-      ]),
-    );
-    const costPerPlay = toNumLoose(getField(row, ["1회당 송출비용", "송출 1회당 비용", "costPerPlay"]));
-    const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
-    const imageUrl = getField(row, ["imageUrl", "image_url", "이미지", "썸네일", "thumbnail"]) || undefined;
-
-    return {
-      rowKey,
-      rowId: rowIdOf(row) != null ? String(rowIdOf(row)) : undefined,
-      name,
-      address,
-      productName,
-      installLocation, // ✅ 여기서 설치위치 포함
-      households,
-      residents,
-      monitors,
-      monthlyImpressions,
-      costPerPlay,
-      hours,
-      monthlyFee,
-      monthlyFeeY1,
-      imageUrl,
-      lat,
-      lng,
-      selectedInCart: selectedRowKeySetRef.current.has(rowKey),
-    };
-  }, []);
-
   const addToCartByRowKey = useCallback(
     (rowKey: string) => {
       selectedRowKeySetRef.current.add(rowKey);
@@ -648,10 +582,8 @@ export default function MapPage() {
       applyGroupPrioritiesForRowKey(rowKey);
       applyStaticSeparationAll();
 
-      // ✅ rowKey 기준 스냅샷을 우선 사용 (퀵담기에서도 설치위치 포함 보장)
-      const snapFromRow = buildSnapshotFromRowKey(rowKey);
-      const snap = snapFromRow ?? selectedRef.current ?? lastSelectedSnapRef.current ?? null;
-
+      // ✅ 스냅샷 포함해서 브로드캐스트 (합계/견적 연동)
+      const snap = selectedRef.current ?? lastSelectedSnapRef.current ?? null;
       window.dispatchEvent(
         new CustomEvent("orka:cart:changed", {
           detail: {
@@ -662,32 +594,7 @@ export default function MapPage() {
         }),
       );
     },
-    [applyGroupPrioritiesForRowKey, applyStaticSeparationAll, setMarkerStateByRowKey, buildSnapshotFromRowKey],
-  );
-
-  const removeFromCartByRowKey = useCallback(
-    (rowKey: string) => {
-      selectedRowKeySetRef.current.delete(rowKey);
-      setMarkerStateByRowKey(rowKey, "default");
-      setSelected((p) => (p && p.rowKey === rowKey ? { ...p, selectedInCart: false } : p));
-      applyGroupPrioritiesForRowKey(rowKey);
-      applyStaticSeparationAll();
-
-      // ✅ 제거 이벤트도 형식 맞춰 동일하게 처리
-      const snapFromRow = buildSnapshotFromRowKey(rowKey);
-      const snap = snapFromRow ?? selectedRef.current ?? lastSelectedSnapRef.current ?? null;
-
-      window.dispatchEvent(
-        new CustomEvent("orka:cart:changed", {
-          detail: {
-            rowKey,
-            selected: false,
-            selectedSnapshot: snap,
-          },
-        }),
-      );
-    },
-    [applyGroupPrioritiesForRowKey, applyStaticSeparationAll, setMarkerStateByRowKey, buildSnapshotFromRowKey],
+    [applyGroupPrioritiesForRowKey, applyStaticSeparationAll, setMarkerStateByRowKey],
   );
 
   const removeFromCartByRowKey = useCallback(
