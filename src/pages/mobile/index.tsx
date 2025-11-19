@@ -577,7 +577,7 @@ export default function MapMobilePageV2() {
       <GestureHint map={map} autoHideMs={0} forceShow />
 
       {/* 검색창 */}
-      <div ref={searchAreaRef} className="fixed z-[35] left-3 right-[152px] top-[64px] pointer-events-none">
+      <div ref={searchAreaRef} className="fixed z-[35] left-3 right-[76px] top-[64px] pointer-events-none">
         <form
           onSubmit={async (e) => {
             e.preventDefault();
@@ -598,36 +598,32 @@ export default function MapMobilePageV2() {
 
       {/* 우측 버튼 스택 */}
       <div className="fixed z-[35] right-3 top-[64px] pointer-events-none">
-        <div className="flex flex-col gap-2 pointer-events-auto">
-          {/* ▶ 검색 */}
+        <div className="flex flex-col gap-2 pointer-events-auto items-end">
+          {/* ▶ 검색: 아이콘만 (동그란 버튼) */}
           <button
             onClick={runSearchAndBlur}
-            className="w-[140px] h-10 rounded-full bg-white shadow flex items-center gap-2 px-2 pr-3 text-xs font-medium text-gray-900"
+            className="w-11 h-11 rounded-full flex items-center justify-center text-white shadow"
+            style={{ backgroundColor: COLOR_PRIMARY }}
             aria-label="검색"
             title="검색"
           >
-            <span
-              className="inline-flex items-center justify-center w-7 h-7 rounded-full text-white"
-              style={{ backgroundColor: COLOR_PRIMARY }}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-                <circle cx="10" cy="10" r="6" stroke="currentColor" strokeWidth="2" />
-                <line x1="14.5" y1="14.5" x2="20" y2="20" stroke="currentColor" strokeWidth="2" />
-              </svg>
-            </span>
-            <span className="flex-1 text-left">검색</span>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <circle cx="10" cy="10" r="6" stroke="currentColor" strokeWidth="2" />
+              <line x1="14.5" y1="14.5" x2="20" y2="20" stroke="currentColor" strokeWidth="2" />
+            </svg>
           </button>
 
-          {/* ▶ 퀵담기 토글 */}
+          {/* ▶ 퀵담기 토글: 텍스트 왼쪽, 아이콘 오른쪽 */}
           <button
             onClick={() => setQuickMode((v) => !v)}
             aria-label="빠른담기"
             aria-pressed={quickMode}
-            className={`w-[140px] h-10 rounded-full flex items-center gap-2 px-2 pr-3 text-xs font-semibold shadow border ${
-              quickMode ? "bg-[#FFF7CC] text-[#6F4BF2] border-[#FFD400]" : "bg-white text-gray-900 border-transparent"
+            className={`inline-flex items-center gap-2 h-9 rounded-full px-3 text-[11px] font-semibold shadow border self-end ${
+              quickMode ? "bg-[#FFF7CC] text-[#6F4BF2] border-[#FFD400]" : "bg-white text-gray-900 border-gray-200"
             }`}
             title="빠른담기"
           >
+            <span className="whitespace-nowrap">빠른담기</span>
             <span
               className={`inline-flex items-center justify-center w-7 h-7 rounded-full ${
                 quickMode ? "bg-[#FFD400] text-[#6F4BF2]" : "bg-[#6F4BF2] text-white"
@@ -638,32 +634,31 @@ export default function MapMobilePageV2() {
                 <path d="M13 2L3 14h7l-1 8 11-14h-7l0-6z" />
               </svg>
             </span>
-            <span className="flex-1 text-left">빠른담기</span>
           </button>
 
-          {/* 카트 */}
+          {/* 카트: 텍스트 왼쪽, 아이콘 오른쪽, 배지 유지 */}
           <button
             onClick={() => {
               setActiveTab("cart");
               setSheetOpen(true);
               recalcSheetMax();
             }}
-            className="relative w-[140px] h-10 rounded-full bg-white shadow flex items-center gap-2 px-2 pr-3 text-xs font-semibold text-gray-900"
+            className="relative inline-flex items-center gap-2 h-9 rounded-full px-3 bg-white shadow text-[11px] font-semibold text-gray-900 self-end border border-gray-200"
             aria-label="장바구니"
             title="장바구니"
           >
+            <span className="whitespace-nowrap">장바구니</span>
             <span
               className="inline-flex items-center justify-center w-7 h-7 rounded-full text-white"
               style={{ backgroundColor: COLOR_PRIMARY }}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
                 <rect x="5" y="7" width="12" height="8" rx="1.5" stroke="currentColor" strokeWidth="2" />
                 <circle cx="9" cy="18" r="1.5" fill="currentColor" />
                 <circle cx="15" cy="18" r="1.5" fill="currentColor" />
                 <line x1="3" y1="5" x2="6" y2="7" stroke="currentColor" strokeWidth="2" />
               </svg>
             </span>
-            <span className="flex-1 text-left">장바구니</span>
             {cart.length > 99 && (
               <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-[#FF3B30] text-[10px] font-bold flex items-center justify-center">
                 99+
@@ -676,7 +671,7 @@ export default function MapMobilePageV2() {
             )}
           </button>
 
-          {/* 전화 */}
+          {/* 전화: 텍스트 왼쪽, 아이콘 오른쪽 */}
           <a
             ref={phoneBtnRef}
             href="tel:1551-0810"
@@ -686,24 +681,24 @@ export default function MapMobilePageV2() {
               allowUnloadRef.current = true;
               setTimeout(() => (allowUnloadRef.current = false), 2000);
             }}
-            className="w-[140px] h-10 rounded-full bg-white shadow flex items-center gap-2 px-2 pr-3 text-xs font-semibold text-gray-900"
+            className="inline-flex items-center gap-2 h-9 rounded-full px-3 bg-white shadow text-[11px] font-semibold text-gray-900 self-end border border-gray-200"
             aria-label="전화 연결"
             title="전화 연결"
           >
+            <span className="whitespace-nowrap">전화연결</span>
             <span
               className="inline-flex items-center justify-center w-7 h-7 rounded-full text-white"
               style={{ backgroundColor: COLOR_PRIMARY }}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
                 <rect x="5" y="3" width="14" height="18" rx="3" stroke="currentColor" strokeWidth="2" />
                 <rect x="9" y="6" width="6" height="1.5" rx="0.75" fill="currentColor" />
                 <circle cx="12" cy="18" r="1.2" fill="currentColor" />
               </svg>
             </span>
-            <span className="flex-1 text-left">전화연결</span>
           </a>
 
-          {/* 내 위치 */}
+          {/* 내 위치: 텍스트 왼쪽, 아이콘 오른쪽 */}
           <button
             onClick={() => {
               const el = document.activeElement as HTMLElement | null;
@@ -711,15 +706,16 @@ export default function MapMobilePageV2() {
               if (kakaoReady) locateNow();
             }}
             disabled={!kakaoReady}
-            className="w-[140px] h-10 rounded-full bg-white shadow flex items-center gap-2 px-2 pr-3 text-xs font-semibold text-gray-900 disabled:opacity-50"
+            className="inline-flex items-center gap-2 h-9 rounded-full px-3 bg-white shadow text-[11px] font-semibold text-gray-900 self-end border border-gray-200 disabled:opacity-50"
             aria-label="내 위치로 이동"
             title="내 위치로 이동"
           >
+            <span className="whitespace-nowrap">내 위치</span>
             <span
               className="inline-flex items-center justify-center w-7 h-7 rounded-full text-white"
               style={{ backgroundColor: COLOR_PRIMARY }}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden>
                 <circle cx="12" cy="12" r="3" fill="currentColor" />
                 <circle cx="12" cy="12" r="7" stroke="currentColor" strokeWidth="2" />
                 <line x1="12" y1="2" x2="12" y2="5" stroke="currentColor" strokeWidth="2" />
@@ -728,7 +724,6 @@ export default function MapMobilePageV2() {
                 <line x1="19" y1="12" x2="22" y2="12" stroke="currentColor" strokeWidth="2" />
               </svg>
             </span>
-            <span className="flex-1 text-left">내 위치</span>
           </button>
         </div>
       </div>
