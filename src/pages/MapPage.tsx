@@ -387,7 +387,6 @@ export default function MapPage() {
   useEffect(() => {
     let resizeHandler: any;
     let map: any;
-    cleanupKakaoScripts();
     loadKakao()
       .then((kakao) => {
         setKakaoError(null);
@@ -1410,29 +1409,34 @@ export default function MapPage() {
 
   /* ---------- 검색 ---------- */
   function runPlaceSearch(query: string) {
-    const kakao = (window as KakaoNS).kakao;
+    const kakaoNS = (window as KakaoNS).kakao;
     const places = placesRef.current;
-    if (!places) return;
+
+    // ✅ SDK가 아직 준비 안 된 경우 방어
+    if (!places || !kakaoNS?.maps?.services) return;
+
     places.keywordSearch(query, (results: any[], status: string) => {
-      if (status !== kakao.maps.services.Status.OK || !results?.length) return;
+      // 혹시 모를 상황에 대비해 한 번 더 방어
+      if (!kakaoNS?.maps?.services) return;
+      if (status !== kakaoNS.maps.services.Status.OK || !results?.length) return;
+
       const first = results[0];
       const lat = Number(first.y),
         lng = Number(first.x);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-      const latlng = new kakao.maps.LatLng(lat, lng);
+      const latlng = new kakaoNS.maps.LatLng(lat, lng);
       mapObjRef.current.setLevel(4);
       mapObjRef.current.setCenter(latlng);
 
-      // 1차 반경/라벨/핀
       drawSearchOverlays(latlng);
 
-      // 마커 로드 끝난 뒤 재평가(겹치면 숨김)
       loadMarkersInBounds().then(() => {
         applyStaticSeparationAll();
         drawSearchOverlays(latlng);
       });
     });
   }
+
   function handleSearch(q: string) {
     writeQuery(q);
     runPlaceSearch(q);
