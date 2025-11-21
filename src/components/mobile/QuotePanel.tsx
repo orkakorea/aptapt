@@ -121,27 +121,25 @@ export default function QuotePanel({
 
   return (
     <div className="space-y-4">
-{/* ✅ 1) 상단 요약: 스크롤 컨테이너 바깥으로 분리 */}
-<div className="px-3 py-2 flex items-center justify-between">
-  <div className="text-[12px] font-extrabold text-gray-800 whitespace-nowrap leading-tight">
-    총 {summary.count}개 단지 · 세대수 {withUnit(summary.households, "세대")} · 거주인원{" "}
-    {withUnit(summary.residents, "명")} · 월송출횟수 {withUnit(summary.monthlyImpressions, "회")} ·
-    모니터수량 {withUnit(summary.monitors, "대")}
-  </div>
-  <div className="ml-4 text-[10px] text-gray-400 whitespace-nowrap">(단위 · 원 / VAT별도)</div>
-</div>
+      {/* ===========================================================
+       * 요약 + 테이블을 하나의 가로 스크롤 컨테이너로 묶기
+       * (PC 견적서와 동일 항목/표현)
+       * =========================================================== */}
+      <div className="overflow-x-auto">
+        <div className="min-w-[1200px]">
+          {/* 상단 요약 */}
+          <div className="px-3 py-2 flex items-center justify-between">
+            <div className="text-[12px] font-extrabold text-gray-800 whitespace-nowrap leading-tight">
+              총 {summary.count}개 단지 · 세대수 {withUnit(summary.households, "세대")} · 거주인원{" "}
+              {withUnit(summary.residents, "명")} · 월송출횟수 {withUnit(summary.monthlyImpressions, "회")} · 모니터수량{" "}
+              {withUnit(summary.monitors, "대")}
+            </div>
+            <div className="ml-4 text-[10px] text-gray-400 whitespace-nowrap">(단위 · 원 / VAT별도)</div>
+          </div>
 
-{/* ✅ 2) 테이블만 가로 스크롤 */}
-<div className="overflow-x-auto">
-  <div className="min-w-[1200px]">
-    <div className="rounded-2xl border overflow-hidden">
-      <table className="min-w-[1200px] w-full text-[12px]">
-        {/* ... thead / tbody 그대로 ... */}
-      </table>
-    </div>
-  </div>
-</div>
-
+          {/* 상세 테이블 */}
+          <div className="rounded-2xl border overflow-hidden">
+            <table className="min-w-[1200px] w-full text-[12px]">
               <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr className="text-gray-700">
                   <Th>단지명</Th>
