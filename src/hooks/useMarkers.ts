@@ -59,13 +59,16 @@ const toNum = (v: any) => {
   return Number.isFinite(n) ? n : undefined;
 };
 
-/** 상품 이미지 매핑(영문+한글 키워드 지원) */
-function imageForProduct(productName?: string | null): string {
+/** 상품 이미지 매핑(영문+한글 키워드 지원, 설치위치 반영) */
+function imageForProduct(productName?: string | null, installLocation?: string | null): string {
   const raw = productName || "";
   const lower = raw.toLowerCase();
   const compactLower = lower.replace(/\s+/g, "");
   const compact = raw.replace(/\s+/g, "");
 
+  const locLower = (installLocation ?? "").replace(/\s+/g, "").toLowerCase();
+
+  // 엘리베이터 TV 계열
   if (
     compactLower.includes("elevat") ||
     compact.includes("엘리베이터") ||
@@ -74,23 +77,48 @@ function imageForProduct(productName?: string | null): string {
   ) {
     return "/products/elevator-tv.png";
   }
+
+  // 타운보드: 설치위치 우선 → 없으면 기존 S/L 규칙 사용
   if (compactLower.includes("townbord") || compactLower.includes("townboard") || compact.includes("타운보드")) {
+    if (locLower.includes("ev내부")) {
+      // EV 내부
+      return "/products/townbord-a.png";
+    }
+    if (locLower.includes("ev대기공간") || locLower.includes("ev대기") || locLower.includes("대기공간")) {
+      // EV 대기공간
+      return "/products/townbord-b.png";
+    }
+
+    // 설치위치 없으면 기존 사이즈 패턴 유지
     if (compactLower.includes("_l") || compactLower.endsWith("l") || compact.endsWith("L")) {
       return "/products/townbord-b.png";
     }
     return "/products/townbord-a.png";
   }
+
+  // 미디어밋: 설치위치에 따라 A/B 분리
   if (
     compactLower.includes("mediameet") ||
     (compactLower.includes("media") && compactLower.includes("meet")) ||
     compact.includes("미디어밋") ||
     compact.includes("미디어미트")
   ) {
+    if (locLower.includes("ev내부")) {
+      return "/products/media-meet-a.png";
+    }
+    if (locLower.includes("ev대기공간") || locLower.includes("ev대기") || locLower.includes("대기공간")) {
+      return "/products/media-meet-b.png";
+    }
+    // 기본값: 내부 타입으로
     return "/products/media-meet-a.png";
   }
+
+  // 스페이스리빙
   if (compactLower.includes("spaceliving") || compactLower.includes("space") || compact.includes("스페이스리빙")) {
     return "/products/space-living.png";
   }
+
+  // 하이포스트
   if (
     compactLower.includes("hipost") ||
     (compactLower.includes("hi") && compactLower.includes("post")) ||
@@ -98,7 +126,9 @@ function imageForProduct(productName?: string | null): string {
   ) {
     return "/products/hi-post.png";
   }
-  return "/products/elevator-tv.png"; // 최종 폴백
+
+  // 최종 폴백
+  return "/products/elevator-tv.png";
 }
 
 type MarkerState = "purple" | "yellow" | "clicked";
@@ -273,13 +303,15 @@ export default function useMarkers({
         | string
         | undefined);
 
+    const installLocation = (row.install_location as string) || undefined;
+
     return {
       rowKey,
       rowId: row.place_id != null ? String(row.place_id) : row.id != null ? String(row.id) : undefined,
       name,
       address: (row.address as string) || "",
       productName,
-      installLocation: (row.install_location as string) || undefined,
+      installLocation,
       households: toNum(row.households),
       residents: toNum(row.residents),
       monitors: toNum(row.monitors),
@@ -288,28 +320,33 @@ export default function useMarkers({
       hours: (row.hours as string) || "",
       monthlyFee: toNum(row.monthly_fee),
       monthlyFeeY1: toNum(row.monthly_fee_y1),
-      imageUrl: rawImage || imageForProduct(productName),
+      imageUrl: rawImage || imageForProduct(productName, installLocation),
       lat,
       lng,
     };
   }, []);
 
-  /** 상세 응답 보강(현재는 identity 용도로만 사용) */
+  /** 상세 응답 보강 */
   const enrichWithDetail = useCallback((base: SelectedApt, d: any): SelectedApt => {
     const detailName = (getField(d, ["name"]) as string) ?? (getField(d, ["apt_name"]) as string);
     const detailProduct =
       (getField(d, ["product_name"]) as string) ?? (getField(d, ["productName"]) as string) ?? base.productName;
 
+    const detailInstall =
+      (getField(d, ["install_location"]) as string) ??
+      base.installLocation; /* 상세 응답 설치위치 우선, 없으면 기존 값 유지 */
+
     const detailImage =
       (getField(d, ["imageUrl", "image_url", "image", "thumbnail", "thumb", "thumb_url", "thumbUrl"]) as string) ??
-      base.imageUrl;
+      base.imageUrl ??
+      imageForProduct(detailProduct, detailInstall);
 
     return {
       ...base,
       name: detailName ?? base.name,
       productName: detailProduct,
-      imageUrl: detailImage ?? imageForProduct(detailProduct),
-      installLocation: (getField(d, ["install_location"]) as string) ?? base.installLocation,
+      imageUrl: detailImage,
+      installLocation: detailInstall,
       households: toNum(getField(d, ["households"])) ?? base.households,
       residents: toNum(getField(d, ["residents"])) ?? base.residents,
       monitors: toNum(getField(d, ["monitors"])) ?? base.monitors,
@@ -470,14 +507,13 @@ export default function useMarkers({
           mk.__rowKey = rowKey;
           mk.__row = row; // 원본 행(기본 lat/lng 포함)
 
-          const onClick = () => {
+          const onClick = async () => {
             const baseSel = toSelectedBase(mk.__rowKey, mk.__row, Number(mk.__row.lat), Number(mk.__row.lng));
-            const fullSel = enrichWithDetail(baseSel, {} as any);
 
             // 상위로 위임: 퀵모드든 일반모드든 onSelect가 장바구니 토글/시트 오픈을 결정
-            onSelectRef.current(fullSel);
+            onSelectRef.current(baseSel);
 
-            // 퀵담기 모드: 담기/취소만 수행
+            // 퀵모드: 클릭 강조/상세 RPC 없이 담기/취소만 수행
             if (quickAddEnabledRef.current) {
               const wasSelected = selectedSetRef.current.has(mk.__rowKey);
               setMarkerState(mk, wasSelected ? "purple" : "yellow");
@@ -490,7 +526,35 @@ export default function useMarkers({
             lastClickedRef.current = mk;
             colorByRule(mk);
 
-            // ✅ 추가 상세 RPC 호출 없음 (public_map_places 데이터만 사용)
+            // 상세 RPC (모바일 B). 에러는 로깅만.
+            const pidText =
+              mk.__row?.place_id != null
+                ? String(mk.__row.place_id)
+                : mk.__row?.id != null
+                  ? String(mk.__row.id)
+                  : undefined;
+
+            if (pidText) {
+              mk.__detailVer = (mk.__detailVer || 0) + 1;
+              const myVer = mk.__detailVer;
+              try {
+                const { data, error } = await (supabase as any).rpc("get_public_place_detail_b", {
+                  p_place_id: pidText,
+                });
+                if (error) {
+                  console.warn("[useMarkers] detail rpc (mobile B) error:", error.message);
+                  return;
+                }
+                const d = (data && (Array.isArray(data) ? data[0] : data)) || null;
+                if (!d) return;
+                if (mk.__detailVer !== myVer) return;
+
+                mk.__row = { ...mk.__row, ...d };
+                onSelectRef.current(enrichWithDetail(baseSel, d));
+              } catch (e) {
+                console.warn("[useMarkers] detail fetch failed:", e);
+              }
+            }
           };
           mk.__onClick = onClick as any;
           maps.event.addListener(mk, "click", onClick);
@@ -721,7 +785,7 @@ export default function useMarkers({
   }, [kakao, map]);
 
   const selectByRowKey = useCallback(
-    (rowKey: string) => {
+    async (rowKey: string) => {
       const mk = rowKeyIndexRef.current.get(rowKey);
       if (!mk || !kakao?.maps || !map) return;
 
@@ -730,14 +794,37 @@ export default function useMarkers({
       const lng = Number(row.lng);
 
       const baseSel = toSelectedBase(rowKey, row, lat, lng);
-      const fullSel = enrichWithDetail(baseSel, {} as any);
-      onSelectRef.current(fullSel);
+      onSelectRef.current(baseSel);
 
       // 다른 항목 클릭 시 이전 클릭 강조 해제
       const prev = lastClickedRef.current;
       if (prev && prev !== mk) paintNormal(prev);
       lastClickedRef.current = mk;
       colorByRule(mk);
+
+      const pidText = row.place_id != null ? String(row.place_id) : row.id != null ? String(row.id) : undefined;
+
+      if (pidText) {
+        mk.__detailVer = (mk.__detailVer || 0) + 1;
+        const myVer = mk.__detailVer;
+        try {
+          const { data, error } = await (supabase as any).rpc("get_public_place_detail_b", {
+            p_place_id: pidText,
+          });
+          if (error) {
+            console.warn("[useMarkers] detail rpc (mobile B) error:", error.message);
+            return;
+          }
+          const d = (data && (Array.isArray(data) ? data[0] : data)) || null;
+          if (!d) return;
+          if (mk.__detailVer !== myVer) return;
+
+          mk.__row = { ...mk.__row, ...d };
+          onSelectRef.current(enrichWithDetail(baseSel, d));
+        } catch (e) {
+          console.warn("[useMarkers] detail fetch failed:", e);
+        }
+      }
     },
     [colorByRule, enrichWithDetail, kakao, map, paintNormal, toSelectedBase],
   );
