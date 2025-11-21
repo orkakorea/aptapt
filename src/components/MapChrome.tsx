@@ -393,21 +393,20 @@ export default function MapChrome({
           }
 
           const name = snap?.name ?? "(이름 불러오는 중)";
-const productName = snap?.productName ?? undefined;
-const baseMonthly = snap?.monthlyFee ?? undefined;
+          const productName = snap?.productName ?? undefined;
+          const baseMonthly = snap?.monthlyFee ?? undefined;
 
-// rowKey가 있으면 rowKey를 그대로 ID로 사용, 없으면 예전 방식으로 Fallback
-const id =
-  rowKey ||
-  [
-    String(name ?? "")
-      .replace(/\s+/g, "")
-      .toLowerCase(),
-    String(productName ?? "")
-      .replace(/\s+/g, "")
-      .toLowerCase(),
-  ].join("||");
-
+          // rowKey가 있으면 rowKey를 그대로 ID로 사용, 없으면 예전 방식으로 Fallback
+          const id =
+            rowKey ||
+            [
+              String(name ?? "")
+                .replace(/\s+/g, "")
+                .toLowerCase(),
+              String(productName ?? "")
+                .replace(/\s+/g, "")
+                .toLowerCase(),
+            ].join("||");
           const productKey = classifyProductForPolicy(snap?.productName, snap?.installLocation);
           const defaultMonths = prev.length > 0 ? prev[0].months : 1;
 
@@ -524,84 +523,65 @@ const id =
 
   /* ===== 담기/삭제 (2탭 버튼) ===== */
   const makeIdFromSelected = (s: SelectedApt) => {
-  // rowKey가 있으면 그 자체를 ID로 사용 (단지+상품+설치위치까지 포함된 고유키)
-  if (s.rowKey) return s.rowKey;
+    // rowKey가 있으면 그 자체를 ID로 사용 (단지+상품+설치위치까지 포함된 고유키)
+    if (s.rowKey) return s.rowKey;
 
-  const nk = (v?: string) => (v ? v.replace(/\s+/g, "").toLowerCase() : "");
-  const nameKey = nk(s.name || s.address || "");
-  const prodKey = nk(s.productName || "");
-  const locKey = nk(s.installLocation || (s as any).install_location || "");
+    const nk = (v?: string) => (v ? v.replace(/\s+/g, "").toLowerCase() : "");
+    const nameKey = nk(s.name || s.address || "");
+    const prodKey = nk(s.productName || "");
+    const locKey = nk(s.installLocation || (s as any).install_location || "");
 
-  // 설치 위치까지 포함해서 동일 단지/상품이라도 위치가 다르면 다른 ID가 되도록
-  return [nameKey, prodKey, locKey].join("||");
-};
+    // 설치 위치까지 포함해서 동일 단지/상품이라도 위치가 다르면 다른 ID가 되도록
+    return [nameKey, prodKey, locKey].join("||");
+  };
 
   const addSelectedToCart = () => {
-  if (!selected) return;
-  const id = makeIdFromSelected(selected); // ↔ 이제 기본적으로 rowKey 사용
-  const productKey = classifyProductForPolicy(selected.productName, selected.installLocation);
+    if (!selected) return;
+    const id = makeIdFromSelected(selected); // 이제 기본적으로 rowKey 사용
+    const productKey = classifyProductForPolicy(selected.productName, selected.installLocation);
 
-  setCart((prev) => {
-    // rowKey가 있으면 rowKey 기준, 없으면 예전 id 기준으로 동일 항목 판단
-    const match = (x: CartItem) =>
-      selected.rowKey ? x.rowKey === selected.rowKey : x.id === id;
+    setCart((prev) => {
+      // rowKey가 있으면 rowKey 기준, 없으면 예전 id 기준으로 동일 항목 판단
+      const match = (x: CartItem) => (selected.rowKey ? x.rowKey === selected.rowKey : x.id === id);
 
-    const exists = prev.find(match);
-    if (exists) {
-      // 같은 행(rowKey)을 다시 담은 경우에만 기존 아이템 업데이트
-      return prev.map((x) =>
-        match(x)
-          ? {
-              ...x,
-              rowKey: selected.rowKey ?? x.rowKey,
-              name: selected.name,
-              productKey,
-              productName: selected.productName,
-              baseMonthly: selected.monthlyFee,
-              lat: selected.lat,
-              lng: selected.lng,
-              installLocation: selected.installLocation ?? x.installLocation,
-              hydrated: true,
-            }
-          : x,
-      );
-    }
+      const exists = prev.find(match);
+      if (exists) {
+        // 같은 행(rowKey)을 다시 담은 경우에만 기존 아이템 업데이트
+        return prev.map((x) =>
+          match(x)
+            ? {
+                ...x,
+                rowKey: selected.rowKey ?? x.rowKey,
+                name: selected.name,
+                productKey,
+                productName: selected.productName,
+                baseMonthly: selected.monthlyFee,
+                lat: selected.lat,
+                lng: selected.lng,
+                installLocation: selected.installLocation ?? x.installLocation,
+                hydrated: true,
+              }
+            : x,
+        );
+      }
 
-    // rowKey가 다른(= 설치 위치가 다른) 상품은 새 줄로 추가
-    const defaultMonths = prev.length > 0 ? prev[0].months : 1;
-    const newItem: CartItem = {
-      id,
-      rowKey: selected.rowKey,
-      name: selected.name,
-      productKey,
-      productName: selected.productName,
-      baseMonthly: selected.monthlyFee,
-      months: defaultMonths,
-      lat: selected.lat,
-      lng: selected.lng,
-      installLocation: selected.installLocation,
-      hydrated: true,
-    };
-    return [newItem, ...prev];
-  });
-
-  // ↓↓↓ 아래 기존 코드(통계/마커 갱신)는 그대로 유지
-  if (selected?.name) {
-    const k = keyName(selected.name);
-    setStatsMap((prev) => ({
-      ...prev,
-      [k]: {
-        households: selected.households ?? prev[k]?.households,
-        residents: selected.residents ?? prev[k]?.residents,
-        monthlyImpressions: selected.monthlyImpressions ?? prev[k]?.monthlyImpressions,
-        monitors: selected.monitors ?? prev[k]?.monitors,
-      },
-    }));
-  }
-
-  if (selected.rowKey) setMarkerStateByRowKey?.(selected.rowKey, "selected", true);
-  else setMarkerState?.(selected.name, "selected");
-};
+      // rowKey가 다른(= 설치 위치가 다른) 상품은 새 줄로 추가
+      const defaultMonths = prev.length > 0 ? prev[0].months : 1;
+      const newItem: CartItem = {
+        id,
+        rowKey: selected.rowKey,
+        name: selected.name,
+        productKey,
+        productName: selected.productName,
+        baseMonthly: selected.monthlyFee,
+        months: defaultMonths,
+        lat: selected.lat,
+        lng: selected.lng,
+        installLocation: selected.installLocation,
+        hydrated: true,
+      };
+      return [newItem, ...prev];
+    });
 
     if (selected?.name) {
       const k = keyName(selected.name);
@@ -619,7 +599,6 @@ const id =
     if (selected.rowKey) setMarkerStateByRowKey?.(selected.rowKey, "selected", true);
     else setMarkerState?.(selected.name, "selected");
   };
-
   const removeItem = (id: string) => {
     setCart((prev) => {
       const removed = prev.find((x) => x.id === id);
