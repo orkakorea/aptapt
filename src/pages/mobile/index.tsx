@@ -806,6 +806,33 @@ export default function MapMobilePageV2() {
               }}
             />
           )}
+
+          {/* 탭별 하단 CTA 버튼 */}
+          {activeTab === "detail" && (
+            <div className="mt-4 pt-1">
+              <button
+                type="button"
+                className="w-full h-12 rounded-2xl font-extrabold text-white"
+                style={{ backgroundColor: COLOR_PRIMARY }}
+                onClick={() => setActiveTab("cart")}
+              >
+                장바구니 확인하기
+              </button>
+            </div>
+          )}
+
+          {activeTab === "cart" && (
+            <div className="mt-4 pt-1">
+              <button
+                type="button"
+                className="w-full h-12 rounded-2xl font-extrabold text-white"
+                style={{ backgroundColor: COLOR_PRIMARY }}
+                onClick={() => setActiveTab("quote")}
+              >
+                상세견적 확인하기
+              </button>
+            </div>
+          )}
         </div>
       </BottomSheet>
 
