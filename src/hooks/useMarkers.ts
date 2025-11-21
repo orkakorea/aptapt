@@ -294,7 +294,7 @@ export default function useMarkers({
     };
   }, []);
 
-  /** 상세 응답 보강 */
+  /** 상세 응답 보강(현재는 identity 용도로만 사용) */
   const enrichWithDetail = useCallback((base: SelectedApt, d: any): SelectedApt => {
     const detailName = (getField(d, ["name"]) as string) ?? (getField(d, ["apt_name"]) as string);
     const detailProduct =
@@ -470,13 +470,14 @@ export default function useMarkers({
           mk.__rowKey = rowKey;
           mk.__row = row; // 원본 행(기본 lat/lng 포함)
 
-          const onClick = async () => {
+          const onClick = () => {
             const baseSel = toSelectedBase(mk.__rowKey, mk.__row, Number(mk.__row.lat), Number(mk.__row.lng));
+            const fullSel = enrichWithDetail(baseSel, {} as any);
 
             // 상위로 위임: 퀵모드든 일반모드든 onSelect가 장바구니 토글/시트 오픈을 결정
-            onSelectRef.current(baseSel);
+            onSelectRef.current(fullSel);
 
-            // 퀵모드: 클릭 강조/상세 RPC 없이 담기/취소만 수행
+            // 퀵담기 모드: 담기/취소만 수행
             if (quickAddEnabledRef.current) {
               const wasSelected = selectedSetRef.current.has(mk.__rowKey);
               setMarkerState(mk, wasSelected ? "purple" : "yellow");
@@ -489,35 +490,7 @@ export default function useMarkers({
             lastClickedRef.current = mk;
             colorByRule(mk);
 
-            // 상세 RPC (모바일 B). 에러는 로깅만.
-            const pidText =
-              mk.__row?.place_id != null
-                ? String(mk.__row.place_id)
-                : mk.__row?.id != null
-                  ? String(mk.__row.id)
-                  : undefined;
-
-            if (pidText) {
-              mk.__detailVer = (mk.__detailVer || 0) + 1;
-              const myVer = mk.__detailVer;
-              try {
-                const { data, error } = await (supabase as any).rpc("get_public_place_detail_b", {
-                  p_place_id: pidText,
-                });
-                if (error) {
-                  console.warn("[useMarkers] detail rpc (mobile B) error:", error.message);
-                  return;
-                }
-                const d = (data && (Array.isArray(data) ? data[0] : data)) || null;
-                if (!d) return;
-                if (mk.__detailVer !== myVer) return;
-
-                mk.__row = { ...mk.__row, ...d };
-                onSelectRef.current(enrichWithDetail(baseSel, d));
-              } catch (e) {
-                console.warn("[useMarkers] detail fetch failed:", e);
-              }
-            }
+            // ✅ 추가 상세 RPC 호출 없음 (public_map_places 데이터만 사용)
           };
           mk.__onClick = onClick as any;
           maps.event.addListener(mk, "click", onClick);
@@ -748,7 +721,7 @@ export default function useMarkers({
   }, [kakao, map]);
 
   const selectByRowKey = useCallback(
-    async (rowKey: string) => {
+    (rowKey: string) => {
       const mk = rowKeyIndexRef.current.get(rowKey);
       if (!mk || !kakao?.maps || !map) return;
 
@@ -757,37 +730,14 @@ export default function useMarkers({
       const lng = Number(row.lng);
 
       const baseSel = toSelectedBase(rowKey, row, lat, lng);
-      onSelectRef.current(baseSel);
+      const fullSel = enrichWithDetail(baseSel, {} as any);
+      onSelectRef.current(fullSel);
 
       // 다른 항목 클릭 시 이전 클릭 강조 해제
       const prev = lastClickedRef.current;
       if (prev && prev !== mk) paintNormal(prev);
       lastClickedRef.current = mk;
       colorByRule(mk);
-
-      const pidText = row.place_id != null ? String(row.place_id) : row.id != null ? String(row.id) : undefined;
-
-      if (pidText) {
-        mk.__detailVer = (mk.__detailVer || 0) + 1;
-        const myVer = mk.__detailVer;
-        try {
-          const { data, error } = await (supabase as any).rpc("get_public_place_detail_b", {
-            p_place_id: pidText,
-          });
-          if (error) {
-            console.warn("[useMarkers] detail rpc (mobile B) error:", error.message);
-            return;
-          }
-          const d = (data && (Array.isArray(data) ? data[0] : data)) || null;
-          if (!d) return;
-          if (mk.__detailVer !== myVer) return;
-
-          mk.__row = { ...mk.__row, ...d };
-          onSelectRef.current(enrichWithDetail(baseSel, d));
-        } catch (e) {
-          console.warn("[useMarkers] detail fetch failed:", e);
-        }
-      }
     },
     [colorByRule, enrichWithDetail, kakao, map, paintNormal, toSelectedBase],
   );
