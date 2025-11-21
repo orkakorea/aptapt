@@ -213,10 +213,6 @@ export default function MapMobilePageV2() {
     /** ⬇️⬇️ 추가: 모바일 퀵담기 연결 (PNG가 아닌 dataURL 마커 사용 & 상세 RPC 우회) */
     quickAddEnabled: quickMode,
     onQuickToggle: (rowKey: string, apt: SelectedApt, wasSelected: boolean) => {
-      // ✅ 퀵담기로 담을 때도 최신 상세 캐시 보강 (설치위치 포함)
-      if (apt?.rowKey) {
-        detailByRowKeyRef.current.set(apt.rowKey, apt);
-      }
       if (wasSelected) {
         // 담김 → 취소
         setCart((prev) => prev.filter((c) => c.rowKey !== rowKey));
@@ -371,8 +367,7 @@ export default function MapMobilePageV2() {
     discPeriodRate?: number;
     discPrecompRate?: number;
 
-    // 🔹 설치위치 + 견적상세/요약용 카운터들(최신 상세에서 보강)
-    installLocation?: string;
+    // 🔹 견적상세/요약용 카운터들(최신 상세에서 보강)
     households?: number;
     residents?: number;
     monthlyImpressions?: number;
@@ -414,8 +409,6 @@ export default function MapMobilePageV2() {
         _total: total,
         discPeriodRate,
         discPrecompRate,
-        // ✅ 설치위치 + 카운터들
-        installLocation,
         households: Number.isFinite(households) ? households : undefined,
         residents: Number.isFinite(residents) ? residents : undefined,
         monthlyImpressions: Number.isFinite(monthlyImpressions) ? monthlyImpressions : undefined,
