@@ -213,6 +213,11 @@ export default function MapMobilePageV2() {
     /** ⬇️⬇️ 추가: 모바일 퀵담기 연결 (PNG가 아닌 dataURL 마커 사용 & 상세 RPC 우회) */
     quickAddEnabled: quickMode,
     onQuickToggle: (rowKey: string, apt: SelectedApt, wasSelected: boolean) => {
+      // ✅ 퀵담기 경로에서도 최신 상세(설치위치 포함)를 캐시에 저장
+      if (apt?.rowKey) {
+        detailByRowKeyRef.current.set(apt.rowKey, apt);
+      }
+
       if (wasSelected) {
         // 담김 → 취소
         setCart((prev) => prev.filter((c) => c.rowKey !== rowKey));
@@ -367,7 +372,8 @@ export default function MapMobilePageV2() {
     discPeriodRate?: number;
     discPrecompRate?: number;
 
-    // 🔹 견적상세/요약용 카운터들(최신 상세에서 보강)
+    // 🔹 설치위치 + 견적상세/요약용 카운터들(최신 상세에서 보강)
+    installLocation?: string;
     households?: number;
     residents?: number;
     monthlyImpressions?: number;
@@ -395,10 +401,14 @@ export default function MapMobilePageV2() {
 
       // 🔹 최신 상세에서 카운터 보강 (기존 로직 그대로 유지)
       const detail = detailByRowKeyRef.current.get(c.rowKey) || {};
-      const households = Number(detail.households ?? NaN);
-      const residents = Number(detail.residents ?? NaN);
-      const monthlyImpressions = Number(detail.monthlyImpressions ?? NaN);
-      const monitors = Number(detail.monitors ?? NaN);
+      const households = Number((detail as any).households ?? NaN);
+      const residents = Number((detail as any).residents ?? NaN);
+      const monthlyImpressions = Number((detail as any).monthlyImpressions ?? NaN);
+      const monitors = Number((detail as any).monitors ?? NaN);
+      const installLocation =
+        typeof (detail as any).installLocation === "string" && (detail as any).installLocation.trim() !== ""
+          ? (detail as any).installLocation
+          : undefined;
 
       return {
         ...c,
@@ -409,6 +419,7 @@ export default function MapMobilePageV2() {
         _total: total,
         discPeriodRate,
         discPrecompRate,
+        installLocation,
         households: Number.isFinite(households) ? households : undefined,
         residents: Number.isFinite(residents) ? residents : undefined,
         monthlyImpressions: Number.isFinite(monthlyImpressions) ? monthlyImpressions : undefined,
