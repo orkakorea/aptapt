@@ -192,6 +192,11 @@ type CartItem = {
   lat?: number;
   lng?: number;
   installLocation?: string; // 설치 위치
+  households?: number;
+  residents?: number;
+  monitors?: number;
+  monthlyImpressions?: number;
+
   /** 내부 상태: 정보 미충분 → fetch 보강 필요 */
   hydrated?: boolean;
 };
@@ -292,6 +297,10 @@ export default function MapChrome({
           lat: hint.lat ?? next.lat,
           lng: hint.lng ?? next.lng,
           installLocation: hint.installLocation ?? (hint as any).install_location ?? next.installLocation,
+          households: hint.households ?? next.households,
+          residents: hint.residents ?? next.residents,
+          monitors: hint.monitors ?? next.monitors,
+          monthlyImpressions: hint.monthlyImpressions ?? next.monthlyImpressions,
         };
       }
       const place = parseRowKey(rowKey);
@@ -343,6 +352,13 @@ export default function MapChrome({
               (d["설치위치"] && String(d["설치위치"]).trim()) ||
               (d["설치 위치"] && String(d["설치 위치"]).trim()) ||
               undefined,
+
+            // 👇 행(상품+설치위치) 단위 통계
+            households: curItem.households ?? hint?.households ?? d.households ?? undefined,
+            residents: curItem.residents ?? hint?.residents ?? d.residents ?? undefined,
+            monitors: curItem.monitors ?? hint?.monitors ?? d.monitors ?? undefined,
+            monthlyImpressions:
+              curItem.monthlyImpressions ?? hint?.monthlyImpressions ?? d.monthly_impressions ?? undefined,
 
             hydrated: true,
           };
@@ -421,6 +437,11 @@ export default function MapChrome({
             lat: snap?.lat,
             lng: snap?.lng,
             installLocation: snap?.installLocation ?? (snap as any)?.install_location,
+            // 👇 스냅샷에 있는 통계값 그대로 저장
+            households: snap?.households,
+            residents: snap?.residents,
+            monitors: snap?.monitors,
+            monthlyImpressions: snap?.monthlyImpressions,
             hydrated: Boolean(snap?.monthlyFee && snap?.productName),
           };
 
@@ -544,11 +565,10 @@ export default function MapChrome({
       // rowKey가 있으면 rowKey 기준, 없으면 예전 id 기준으로 동일 항목 판단
       const match = (x: CartItem) => (selected.rowKey ? x.rowKey === selected.rowKey : x.id === id);
 
-      const exists = prev.find(match);
+      const exists = prev.find((x) => (selected.rowKey ? x.rowKey === selected.rowKey : x.id === id));
       if (exists) {
-        // 같은 행(rowKey)을 다시 담은 경우에만 기존 아이템 업데이트
         return prev.map((x) =>
-          match(x)
+          (selected.rowKey ? x.rowKey === selected.rowKey : x.id === id)
             ? {
                 ...x,
                 rowKey: selected.rowKey ?? x.rowKey,
@@ -559,6 +579,12 @@ export default function MapChrome({
                 lat: selected.lat,
                 lng: selected.lng,
                 installLocation: selected.installLocation ?? x.installLocation,
+
+                households: selected.households ?? x.households,
+                residents: selected.residents ?? x.residents,
+                monitors: selected.monitors ?? x.monitors,
+                monthlyImpressions: selected.monthlyImpressions ?? x.monthlyImpressions,
+
                 hydrated: true,
               }
             : x,
@@ -578,8 +604,15 @@ export default function MapChrome({
         lat: selected.lat,
         lng: selected.lng,
         installLocation: selected.installLocation,
+
+        households: selected.households,
+        residents: selected.residents,
+        monitors: selected.monitors,
+        monthlyImpressions: selected.monthlyImpressions,
+
         hydrated: true,
       };
+
       return [newItem, ...prev];
     });
 
@@ -695,6 +728,12 @@ export default function MapChrome({
     return cart.map((c) => {
       const s = statsMap[keyName(c.name)];
 
+      // CartItem에 저장된 값 우선, 없으면 기존 statsMap fallback
+      const households = c.households ?? s?.households;
+      const residents = c.residents ?? s?.residents;
+      const monthlyImpressions = c.monthlyImpressions ?? s?.monthlyImpressions;
+      const monitors = c.monitors ?? s?.monitors;
+
       // ✅ 이 카트 아이템과 현재 selected가 같은 rowKey인지 확인
       const selectedForRow =
         selectedRef.current && selectedRef.current.rowKey && c.rowKey && selectedRef.current.rowKey === c.rowKey
@@ -702,7 +741,6 @@ export default function MapChrome({
           : null;
 
       // ✅ 1순위: cart에 들어있는 installLocation
-      //    2순위: 같은 rowKey를 가진 selected의 installLocation
       const installLocation =
         c.installLocation ?? selectedForRow?.installLocation ?? (selectedForRow as any)?.install_location ?? undefined;
 
@@ -715,11 +753,11 @@ export default function MapChrome({
         mediaName: c.productName,
         baseMonthly: c.baseMonthly,
         productKeyHint: c.productKey,
-        households: s?.households,
-        residents: s?.residents,
-        monthlyImpressions: s?.monthlyImpressions,
-        monitors: s?.monitors,
-        installLocation, // 👈 여기
+        households,
+        residents,
+        monthlyImpressions,
+        monitors,
+        installLocation,
       };
     });
   };
