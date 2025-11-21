@@ -13,6 +13,8 @@ export type QuoteComputedItem = {
   productName: string; // 상품명
   months: number; // 광고기간(개월)
 
+  installLocation?: string; // 설치 위치 (PC 견적서와 동일 컬럼용)
+
   households?: number; // 세대수
   residents?: number; // 거주인원
   monthlyImpressions?: number; // 월송출횟수
@@ -51,17 +53,32 @@ const nf = new Intl.NumberFormat("ko-KR");
 const dash = "—";
 const COLOR_PRIMARY_DEFAULT = "#6F4BF2";
 
-/* % 표시 */
+/* % 표시 (기존: 단순 정수 %) */
 function fmtRate(r?: number) {
   if (r === undefined || r === null) return dash;
   if (r <= 0) return dash;
   return `${Math.round(r * 100)}%`;
 }
 
+/* PC 견적서와 동일한 할인율 포맷 (소수 1자리, 0이면 "-") */
+function fmtDiscountRate(rate?: number) {
+  if (typeof rate !== "number" || !Number.isFinite(rate) || rate <= 0) return "-";
+  const rounded = Math.round(rate * 1000) / 10; // 소수 1자리 기준 반올림
+  const text = rounded.toFixed(1).replace(/\.0$/, "");
+  return `${text}%`;
+}
+
 /* 단위 있는 숫자 */
 function withUnit(n?: number, unit?: string) {
   if (n === undefined || n === null || Number.isNaN(n)) return dash;
   return unit ? `${nf.format(n)}${unit}` : nf.format(n);
+}
+
+/* 문자열 안전 표시 ("—" 대체) */
+function safeText(s?: string) {
+  if (s === undefined || s === null) return dash;
+  const trimmed = String(s).trim();
+  return trimmed.length > 0 ? trimmed : dash;
 }
 
 export default function QuotePanel({
@@ -106,16 +123,18 @@ export default function QuotePanel({
     <div className="space-y-4">
       {/* ===========================================================
        * 요약 + 테이블을 하나의 가로 스크롤 컨테이너로 묶기
+       * (PC 견적서와 동일 항목/표현)
        * =========================================================== */}
       <div className="overflow-x-auto">
         <div className="min-w-[1200px]">
           {/* 상단 요약 */}
-          <div className="px-3 py-2">
+          <div className="px-3 py-2 flex items-center justify-between">
             <div className="text-[12px] font-extrabold text-gray-800 whitespace-nowrap leading-tight">
               총 {summary.count}개 단지 · 세대수 {withUnit(summary.households, "세대")} · 거주인원{" "}
-              {withUnit(summary.residents, "명")} · 월송출횟수 {withUnit(summary.monthlyImpressions, "회")} · 모니터수{" "}
+              {withUnit(summary.residents, "명")} · 월송출횟수 {withUnit(summary.monthlyImpressions, "회")} · 모니터수량{" "}
               {withUnit(summary.monitors, "대")}
             </div>
+            <div className="ml-4 text-[10px] text-gray-400 whitespace-nowrap">(단위 · 원 / VAT별도)</div>
           </div>
 
           {/* 상세 테이블 */}
@@ -124,16 +143,16 @@ export default function QuotePanel({
               <thead className="bg-gray-50 sticky top-0 z-10">
                 <tr className="text-gray-700">
                   <Th>단지명</Th>
-                  <Th className="w-[90px] text-center">광고기간</Th>
                   <Th className="w-[140px]">상품명</Th>
+                  <Th className="w-[120px]">설치위치</Th>
                   <Th className="w-[90px] text-right">세대수</Th>
                   <Th className="w-[100px] text-right">거주인원</Th>
-                  <Th className="w-[110px] text-right">월송출횟수</Th>
                   <Th className="w-[100px] text-right">모니터 수량</Th>
+                  <Th className="w-[110px] text-right">월 송출 횟수</Th>
                   <Th className="w-[140px] text-right">월광고료(FMK=4주)</Th>
+                  <Th className="w-[90px] text-center">광고기간</Th>
                   <Th className="w-[120px] text-right">기준금액</Th>
-                  <Th className="w-[100px] text-right">기간할인</Th>
-                  <Th className="w-[120px] text-right">사전보상할인</Th>
+                  <Th className="w-[100px] text-center">할인율</Th>
                   <Th className="w-[130px] text-right">총광고료</Th>
                 </tr>
               </thead>
@@ -142,11 +161,20 @@ export default function QuotePanel({
                   const monthly = it._monthly ?? it.baseMonthly ?? 0;
                   const subtotal = it._total ?? monthly * (it.months ?? 1);
 
-                  // ✅ 기준금액 = 월광고료 × 광고기간
+                  // ✅ 기준금액 = 월광고료 × 광고기간 (PC: baseTotal)
                   const listPrice = (it.baseMonthly ?? 0) * (it.months ?? 1);
+
+                  // ✅ 복합 할인율: _discountRate 우선, 없으면 기간/사전보상으로 계산
+                  const periodRate = it.discPeriodRate ?? 0;
+                  const precompRate = it.discPrecompRate ?? 0;
+                  const combinedRate =
+                    typeof it._discountRate === "number" ? it._discountRate : 1 - (1 - precompRate) * (1 - periodRate);
+
+                  const discountText = fmtDiscountRate(combinedRate);
 
                   return (
                     <tr key={it.rowKey} className="bg-white">
+                      {/* 단지명 */}
                       <Td>
                         {onGoTo ? (
                           <button
@@ -161,16 +189,46 @@ export default function QuotePanel({
                           it.aptName
                         )}
                       </Td>
-                      <Td className="text-center">{it.months}개월</Td>
-                      <Td>{it.productName}</Td>
+
+                      {/* 상품명 */}
+                      <Td>{safeText(it.productName)}</Td>
+
+                      {/* 설치위치 */}
+                      <Td>{safeText(it.installLocation)}</Td>
+
+                      {/* 세대수 */}
                       <Td className="text-right">{withUnit(it.households, "세대")}</Td>
+
+                      {/* 거주인원 */}
                       <Td className="text-right">{withUnit(it.residents, "명")}</Td>
-                      <Td className="text-right">{withUnit(it.monthlyImpressions, "회")}</Td>
+
+                      {/* 모니터 수량 */}
                       <Td className="text-right">{withUnit(it.monitors, "대")}</Td>
+
+                      {/* 월 송출 횟수 */}
+                      <Td className="text-right">{withUnit(it.monthlyImpressions, "회")}</Td>
+
+                      {/* 월광고료(FMK=4주) */}
                       <Td className="text-right">{fmtWon(it.baseMonthly ?? 0)}</Td>
+
+                      {/* 광고기간 */}
+                      <Td className="text-center">{withUnit(it.months, "개월")}</Td>
+
+                      {/* 기준금액 */}
                       <Td className="text-right">{fmtWon(listPrice)}</Td>
-                      <Td className="text-right">{fmtRate(it.discPeriodRate)}</Td>
-                      <Td className="text-right">{fmtRate(it.discPrecompRate)}</Td>
+
+                      {/* 할인율 (PC와 동일 스타일: 뱃지 or "-") */}
+                      <Td className="text-center">
+                        {discountText === "-" ? (
+                          "-"
+                        ) : (
+                          <span className="inline-flex items-center rounded-md bg-[#F4F0FB] text-[#6C2DFF] text-[11px] font-semibold px-2 py-[2px] align-middle">
+                            {discountText}할인
+                          </span>
+                        )}
+                      </Td>
+
+                      {/* 총광고료 */}
                       <Td className="text-right font-semibold" style={{ color: brandColor }}>
                         {fmtWon(subtotal)}
                       </Td>
@@ -178,7 +236,7 @@ export default function QuotePanel({
                   );
                 })}
 
-                {/* TOTAL 행 */}
+                {/* TOTAL 행 (PC와 동일 위치/형식) */}
                 <tr className="bg-gray-50">
                   <Td colSpan={11} className="text-right font-semibold">
                     TOTAL
@@ -193,14 +251,14 @@ export default function QuotePanel({
         </div>
       </div>
 
-      {/* 합계 영역 */}
+      {/* 합계 영역 (PC 로직과 동일 값 사용) */}
       <div className="rounded-2xl border bg-white">
         <div className="px-4 py-3 border-b flex items-center justify-between">
           <div className="text-[13px] text-gray-700">부가세 (VAT 10%)</div>
           <div className="text-[13px] font-semibold text-gray-900">{fmtWon(vat)}</div>
         </div>
 
-        {/* ✅ 라벨/금액 분리: 금액 오른쪽 정렬, 라벨 크기=부가세 라벨 크기 */}
+        {/* 라벨/금액 분리: 금액 오른쪽 정렬, 라벨 크기=부가세 라벨 크기 */}
         <div className="px-4 py-3">
           <div className="flex items-baseline justify-between">
             <div className="text-[13px] text-gray-700">최종 광고료(VAT 포함)</div>
