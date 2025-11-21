@@ -122,13 +122,16 @@ export default function QuotePanel({
   return (
     <div className="space-y-4">
       {/* ✅ 1) 상단 요약: 스크롤 컨테이너 바깥으로 분리 */}
-      <div className="px-3 py-2 flex items-center justify-between">
-        <div className="text-[12px] font-extrabold text-gray-800 whitespace-nowrap leading-tight">
-          총 {summary.count}개 단지 · 세대수 {withUnit(summary.households, "세대")} · 거주인원{" "}
-          {withUnit(summary.residents, "명")} · 월송출횟수 {withUnit(summary.monthlyImpressions, "회")} · 모니터수량{" "}
-          {withUnit(summary.monitors, "대")}
+      {/* 상단 요약: 한 덩어리로 가운데 정렬 */}
+      <div className="px-3 py-2 text-center">
+        <div className="inline-flex flex-wrap items-baseline justify-center gap-x-2 gap-y-1 text-[12px] font-extrabold text-gray-800">
+          <span>총 {summary.count}개 단지</span>
+          <span>· 세대수 {withUnit(summary.households, "세대")}</span>
+          <span>· 거주인원 {withUnit(summary.residents, "명")}</span>
+          <span>· 월송출횟수 {withUnit(summary.monthlyImpressions, "회")}</span>
+          <span>· 모니터수량 {withUnit(summary.monitors, "대")}</span>
+          <span className="text-[10px] text-gray-400">(단위 · 원 / VAT별도)</span>
         </div>
-        <div className="ml-4 text-[10px] text-gray-400 whitespace-nowrap">(단위 · 원 / VAT별도)</div>
       </div>
 
       {/* ✅ 2) 테이블만 가로 스크롤 */}
