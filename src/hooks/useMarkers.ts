@@ -324,19 +324,22 @@ export default function useMarkers({
     };
   }, []);
 
-  /** 중복 덮어쓰기 방지: row_uid 우선 → place_id+좌표 → 기타 */
+  /** 중복 덮어쓰기 방지: row_uid 우선 → place_id+좌표+상품+설치위치 → 기타 */
   function stableIdKeyFromRow(row: PlaceRow): string {
     const lat = toNum(row.lat);
     const lng = toNum(row.lng);
     const lat5 = Number.isFinite(lat as number) ? (lat as number).toFixed(5) : "x";
     const lng5 = Number.isFinite(lng as number) ? (lng as number).toFixed(5) : "x";
 
-    if (row.row_uid) return `uid:${row.row_uid}`; // 최우선
-    if (row.place_id != null) return `pid:${String(row.place_id)}|${lat5},${lng5}`;
-    if (row.id != null) return `id:${String(row.id)}|${lat5},${lng5}`;
+    // ✅ 상품명 + 설치위치까지 항상 키에 포함
+    const prod = String(getField(row, ["product_name", "상품명", "productName"]) || "");
+    const loc = String(getField(row, ["install_location", "설치위치"]) || "");
 
-    const prod = String(getField(row, ["상품명", "productName", "product_name"]) || "");
-    const loc = String(getField(row, ["설치위치", "install_location"]) || "");
+    // row_uid가 같더라도 prod/loc가 다르면 마커를 분리
+    if (row.row_uid) return `uid:${row.row_uid}|${prod}|${loc}`;
+    if (row.place_id != null) return `pid:${String(row.place_id)}|${lat5},${lng5}|${prod}|${loc}`;
+    if (row.id != null) return `id:${String(row.id)}|${lat5},${lng5}|${prod}|${loc}`;
+
     const gk = groupKeyFromRow(row);
     return `geo:${lat5},${lng5}|${gk}|${prod}|${loc}`;
   }
