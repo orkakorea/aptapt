@@ -13,6 +13,7 @@ const SupaDebugPage = lazy(() => import("./pages/SupaDebug"));
 const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
 const DashboardPage = lazy(() => import("./pages/admin/DashboardPage"));
 const MapMobilePageV2 = lazy(() => import("./pages/mobile")); // -> src/pages/mobile/index.tsx
+const ContractNewPage = lazy(() => import("./pages/ContractNewPage"));
 
 // ✅ 프로덕션 관리자 노출 플래그
 const ENABLE_ADMIN = String(import.meta.env.VITE_FEATURE_ADMIN ?? "false") === "true";
@@ -69,6 +70,9 @@ export default function App() {
             <Route path="/mobile" element={<MapMobilePageV2 />} />
             <Route path="/m2" element={<Navigate to="/mobile" replace />} />
             <Route path="/m" element={<Navigate to="/mobile" replace />} />
+
+            {/* 계약서 작성 페이지 */}
+            <Route path="/contracts/new" element={<ContractNewPage />} />
 
             {/* 어드민 — 플래그 기반 노출/차단 */}
             {ENABLE_ADMIN ? (
