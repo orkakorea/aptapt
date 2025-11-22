@@ -79,7 +79,7 @@ const ContractNewPage: React.FC = () => {
           text-align: right;
         }
 
-        /* ===== 광고주 정보 테이블 ===== */
+        /* ===== 공통 테이블 ===== */
         .contract-table {
           width: 100%;
           border-collapse: collapse;
@@ -114,7 +114,8 @@ const ContractNewPage: React.FC = () => {
           background: #fff8b3;
         }
 
-        .contract-input {
+        .contract-input,
+        .contract-select {
           width: 100%;
           border: none;
           outline: none;
@@ -122,6 +123,22 @@ const ContractNewPage: React.FC = () => {
           font: inherit;
           padding: 0;
           box-sizing: border-box;
+        }
+
+        .contract-input::placeholder {
+          color: #9ca3af;
+        }
+
+        .checkbox-inline {
+          display: inline-flex;
+          align-items: center;
+          gap: 2px;
+          font-size: 10px;
+          white-space: nowrap;
+        }
+
+        .checkbox-inline input[type="checkbox"] {
+          margin: 0;
         }
 
         @media print {
@@ -158,15 +175,17 @@ const ContractNewPage: React.FC = () => {
 
       {/* A4 용지 영역 */}
       <div className="contract-paper">
-        {/* 섹션 1 : 상단 배너 + 광고주 정보 */}
+        {/* 섹션 1 : 상단 배너 */}
         <div className="contract-header-banner">
           <div style={{ width: 120, fontSize: 10 }} />
           <div className="contract-header-title">광 고 계 약 서</div>
           <div className="contract-header-site">WWW.ORKA.CO.KR</div>
         </div>
 
+        {/* 섹션 1 + 2 : 광고주 정보 + 계약 내용 + 결제 정보 (한 테이블 안에) */}
         <table className="contract-table">
           <tbody>
+            {/* 광고주 정보 */}
             <tr>
               <td className="section-label-vertical" rowSpan={5}>
                 광고주
@@ -212,6 +231,184 @@ const ContractNewPage: React.FC = () => {
               <th className="label-cell">사 업 장 주 소</th>
               <td className="cell-yellow" colSpan={3}>
                 <input className="contract-input" />
+              </td>
+            </tr>
+
+            {/* 계약 내용 */}
+            <tr>
+              <td className="section-label-vertical" rowSpan={5}>
+                계 약
+                <br />내 용
+              </td>
+              <th className="label-cell">브 랜 드 명</th>
+              <td className="cell-yellow">
+                <input className="contract-input" />
+              </td>
+              <th className="label-cell">매 체 명</th>
+              <td>아파트 엘리베이터 내부/외부 모니터광고</td>
+            </tr>
+            <tr>
+              <th className="label-cell">상 품 내 역</th>
+              <td className="cell-yellow">
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <select className="contract-select" defaultValue="">
+                    <option value="">초 선택</option>
+                    <option value="10">10초</option>
+                    <option value="15">15초</option>
+                    <option value="20">20초</option>
+                    <option value="30">30초</option>
+                  </select>
+                  <span>초</span>
+                </div>
+              </td>
+              <th className="label-cell">구좌 / 기준금액</th>
+              <td className="cell-yellow">
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 4,
+                  }}
+                >
+                  <span>구좌 기준금액</span>
+                  <input className="contract-input" defaultValue="0" style={{ textAlign: "right", maxWidth: 80 }} />
+                  <span>원</span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <th className="label-cell">수 량</th>
+              <td className="cell-yellow">
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <input className="contract-input" defaultValue="0" style={{ textAlign: "right", maxWidth: 60 }} />
+                  <span>대</span>
+                </div>
+              </td>
+              <th className="label-cell">계 약 금 액</th>
+              <td className="cell-yellow">
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <input className="contract-input" defaultValue="0" style={{ textAlign: "right", maxWidth: 100 }} />
+                  <span>원</span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <th className="label-cell">광 고 기 간</th>
+              <td>송출 개시일로부터</td>
+              <th className="label-cell">개월 / 제 작 비</th>
+              <td className="cell-yellow">
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <input className="contract-input" placeholder="0" style={{ textAlign: "right", maxWidth: 40 }} />
+                  <span>개월</span>
+                  <span style={{ marginLeft: 8 }}>제작비</span>
+                  <input className="contract-input" defaultValue="0" style={{ textAlign: "right", maxWidth: 80 }} />
+                  <span>원</span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <th className="label-cell">총 계약금액</th>
+              <td className="cell-yellow">
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <input className="contract-input" defaultValue="0" style={{ textAlign: "right", maxWidth: 100 }} />
+                  <span>(VAT별도)</span>
+                </div>
+              </td>
+              <th className="label-cell">비 고</th>
+              <td className="cell-yellow">
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <input className="contract-input" defaultValue="0" style={{ textAlign: "right", maxWidth: 100 }} />
+                  <span>(VAT포함)</span>
+                </div>
+              </td>
+            </tr>
+
+            {/* 결제 정보 */}
+            <tr>
+              <td className="section-label-vertical" rowSpan={3}>
+                결제
+                <br />
+                정보
+              </td>
+              <td colSpan={4}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                  <span className="checkbox-inline">
+                    <input type="checkbox" /> 무통장입금
+                  </span>
+                  <span style={{ fontSize: 10 }}>
+                    ({" "}
+                    <span className="checkbox-inline">
+                      <input type="checkbox" /> 일시납
+                    </span>{" "}
+                    <span className="checkbox-inline">
+                      <input type="checkbox" /> 분납:
+                    </span>{" "}
+                    <input
+                      className="contract-input"
+                      style={{
+                        width: 40,
+                        borderBottom: "1px solid #000",
+                        display: "inline-block",
+                      }}
+                    />{" "}
+                    회차 )
+                  </span>
+                  <span style={{ fontSize: 10 }}>
+                    계산서발행일자{" "}
+                    <input
+                      className="contract-input"
+                      style={{
+                        width: 90,
+                        borderBottom: "1px solid #000",
+                        display: "inline-block",
+                      }}
+                    />
+                  </span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td colSpan={4}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                  <span className="checkbox-inline">
+                    <input type="checkbox" /> 카드
+                  </span>
+                  <span style={{ fontSize: 10 }}>
+                    ({" "}
+                    <span className="checkbox-inline">
+                      <input type="checkbox" /> 일시납
+                    </span>{" "}
+                    <span className="checkbox-inline">
+                      <input type="checkbox" /> 분납:
+                    </span>{" "}
+                    <input
+                      className="contract-input"
+                      style={{
+                        width: 40,
+                        borderBottom: "1px solid #000",
+                        display: "inline-block",
+                      }}
+                    />{" "}
+                    회차 )
+                  </span>
+                  <span style={{ fontSize: 10 }}>
+                    입 금 일 자{" "}
+                    <input
+                      className="contract-input"
+                      style={{
+                        width: 90,
+                        borderBottom: "1px solid #000",
+                        display: "inline-block",
+                      }}
+                    />
+                  </span>
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td colSpan={4}>
+                계좌번호 : 기업은행 185 – 168695 – 04 – 018&nbsp;&nbsp; 예금주 : 주식회사 오르카 코리아
               </td>
             </tr>
           </tbody>
