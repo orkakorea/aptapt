@@ -2,8 +2,11 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 
-// ✅ 실제 사용 중인 PNG 경로로 변경
+// ✅ 실제 사용 중인 PNG 경로
 const TEMPLATE_URL = "/products/orka-contract-top.png";
+
+// Figma 기준 프레임 사이즈 (좌표 계산용 설명용 주석)
+// width: 1702px, height: 2508px → PNG로 1390 x 2048으로 스케일링
 
 const ContractNewPage: React.FC = () => {
   const navigate = useNavigate();
@@ -70,8 +73,8 @@ const ContractNewPage: React.FC = () => {
           position: relative;
           width: 100%;
           max-width: 820px;
-          /* PNG 비율(1626x2048) */
-          aspect-ratio: 1626 / 2048;
+          /* PNG 비율: 1390 x 2048 */
+          aspect-ratio: 1390 / 2048;
           background: url("${TEMPLATE_URL}") no-repeat center / contain;
         }
 
@@ -79,7 +82,7 @@ const ContractNewPage: React.FC = () => {
           position: absolute;
           border: 1px dashed rgba(239, 68, 68, 0.8); /* 위치 잡기용 가이드 */
           background: transparent;
-          color: #111827; /* ✅ 검은 글씨 */
+          color: #111827; /* 검은 글씨 */
           font-size: 11px;
           padding: 0 2px;
           box-sizing: border-box;
@@ -90,99 +93,96 @@ const ContractNewPage: React.FC = () => {
         }
 
         /* ===================================================================
-         * 광고주 정보 필드들 (좌표는 모두 % 단위)
-         *  - PNG 크기: 1626 x 2048
-         *  - Figma(상호명): x=-941, y=-1031, w=488, h=37 (전역 기준)
-         *  - 폭/높이는: w/1626≈30.0%, h/2048≈1.8% 그대로 반영
-         *  - left/top 은 눈으로 맞춰보고 미세조정 (+ 네가 다시 알려줄 값으로 교체)
+         * 광고주 정보 (Figma 좌표 → % 변환)
+         *  - Figma frame: 1702 x 2508
+         *  - left%  = x / 1702 * 100
+         *  - top%   = y / 2508 * 100
+         *  - width% = w / 1702 * 100
+         *  - height%= h / 2508 * 100
          * =================================================================== */
 
+        /* 상호명: x=355, y=245, w=511, h=36 */
         .field-company {
-          /* 상호명 */
-          /* Figma: w=488px, h=37px → width≈30.0%, height≈1.8% */
-          left: 22%;     /* ← 여기랑 */
-          top: 15%;      /* ← 여기를 네가 측정한 %로 갈아끼우면 됨 */
-          width: 30.0%;
-          height: 1.8%;
+          left: 20.86%;
+          top: 9.77%;
+          width: 30.02%;
+          height: 1.44%;
         }
 
+        /* 대표자: x=1040, y=248, w=662, h=36 */
         .field-ceo {
-          /* 대표자 – 아직 대략값, 나중에 좌표 확정 후 조정 */
-          left: 64%;
-          top: 15%;
-          width: 20%;
-          height: 1.8%;
+          left: 61.10%;
+          top: 9.89%;
+          width: 38.90%;
+          height: 1.44%;
         }
 
+        /* 사업자등록번호: x=355, y=296, w=511, h=36 */
         .field-bizno {
-          /* 사업자등록번호 */
-          left: 22%;
-          top: 19%;
-          width: 30%;
-          height: 1.8%;
+          left: 20.86%;
+          top: 11.80%;
+          width: 30.02%;
+          height: 1.44%;
         }
 
+        /* 담당자: x=1040, y=296, w=662, h=36 */
         .field-manager {
-          /* 담당자 */
-          left: 64%;
-          top: 19%;
-          width: 20%;
-          height: 1.8%;
+          left: 61.10%;
+          top: 11.80%;
+          width: 38.90%;
+          height: 1.44%;
         }
 
+        /* 계산서용이메일: x=355, y=344, w=511, h=36 */
         .field-email {
-          /* 계산서용이메일 */
-          left: 22%;
-          top: 23%;
-          width: 30%;
-          height: 1.8%;
+          left: 20.86%;
+          top: 13.72%;
+          width: 30.02%;
+          height: 1.44%;
         }
 
+        /* 연락처: x=1040, y=344, w=662, h=36 */
         .field-phone {
-          /* 연락처 */
-          left: 64%;
-          top: 23%;
-          width: 20%;
-          height: 1.8%;
+          left: 61.10%;
+          top: 13.72%;
+          width: 38.90%;
+          height: 1.44%;
         }
 
+        /* 업태/종목: x=355, y=392, w=1347, h=36 */
         .field-biztype {
-          /* 업태/종목 */
-          left: 22%;
-          top: 27%;
-          width: 62%;
-          height: 1.8%;
+          left: 20.86%;
+          top: 15.63%;
+          width: 79.14%;
+          height: 1.44%;
         }
 
+        /* 사업장주소: x=355, y=440, w=1347, h=36 */
         .field-address {
-          /* 사업장주소 */
-          left: 22%;
-          top: 31%;
-          width: 62%;
-          height: 1.8%;
+          left: 20.86%;
+          top: 17.54%;
+          width: 79.14%;
+          height: 1.44%;
         }
 
-        /* --- 계약 내용 일부 예시 (아직 러프값, 나중에 전부 조정) --- */
+        /* ====== 계약 내용 이하 필드들은 아직 러프값 (추후 좌표 적용) ====== */
         .field-brand {
-          /* 브랜드명 */
           left: 22%;
-          top: 36%;
+          top: 22%;
           width: 30%;
           height: 1.8%;
         }
 
         .field-product-desc {
-          /* 상품 내역 (초/구좌) */
           left: 22%;
-          top: 40%;
+          top: 26%;
           width: 30%;
           height: 1.8%;
         }
 
         .field-contract-amount {
-          /* 계약금액 (숫자) */
           left: 64%;
-          top: 44%;
+          top: 30%;
           width: 20%;
           height: 1.8%;
         }
@@ -247,7 +247,7 @@ const ContractNewPage: React.FC = () => {
             <input className="field field-biztype" placeholder="업태 / 종목" />
             <input className="field field-address" placeholder="사업장주소" />
 
-            {/* === 계약 내용 일부 예시 (추후 전체 확장) === */}
+            {/* === 계약 내용 일부 예시 (추후 좌표 정교화 예정) === */}
             <input className="field field-brand" placeholder="브랜드명" />
             <input className="field field-product-desc" placeholder="상품 내역 / 초 / 구좌" />
             <input className="field field-contract-amount" placeholder="계약금액(원)" />
