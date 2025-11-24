@@ -2,7 +2,7 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 
-const TEMPLATE_URL = "products/orka-contract-top.png"; // public/contracts/ORKA_광고계약서3.png 에 넣어둔 PNG
+const TEMPLATE_URL = "/products/orka-contract-top.png"; // public/contracts/ORKA_광고계약서3.png 에 넣어둔 PNG
 
 const ContractNewPage: React.FC = () => {
   const navigate = useNavigate();
@@ -77,14 +77,14 @@ const ContractNewPage: React.FC = () => {
           position: absolute;
           border: 1px dashed rgba(239, 68, 68, 0.8); /* 위치 잡기용 가이드 */
           background: transparent;
-          color: #ffffff;
+          color: #111827; /* ✅ 검은 글씨 */
           font-size: 11px;
           padding: 0 2px;
           box-sizing: border-box;
         }
 
         .field::placeholder {
-          color: rgba(248, 250, 252, 0.8);
+          color: rgba(75, 85, 99, 0.8); /* ✅ placeholder도 어두운 회색 */
         }
 
         /* --- 광고주 정보 필드 예시 (대략적인 좌표, 나중에 하나씩 조정) --- */
