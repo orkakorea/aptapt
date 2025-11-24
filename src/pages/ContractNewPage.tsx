@@ -2,6 +2,8 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 
+const TEMPLATE_URL = "products/orka-contract-top.png"; // public/contracts/ORKA_광고계약서3.png 에 넣어둔 PNG
+
 const ContractNewPage: React.FC = () => {
   const navigate = useNavigate();
 
@@ -18,7 +20,7 @@ const ContractNewPage: React.FC = () => {
         }
 
         .contract-toolbar {
-          max-width: 840px;
+          max-width: 900px;
           margin: 0 auto 12px;
           display: flex;
           align-items: center;
@@ -43,10 +45,10 @@ const ContractNewPage: React.FC = () => {
         }
 
         .contract-paper {
-          max-width: 840px;
+          max-width: 900px;
           margin: 0 auto 32px;
           background: #ffffff;
-          padding: 0;
+          padding: 16px;
           box-shadow: 0 8px 18px rgba(15, 23, 42, 0.16);
           box-sizing: border-box;
           font-family: "Malgun Gothic", "Apple SD Gothic Neo", system-ui, -apple-system,
@@ -56,115 +58,162 @@ const ContractNewPage: React.FC = () => {
           line-height: 1.4;
         }
 
-        /* ===== 상단 검정 배너 ===== */
-        .contract-header-banner {
-          background: #000000;
-          color: #ffffff;
-          padding: 10px 18px;
+        /* ====== 위쪽 PNG 영역 ====== */
+        .contract-sheet-wrapper {
+          width: 100%;
           display: flex;
-          align-items: center;
+          justify-content: center;
         }
 
-        .contract-header-title {
-          flex: 1;
-          text-align: center;
-          font-size: 22px;
-          font-weight: 700;
-          letter-spacing: 4px;
-        }
-
-        .contract-header-site {
-          font-size: 11px;
-          min-width: 130px;
-          text-align: right;
-        }
-
-        /* ===== 공통 테이블 ===== */
-        .contract-table {
+        .contract-sheet {
+          position: relative;
           width: 100%;
-          border-collapse: collapse;
-          table-layout: fixed;
+          max-width: 820px;
+          aspect-ratio: 1626 / 2048; /* PNG 비율 대략값 */
+          background: url("${TEMPLATE_URL}") no-repeat center / contain;
         }
 
-        .contract-table th,
-        .contract-table td {
-          border: 1px solid #000000;
-          padding: 3px 6px;
-          word-break: break-all;
-          vertical-align: middle;
-        }
-
-        .section-label-vertical {
-          width: 46px;
-          background: #000000;
-          color: #ffffff;
-          font-weight: 700;
-          text-align: center;
-          font-size: 11px;
-          line-height: 1.3;
-        }
-
-        .label-cell {
-          width: 90px;
-          background: #f3f4f6;
-          font-weight: 600;
-        }
-
-        .cell-yellow {
-          background: #fff8b3;
-        }
-
-        .contract-input,
-        .contract-select {
-          width: 100%;
-          border: none;
-          outline: none;
+        .field {
+          position: absolute;
+          border: 1px dashed rgba(239, 68, 68, 0.8); /* 위치 잡기용 가이드 */
           background: transparent;
-          font: inherit;
-          padding: 0;
+          color: #ffffff;
+          font-size: 11px;
+          padding: 0 2px;
           box-sizing: border-box;
         }
 
-        .contract-input::placeholder {
-          color: #9ca3af;
+        .field::placeholder {
+          color: rgba(248, 250, 252, 0.8);
         }
 
-        .checkbox-inline {
-          display: inline-flex;
-          align-items: center;
-          gap: 2px;
-          font-size: 10px;
-          white-space: nowrap;
+        /* --- 광고주 정보 필드 예시 (대략적인 좌표, 나중에 하나씩 조정) --- */
+        .field-company {
+          /* 상호명 */
+          left: 22%;
+          top: 18%;
+          width: 30%;
+          height: 3%;
         }
 
-        .checkbox-inline input[type="checkbox"] {
-          margin: 0;
+        .field-ceo {
+          /* 대표자 */
+          left: 64%;
+          top: 18%;
+          width: 20%;
+          height: 3%;
+        }
+
+        .field-bizno {
+          /* 사업자등록번호 */
+          left: 22%;
+          top: 22%;
+          width: 30%;
+          height: 3%;
+        }
+
+        .field-manager {
+          /* 담당자 */
+          left: 64%;
+          top: 22%;
+          width: 20%;
+          height: 3%;
+        }
+
+        .field-email {
+          /* 계산서용이메일 */
+          left: 22%;
+          top: 26%;
+          width: 30%;
+          height: 3%;
+        }
+
+        .field-phone {
+          /* 연락처 */
+          left: 64%;
+          top: 26%;
+          width: 20%;
+          height: 3%;
+        }
+
+        .field-biztype {
+          /* 업태/종목 */
+          left: 22%;
+          top: 30%;
+          width: 62%;
+          height: 3%;
+        }
+
+        .field-address {
+          /* 사업장주소 */
+          left: 22%;
+          top: 34%;
+          width: 62%;
+          height: 3%;
+        }
+
+        /* --- 계약 내용 중 브랜드명/상품내역 정도만 일단 올려둠 --- */
+        .field-brand {
+          /* 브랜드명 */
+          left: 22%;
+          top: 39%;
+          width: 30%;
+          height: 3%;
+        }
+
+        .field-product-desc {
+          /* 상품 내역 (초/구좌) */
+          left: 22%;
+          top: 47%;
+          width: 30%;
+          height: 3%;
+        }
+
+        .field-contract-amount {
+          /* 계약금액 (숫자) */
+          left: 64%;
+          top: 51%;
+          width: 20%;
+          height: 3%;
+        }
+
+        /* ====== 아래쪽 텍스트(이용약관 등) 영역 컨테이너 ====== */
+        .contract-bottom {
+          margin-top: 24px;
+          font-size: 11px;
+          line-height: 1.6;
+        }
+
+        .contract-bottom-title {
+          font-weight: 700;
+          margin-bottom: 4px;
         }
 
         @media print {
           body {
             margin: 0;
           }
-
           .contract-root {
             padding: 0;
             background: #ffffff;
           }
-
           .contract-paper {
             margin: 0 auto;
             box-shadow: none;
             padding: 10mm 12mm 12mm;
           }
-
-          .no-print {
+          .contract-toolbar {
             display: none !important;
+          }
+          /* 인쇄 시에는 가이드 보더 제거 */
+          .field {
+            border: none;
           }
         }
       `}</style>
 
       {/* 상단 툴바 (인쇄 시 숨김) */}
-      <div className="contract-toolbar no-print">
+      <div className="contract-toolbar">
         <button type="button" onClick={() => navigate(-1)}>
           ← 이전 화면으로
         </button>
@@ -175,244 +224,34 @@ const ContractNewPage: React.FC = () => {
 
       {/* A4 용지 영역 */}
       <div className="contract-paper">
-        {/* 섹션 1 : 상단 배너 */}
-        <div className="contract-header-banner">
-          <div style={{ width: 120, fontSize: 10 }} />
-          <div className="contract-header-title">광 고 계 약 서</div>
-          <div className="contract-header-site">WWW.ORKA.CO.KR</div>
+        {/* ① PNG + 입력필드 영역 */}
+        <div className="contract-sheet-wrapper">
+          <div className="contract-sheet">
+            {/* === 광고주 정보 === */}
+            <input className="field field-company" placeholder="상호명" />
+            <input className="field field-ceo" placeholder="대표자" />
+            <input className="field field-bizno" placeholder="사업자등록번호" />
+            <input className="field field-manager" placeholder="담당자" />
+            <input className="field field-email" placeholder="계산서용이메일" />
+            <input className="field field-phone" placeholder="연락처" />
+            <input className="field field-biztype" placeholder="업태 / 종목" />
+            <input className="field field-address" placeholder="사업장주소" />
+
+            {/* === 계약 내용 일부 예시 (나중에 더 추가/수정) === */}
+            <input className="field field-brand" placeholder="브랜드명" />
+            <input className="field field-product-desc" placeholder="상품 내역 / 초 / 구좌" />
+            <input className="field field-contract-amount" placeholder="계약금액(원)" />
+          </div>
         </div>
 
-        {/* 섹션 1 + 2 : 광고주 정보 + 계약 내용 + 결제 정보 (한 테이블 안에) */}
-        <table className="contract-table">
-          <tbody>
-            {/* 광고주 정보 */}
-            <tr>
-              <td className="section-label-vertical" rowSpan={5}>
-                광고주
-                <br />
-                정보
-              </td>
-              <th className="label-cell">상 호 명</th>
-              <td className="cell-yellow">
-                <input className="contract-input" />
-              </td>
-              <th className="label-cell">대표 자</th>
-              <td className="cell-yellow">
-                <input className="contract-input" />
-              </td>
-            </tr>
-            <tr>
-              <th className="label-cell">사업자등록번호</th>
-              <td className="cell-yellow">
-                <input className="contract-input" />
-              </td>
-              <th className="label-cell">담 당 자</th>
-              <td className="cell-yellow">
-                <input className="contract-input" />
-              </td>
-            </tr>
-            <tr>
-              <th className="label-cell">계산서용이메일</th>
-              <td className="cell-yellow">
-                <input className="contract-input" />
-              </td>
-              <th className="label-cell">연 락 처</th>
-              <td className="cell-yellow">
-                <input className="contract-input" />
-              </td>
-            </tr>
-            <tr>
-              <th className="label-cell">업 태 / 종 목</th>
-              <td className="cell-yellow" colSpan={3}>
-                <input className="contract-input" />
-              </td>
-            </tr>
-            <tr>
-              <th className="label-cell">사 업 장 주 소</th>
-              <td className="cell-yellow" colSpan={3}>
-                <input className="contract-input" />
-              </td>
-            </tr>
-
-            {/* 계약 내용 */}
-            <tr>
-              <td className="section-label-vertical" rowSpan={5}>
-                계 약
-                <br />내 용
-              </td>
-              <th className="label-cell">브 랜 드 명</th>
-              <td className="cell-yellow">
-                <input className="contract-input" />
-              </td>
-              <th className="label-cell">매 체 명</th>
-              <td>아파트 엘리베이터 내부/외부 모니터광고</td>
-            </tr>
-            <tr>
-              <th className="label-cell">상 품 내 역</th>
-              <td className="cell-yellow">
-                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <select className="contract-select" defaultValue="">
-                    <option value="">초 선택</option>
-                    <option value="10">10초</option>
-                    <option value="15">15초</option>
-                    <option value="20">20초</option>
-                    <option value="30">30초</option>
-                  </select>
-                  <span>초</span>
-                </div>
-              </td>
-              <th className="label-cell">구좌 / 기준금액</th>
-              <td className="cell-yellow">
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 4,
-                  }}
-                >
-                  <span>구좌 기준금액</span>
-                  <input className="contract-input" defaultValue="0" style={{ textAlign: "right", maxWidth: 80 }} />
-                  <span>원</span>
-                </div>
-              </td>
-            </tr>
-            <tr>
-              <th className="label-cell">수 량</th>
-              <td className="cell-yellow">
-                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <input className="contract-input" defaultValue="0" style={{ textAlign: "right", maxWidth: 60 }} />
-                  <span>대</span>
-                </div>
-              </td>
-              <th className="label-cell">계 약 금 액</th>
-              <td className="cell-yellow">
-                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <input className="contract-input" defaultValue="0" style={{ textAlign: "right", maxWidth: 100 }} />
-                  <span>원</span>
-                </div>
-              </td>
-            </tr>
-            <tr>
-              <th className="label-cell">광 고 기 간</th>
-              <td>송출 개시일로부터</td>
-              <th className="label-cell">개월 / 제 작 비</th>
-              <td className="cell-yellow">
-                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <input className="contract-input" placeholder="0" style={{ textAlign: "right", maxWidth: 40 }} />
-                  <span>개월</span>
-                  <span style={{ marginLeft: 8 }}>제작비</span>
-                  <input className="contract-input" defaultValue="0" style={{ textAlign: "right", maxWidth: 80 }} />
-                  <span>원</span>
-                </div>
-              </td>
-            </tr>
-            <tr>
-              <th className="label-cell">총 계약금액</th>
-              <td className="cell-yellow">
-                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <input className="contract-input" defaultValue="0" style={{ textAlign: "right", maxWidth: 100 }} />
-                  <span>(VAT별도)</span>
-                </div>
-              </td>
-              <th className="label-cell">비 고</th>
-              <td className="cell-yellow">
-                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <input className="contract-input" defaultValue="0" style={{ textAlign: "right", maxWidth: 100 }} />
-                  <span>(VAT포함)</span>
-                </div>
-              </td>
-            </tr>
-
-            {/* 결제 정보 */}
-            <tr>
-              <td className="section-label-vertical" rowSpan={3}>
-                결제
-                <br />
-                정보
-              </td>
-              <td colSpan={4}>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-                  <span className="checkbox-inline">
-                    <input type="checkbox" /> 무통장입금
-                  </span>
-                  <span style={{ fontSize: 10 }}>
-                    ({" "}
-                    <span className="checkbox-inline">
-                      <input type="checkbox" /> 일시납
-                    </span>{" "}
-                    <span className="checkbox-inline">
-                      <input type="checkbox" /> 분납:
-                    </span>{" "}
-                    <input
-                      className="contract-input"
-                      style={{
-                        width: 40,
-                        borderBottom: "1px solid #000",
-                        display: "inline-block",
-                      }}
-                    />{" "}
-                    회차 )
-                  </span>
-                  <span style={{ fontSize: 10 }}>
-                    계산서발행일자{" "}
-                    <input
-                      className="contract-input"
-                      style={{
-                        width: 90,
-                        borderBottom: "1px solid #000",
-                        display: "inline-block",
-                      }}
-                    />
-                  </span>
-                </div>
-              </td>
-            </tr>
-            <tr>
-              <td colSpan={4}>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
-                  <span className="checkbox-inline">
-                    <input type="checkbox" /> 카드
-                  </span>
-                  <span style={{ fontSize: 10 }}>
-                    ({" "}
-                    <span className="checkbox-inline">
-                      <input type="checkbox" /> 일시납
-                    </span>{" "}
-                    <span className="checkbox-inline">
-                      <input type="checkbox" /> 분납:
-                    </span>{" "}
-                    <input
-                      className="contract-input"
-                      style={{
-                        width: 40,
-                        borderBottom: "1px solid #000",
-                        display: "inline-block",
-                      }}
-                    />{" "}
-                    회차 )
-                  </span>
-                  <span style={{ fontSize: 10 }}>
-                    입 금 일 자{" "}
-                    <input
-                      className="contract-input"
-                      style={{
-                        width: 90,
-                        borderBottom: "1px solid #000",
-                        display: "inline-block",
-                      }}
-                    />
-                  </span>
-                </div>
-              </td>
-            </tr>
-            <tr>
-              <td colSpan={4}>
-                계좌번호 : 기업은행 185 – 168695 – 04 – 018&nbsp;&nbsp; 예금주 : 주식회사 오르카 코리아
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        {/* ② 이용약관/개인정보/서명 텍스트 영역 (지금은 뼈대만) */}
+        <div className="contract-bottom">
+          <div className="contract-bottom-title">이용약관 · 개인정보 동의 · 서명 영역</div>
+          <div>
+            이 아래에는 약관/개인정보 동의 문구와 계약담당자·계약일자·계약 고객 서명 영역을 텍스트/표 형태로 추가해
+            나가면 돼. (차후 단계에서 하나씩 채우자)
+          </div>
+        </div>
       </div>
     </div>
   );
