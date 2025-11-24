@@ -2,7 +2,8 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
 
-const TEMPLATE_URL = "/products/orka-contract-top.png"; // public/contracts/ORKA_광고계약서3.png 에 넣어둔 PNG
+// ✅ 실제 사용 중인 PNG 경로로 변경
+const TEMPLATE_URL = "/products/orka-contract-top.png";
 
 const ContractNewPage: React.FC = () => {
   const navigate = useNavigate();
@@ -69,7 +70,8 @@ const ContractNewPage: React.FC = () => {
           position: relative;
           width: 100%;
           max-width: 820px;
-          aspect-ratio: 1626 / 2048; /* PNG 비율 대략값 */
+          /* PNG 비율(1626x2048) */
+          aspect-ratio: 1626 / 2048;
           background: url("${TEMPLATE_URL}") no-repeat center / contain;
         }
 
@@ -84,97 +86,105 @@ const ContractNewPage: React.FC = () => {
         }
 
         .field::placeholder {
-          color: rgba(75, 85, 99, 0.8); /* ✅ placeholder도 어두운 회색 */
+          color: rgba(75, 85, 99, 0.8);
         }
 
-        /* --- 광고주 정보 필드 예시 (대략적인 좌표, 나중에 하나씩 조정) --- */
+        /* ===================================================================
+         * 광고주 정보 필드들 (좌표는 모두 % 단위)
+         *  - PNG 크기: 1626 x 2048
+         *  - Figma(상호명): x=-941, y=-1031, w=488, h=37 (전역 기준)
+         *  - 폭/높이는: w/1626≈30.0%, h/2048≈1.8% 그대로 반영
+         *  - left/top 은 눈으로 맞춰보고 미세조정 (+ 네가 다시 알려줄 값으로 교체)
+         * =================================================================== */
+
         .field-company {
           /* 상호명 */
-          left: 22%;
-          top: 18%;
-          width: 30%;
-          height: 3%;
+          /* Figma: w=488px, h=37px → width≈30.0%, height≈1.8% */
+          left: 22%;     /* ← 여기랑 */
+          top: 15%;      /* ← 여기를 네가 측정한 %로 갈아끼우면 됨 */
+          width: 30.0%;
+          height: 1.8%;
         }
 
         .field-ceo {
-          /* 대표자 */
+          /* 대표자 – 아직 대략값, 나중에 좌표 확정 후 조정 */
           left: 64%;
-          top: 18%;
+          top: 15%;
           width: 20%;
-          height: 3%;
+          height: 1.8%;
         }
 
         .field-bizno {
           /* 사업자등록번호 */
           left: 22%;
-          top: 22%;
+          top: 19%;
           width: 30%;
-          height: 3%;
+          height: 1.8%;
         }
 
         .field-manager {
           /* 담당자 */
           left: 64%;
-          top: 22%;
+          top: 19%;
           width: 20%;
-          height: 3%;
+          height: 1.8%;
         }
 
         .field-email {
           /* 계산서용이메일 */
           left: 22%;
-          top: 26%;
+          top: 23%;
           width: 30%;
-          height: 3%;
+          height: 1.8%;
         }
 
         .field-phone {
           /* 연락처 */
           left: 64%;
-          top: 26%;
+          top: 23%;
           width: 20%;
-          height: 3%;
+          height: 1.8%;
         }
 
         .field-biztype {
           /* 업태/종목 */
           left: 22%;
-          top: 30%;
+          top: 27%;
           width: 62%;
-          height: 3%;
+          height: 1.8%;
         }
 
         .field-address {
           /* 사업장주소 */
           left: 22%;
-          top: 34%;
+          top: 31%;
           width: 62%;
-          height: 3%;
+          height: 1.8%;
         }
 
-        /* --- 계약 내용 중 브랜드명/상품내역 정도만 일단 올려둠 --- */
+        /* --- 계약 내용 일부 예시 (아직 러프값, 나중에 전부 조정) --- */
         .field-brand {
           /* 브랜드명 */
           left: 22%;
-          top: 39%;
+          top: 36%;
           width: 30%;
-          height: 3%;
+          height: 1.8%;
         }
 
         .field-product-desc {
           /* 상품 내역 (초/구좌) */
           left: 22%;
-          top: 47%;
+          top: 40%;
           width: 30%;
-          height: 3%;
+          height: 1.8%;
         }
 
         .field-contract-amount {
           /* 계약금액 (숫자) */
           left: 64%;
-          top: 51%;
+          top: 44%;
           width: 20%;
-          height: 3%;
+          height: 1.8%;
         }
 
         /* ====== 아래쪽 텍스트(이용약관 등) 영역 컨테이너 ====== */
@@ -237,7 +247,7 @@ const ContractNewPage: React.FC = () => {
             <input className="field field-biztype" placeholder="업태 / 종목" />
             <input className="field field-address" placeholder="사업장주소" />
 
-            {/* === 계약 내용 일부 예시 (나중에 더 추가/수정) === */}
+            {/* === 계약 내용 일부 예시 (추후 전체 확장) === */}
             <input className="field field-brand" placeholder="브랜드명" />
             <input className="field field-product-desc" placeholder="상품 내역 / 초 / 구좌" />
             <input className="field field-contract-amount" placeholder="계약금액(원)" />
