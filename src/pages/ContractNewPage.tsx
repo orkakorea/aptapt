@@ -76,7 +76,8 @@ const ContractNewPage: React.FC = () => {
   const [prodFeeValue, setProdFeeValue] = useState<number>(0);
 
   const baseAmountSafe = baseAmount ?? 0;
-  const vatExcludedTotal = baseAmountSafe + (contractAmountValue || 0) + (prodFeeValue || 0);
+  // 총계약금액(VAT별도) = 계약금액 + 제작비
+  const vatExcludedTotal = (contractAmountValue || 0) + (prodFeeValue || 0);
   const vatIncludedTotal = vatExcludedTotal > 0 ? Math.round(vatExcludedTotal * 1.1) : 0;
 
   const contractAmountDisplay = fmtNumberPlain(contractAmountValue);
