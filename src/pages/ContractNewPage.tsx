@@ -74,7 +74,16 @@ const ContractNewPage: React.FC = () => {
     max-width: 820px;
     /* 원본 PNG 1765 x 2600 기준 비율 */
     aspect-ratio: 1765 / 2600;
-    background: url("${TEMPLATE_URL}") no-repeat center / contain;
+  }
+
+  /* 배경 PNG (background-image 대신 img로 인쇄 호환용) */
+  .contract-bg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    z-index: 0;
   }
 
   .field {
@@ -85,6 +94,7 @@ const ContractNewPage: React.FC = () => {
     font-size: 11px;
     padding: 0 2px;
     box-sizing: border-box;
+    z-index: 1; /* 배경 이미지 위로 */
   }
 
   .field::placeholder {
@@ -209,7 +219,42 @@ const ContractNewPage: React.FC = () => {
   .field-cb7 { left: 43.3994%; top: 87.7692%; width: 1.6997%; height: 1.1538%; }
   .field-cb8 { left: 43.3994%; top: 95.1538%; width: 1.6997%; height: 1.1538%; }
 
-  /* 이하 @media print 등 기존 코드는 그대로 유지 */
+  /* 인쇄 설정 */
+  @media print {
+    @page {
+      size: A4 portrait;
+      margin: 5mm;
+    }
+
+    body {
+      margin: 0;
+    }
+
+    .contract-root {
+      padding: 0;
+      background: #ffffff;
+    }
+
+    .contract-paper {
+      margin: 0 auto;
+      box-shadow: none;
+      padding: 4mm 6mm 6mm;
+    }
+
+    .contract-sheet,
+    .contract-bg {
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+
+    .contract-toolbar {
+      display: none !important;
+    }
+
+    .field {
+      border: none;
+    }
+  }
 `}</style>
 
       <div className="contract-toolbar">
@@ -224,6 +269,8 @@ const ContractNewPage: React.FC = () => {
       <div className="contract-paper">
         <div className="contract-sheet-wrapper">
           <div className="contract-sheet">
+            <img src={TEMPLATE_URL} className="contract-bg" alt="" />
+
             {/* 광고주 정보 */}
             <div className="field field-company">
               <input className="field-input" placeholder="상호명" />
@@ -428,8 +475,8 @@ const ContractNewPage: React.FC = () => {
           </div>
         </div>
 
-        {/* 아래 텍스트/약관 영역 – 나중에 실제 약관 텍스트로 교체 */}
-        <div className="contract-bottom"></div>
+        {/* 아래 텍스트/약관 영역 – 실제 약관 텍스트로 교체 예정 */}
+        <div className="contract-bottom" />
       </div>
     </div>
   );
