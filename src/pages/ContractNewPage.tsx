@@ -129,9 +129,9 @@ const ContractNewPage: React.FC = () => {
     background: transparent;
   }
 
-  /* 드롭다운(입력용)은 항상 노란 박스 */
+  /* 드롭다운(입력용) – 텍스트 잘리지 않게 약간 여유 */
   .field-select {
-    padding-right: 16px;
+    padding: 2px 16px 0 4px; /* 위로 약간 여백 + 오른쪽 화살표 공간 */
   }
 
   /* 체크박스 컨테이너는 노란 박스 */
@@ -157,8 +157,8 @@ const ContractNewPage: React.FC = () => {
   .field-manager { left: 60.6232%; top: 11.5000%; width: 28.3286%; height: 1.1538%; }
   .field-email { left: 21.5297%; top: 13.3462%; width: 28.3286%; height: 1.1538%; }
   .field-phone1 { left: 60.6232%; top: 13.3077%; width: 28.3286%; height: 1.1538%; }
-  .field-biztype { left: 21.5297%; top: 15.1923%; width: 28.3286%; height: 1.1538%; }
-  .field-address { left: 21.5297%; top: 17.0385%; width: 28.3286%; height: 1.1538%; }
+  .field-biztype { left: 21.5297%; top: 15.1923%; width: 67.4221%; height: 1.1538%; }
+  .field-address { left: 21.5297%; top: 17.0385%; width: 67.4221%; height: 1.1538%; }
 
   .field-brand { left: 21.5297%; top: 19.7308%; width: 67.4221%; height: 1.1538%; }
   .field-productName { left: 21.5297%; top: 21.5769%; width: 67.4221%; height: 1.1538%; }
@@ -176,13 +176,17 @@ const ContractNewPage: React.FC = () => {
   .field-contractAmt2 { left: 21.5297%; top: 29.7692%; width: 24.4193%; height: 1.1538%; }
   .field-finalQuote { left: 65.6657%; top: 29.7692%; width: 20.5666%; height: 1.1538%; }
 
-  /* 결제 정보 체크박스 + 날짜 */
+  /* 결제 정보 체크박스 + 날짜 + 회차 필드 */
   .field-cb1 { left: 11.8414%; top: 32.5385%; width: 1.6997%; height: 1.1538%; }
   .field-cb2 { left: 21.5297%; top: 32.5000%; width: 1.6997%; height: 1.1538%; }
-  .field-cb3 { left: 42.2096%; top: 32.5000%; width: 1.6997%; height: 1.1538%; }
+  .field-cb3 { left: 26.9122%; top: 32.5000%; width: 1.6997%; height: 1.1538%; }
   .field-cb4 { left: 11.8414%; top: 34.3077%; width: 1.6997%; height: 1.1538%; }
   .field-cb5 { left: 21.5297%; top: 34.3077%; width: 1.6997%; height: 1.1538%; }
   .field-cb6 { left: 26.9122%; top: 34.3077%; width: 1.6997%; height: 1.1538%; }
+
+  /* 회차1/회차2 (수기입력) */
+  .field-round1 { left: 31.3881%; top: 32.5000%; width: 4.5326%; height: 1.1538%; }
+  .field-round2 { left: 50.0850%; top: 34.3077%; width: 4.5326%; height: 1.1538%; }
 
   .field-billDate { left: 61.3598%; top: 32.5000%; width: 24.9292%; height: 1.1538%; }
   .field-paidDate { left: 61.3598%; top: 34.3077%; width: 24.9292%; height: 1.1538%; }
@@ -286,33 +290,33 @@ const ContractNewPage: React.FC = () => {
 
             {/* 광고주 정보 */}
             <div className="field field-company">
-              <input className="field-input" placeholder="상호명" />
+              <input className="field-input"/>
             </div>
             <div className="field field-ceo">
-              <input className="field-input" placeholder="대표자" />
+              <input className="field-input"/>
             </div>
             <div className="field field-bizno">
-              <input className="field-input" placeholder="사업자등록번호" />
+              <input className="field-input"/>
             </div>
             <div className="field field-manager">
-              <input className="field-input" placeholder="담당자" />
+              <input className="field-input"/>
             </div>
             <div className="field field-email">
-              <input className="field-input" placeholder="계산서용 이메일" />
+              <input className="field-input"/>
             </div>
             <div className="field field-phone1">
-              <input className="field-input" placeholder="연락처" />
+              <input className="field-input"/>
             </div>
             <div className="field field-biztype">
-              <input className="field-input" placeholder="업태 / 종목" />
+              <input className="field-input"/>
             </div>
             <div className="field field-address">
-              <input className="field-input" placeholder="사업장 주소" />
+              <input className="field-input"/>
             </div>
 
             {/* 계약 내용 */}
             <div className="field field-brand">
-              <input className="field-input" placeholder="브랜드명" />
+              <input className="field-input" >
             </div>
             <div className="field field-productName">
               <input className="field-input" placeholder="상품명 (견적서에서 자동)" readOnly />
@@ -328,38 +332,38 @@ const ContractNewPage: React.FC = () => {
             </div>
             <div className="field field-drop2">
               <select className="field-select" defaultValue="">
-                <option value="">구좌</option>
+                <option value="">0.5</option>
                 <option value="1">1구좌</option>
                 <option value="2">2구좌</option>
               </select>
             </div>
 
             <div className="field field-baseAmount">
-              <input className="field-input" placeholder="기준금액 (자동)" readOnly />
+              <input className="field-input" readOnly />
             </div>
 
             <div className="field field-qty">
-              <input className="field-input" placeholder="수량 (자동)" readOnly />
+              <input className="field-input" readOnly />
             </div>
             <div className="field field-contractAmt1">
-              <input className="field-input" placeholder="계약금액 (자동)" readOnly />
+              <input className="field-input" readOnly />
             </div>
 
             <div className="field field-period">
-              <input className="field-input" placeholder="개월 수" />
+              <input className="field-input" />
             </div>
             <div className="field field-prodFee">
-              <input className="field-input" placeholder="제작비" />
+              <input className="field-input"/>
             </div>
 
             <div className="field field-contractAmt2">
-              <input className="field-input" placeholder="총 계약금액 (자동)" readOnly />
+              <input className="field-input" readOnly />
             </div>
             <div className="field field-finalQuote">
-              <input className="field-input" placeholder="최종 견적 (자동)" readOnly />
+              <input className="field-input" readOnly />
             </div>
 
-            {/* 결제 정보 체크박스 */}
+            {/* 결제 정보 체크박스 + 회차 */}
             <div className="field field-cb1 field-checkbox">
               <input type="checkbox" />
             </div>
@@ -379,6 +383,14 @@ const ContractNewPage: React.FC = () => {
               <input type="checkbox" />
             </div>
 
+            {/* 회차1 / 회차2 */}
+            <div className="field field-round1">
+              <input className="field-input" />
+            </div>
+            <div className="field field-round2">
+              <input className="field-input"/>
+            </div>
+
             <div className="field field-billDate">
               <input className="field-input" type="date" />
             </div>
@@ -388,22 +400,22 @@ const ContractNewPage: React.FC = () => {
 
             {/* 비고 – 상품/기간/단지명 */}
             <div className="field field-item1">
-              <input className="field-input" placeholder="상품명 (자동)" readOnly />
+              <input className="field-input" readOnly />
             </div>
             <div className="field field-item2">
-              <input className="field-input" placeholder="상품명 (자동)" readOnly />
+              <input className="field-input" readOnly />
             </div>
             <div className="field field-item3">
-              <input className="field-input" placeholder="상품명 (자동)" readOnly />
+              <input className="field-input" readOnly />
             </div>
             <div className="field field-item4">
-              <input className="field-input" placeholder="상품명 (자동)" readOnly />
+              <input className="field-input" readOnly />
             </div>
             <div className="field field-item5">
-              <input className="field-input" placeholder="상품명 (자동)" readOnly />
+              <input className="field-input" readOnly />
             </div>
             <div className="field field-item6">
-              <input className="field-input" placeholder="상품명 (자동)" readOnly />
+              <input className="field-input" readOnly />
             </div>
 
             {/* 송출 개시 (달력), 종료(자동) */}
@@ -427,50 +439,50 @@ const ContractNewPage: React.FC = () => {
             </div>
 
             <div className="field field-end1">
-              <input className="field-input" placeholder="자동계산" readOnly />
+              <input className="field-input" readOnly />
             </div>
             <div className="field field-end2">
-              <input className="field-input" placeholder="자동계산" readOnly />
+              <input className="field-input" readOnly />
             </div>
             <div className="field field-end3">
-              <input className="field-input" placeholder="자동계산" readOnly />
+              <input className="field-input" readOnly />
             </div>
             <div className="field field-end4">
-              <input className="field-input" placeholder="자동계산" readOnly />
+              <input className="field-input" readOnly />
             </div>
             <div className="field field-end5">
-              <input className="field-input" placeholder="자동계산" readOnly />
+              <input className="field-input" readOnly />
             </div>
             <div className="field field-end6">
-              <input className="field-input" placeholder="자동계산" readOnly />
+              <input className="field-input" readOnly />
             </div>
 
             {/* 계약 단지명 */}
             <div className="field field-apt1">
-              <textarea className="field-textarea" placeholder="계약 단지명 (자동)" readOnly />
+              <textarea className="field-textarea" readOnly />
             </div>
             <div className="field field-apt2">
-              <textarea className="field-textarea" placeholder="계약 단지명 (자동)" readOnly />
+              <textarea className="field-textarea" readOnly />
             </div>
             <div className="field field-apt3">
-              <textarea className="field-textarea" placeholder="계약 단지명 (자동)" readOnly />
+              <textarea className="field-textarea" readOnly />
             </div>
             <div className="field field-apt4">
-              <textarea className="field-textarea" placeholder="계약 단지명 (자동)" readOnly />
+              <textarea className="field-textarea" readOnly />
             </div>
             <div className="field field-apt5">
-              <textarea className="field-textarea" placeholder="계약 단지명 (자동)" readOnly />
+              <textarea className="field-textarea" readOnly />
             </div>
             <div className="field field-apt6">
-              <textarea className="field-textarea" placeholder="계약 단지명 (자동)" readOnly />
+              <textarea className="field-textarea" readOnly />
             </div>
 
             {/* 하단 계약 담당자 / 고객 */}
             <div className="field field-contractManager">
-              <input className="field-input" placeholder="계약담당자" />
+              <input className="field-input" />
             </div>
             <div className="field field-contact2">
-              <input className="field-input" placeholder="연락처" />
+              <input className="field-input" />
             </div>
             <div className="field field-contractDate">
               <input className="field-input" type="date" defaultValue={todayISO} />
