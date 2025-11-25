@@ -86,11 +86,11 @@ const ContractNewPage: React.FC = () => {
     z-index: 0;
   }
 
+  /* 공통 필드 컨테이너 */
   .field {
     position: absolute;
-    border: 1px dashed rgba(239, 68, 68, 0.8); /* 위치 보정용 가이드 */
-    background: transparent;
-    color: #111827; /* 검은 글씨 */
+    background: transparent; /* 컨테이너는 항상 투명 */
+    color: #111827;
     font-size: 11px;
     padding: 0 2px;
     box-sizing: border-box;
@@ -101,6 +101,7 @@ const ContractNewPage: React.FC = () => {
     color: rgba(75, 85, 99, 0.8);
   }
 
+  /* ===== 입력 필드: 기본은 노란 박스 ===== */
   .field-input,
   .field-select,
   .field-textarea {
@@ -108,7 +109,7 @@ const ContractNewPage: React.FC = () => {
     height: 100%;
     border: none;
     outline: none;
-    background: rgba(255, 255, 255, 0.8);
+    background: #FFF6BC;      /* 수기 입력 필드는 노란 채우기 */
     padding: 0 4px;
     box-sizing: border-box;
     font-size: 11px;
@@ -122,20 +123,24 @@ const ContractNewPage: React.FC = () => {
     resize: none;
   }
 
+  /* 자동입력(readOnly)은 완전 투명 */
   .field-input[readonly],
   .field-textarea[readonly] {
-    background: rgba(249, 250, 251, 0.9);
+    background: transparent;
   }
 
+  /* 드롭다운(입력용)은 항상 노란 박스 */
   .field-select {
     padding-right: 16px;
   }
 
+  /* 체크박스 컨테이너는 노란 박스 */
   .field-checkbox {
     display: flex;
     align-items: center;
     justify-content: center;
     border: none;
+    background: #FFF6BC;
   }
 
   .field-checkbox input {
@@ -174,7 +179,7 @@ const ContractNewPage: React.FC = () => {
   /* 결제 정보 체크박스 + 날짜 */
   .field-cb1 { left: 11.8414%; top: 32.5385%; width: 1.6997%; height: 1.1538%; }
   .field-cb2 { left: 21.5297%; top: 32.5000%; width: 1.6997%; height: 1.1538%; }
-  .field-cb3 { left: 26.9122%; top: 32.5000%; width: 1.6997%; height: 1.1538%; }
+  .field-cb3 { left: 42.2096%; top: 32.5000%; width: 1.6997%; height: 1.1538%; }
   .field-cb4 { left: 11.8414%; top: 34.3077%; width: 1.6997%; height: 1.1538%; }
   .field-cb5 { left: 21.5297%; top: 34.3077%; width: 1.6997%; height: 1.1538%; }
   .field-cb6 { left: 26.9122%; top: 34.3077%; width: 1.6997%; height: 1.1538%; }
@@ -219,7 +224,7 @@ const ContractNewPage: React.FC = () => {
   .field-cb7 { left: 43.3994%; top: 87.7692%; width: 1.6997%; height: 1.1538%; }
   .field-cb8 { left: 43.3994%; top: 95.1538%; width: 1.6997%; height: 1.1538%; }
 
-  /* 인쇄 설정 */
+  /* 인쇄 설정: PDF 저장 시 필드 배경 투명 */
   @media print {
     @page {
       size: A4 portrait;
@@ -245,6 +250,14 @@ const ContractNewPage: React.FC = () => {
     .contract-bg {
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
+    }
+
+    /* 인쇄할 때는 모든 필드 배경 투명 */
+    .field-input,
+    .field-select,
+    .field-textarea,
+    .field-checkbox {
+      background: transparent !important;
     }
 
     .contract-toolbar {
