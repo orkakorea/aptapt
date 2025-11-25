@@ -5,6 +5,45 @@ import { useNavigate, useLocation } from "react-router-dom";
 // 계약서 템플릿 PNG 경로
 const TEMPLATE_URL = "/products/orka-contract-top.png";
 
+/** ============ 날짜 유틸 ============ */
+function addMonthsInclusive(startISO: string, months: number): string {
+  if (!startISO || !months) return "";
+  const parts = startISO.split("-");
+  if (parts.length !== 3) return "";
+  const [y, m, d] = parts.map((v) => Number(v));
+  if (!y || !m || !d) return "";
+  const date = new Date(y, m - 1, d);
+  date.setMonth(date.getMonth() + months);
+  date.setDate(date.getDate() - 1); // 포함 기간 → 마지막 날
+  const yy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+function addWeeksInclusive(startISO: string, months: number): string {
+  if (!startISO || !months) return "";
+  const parts = startISO.split("-");
+  if (parts.length !== 3) return "";
+  const [y, m, d] = parts.map((v) => Number(v));
+  if (!y || !m || !d) return "";
+  const weeks = months * 4;
+  const days = weeks * 7;
+  const date = new Date(y, m - 1, d);
+  date.setDate(date.getDate() + days - 1); // 포함 기간
+  const yy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+const norm = (s: string) => s.replace(/\s+/g, "").toLowerCase();
+const isElevatorProduct = (prod?: string) => {
+  if (!prod) return false;
+  const n = norm(prod);
+  return n.includes("elevatortv") || n.includes("엘리베이터tv") || n.includes("elevator") || n.includes("엘리베이터");
+};
+
 const ContractNewPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation() as any;
@@ -33,6 +72,10 @@ const ContractNewPage: React.FC = () => {
     typeof contractPrefill.monitorCount === "number" && Number.isFinite(contractPrefill.monitorCount)
       ? contractPrefill.monitorCount
       : undefined;
+  const adMonths: number | undefined =
+    typeof contractPrefill.adMonths === "number" && Number.isFinite(contractPrefill.adMonths)
+      ? contractPrefill.adMonths
+      : undefined;
 
   const contractAptLinesRaw: string[] = Array.isArray(contractPrefill.contractAptLines)
     ? (contractPrefill.contractAptLines as string[])
@@ -51,14 +94,12 @@ const ContractNewPage: React.FC = () => {
     remarkProducts.push((prod ?? "").trim());
     remarkApts.push((rest ?? "").trim());
   });
-  // 항상 6줄 채우기
   while (remarkProducts.length < 6) remarkProducts.push("");
   while (remarkApts.length < 6) remarkApts.push("");
 
-  // 최대 6줄까지 사용 (apt1 ~ apt6)
   const aptLines: string[] = remarkApts;
 
-  // 숫자 포맷 (쉼표만, "원"은 넣지 않음)
+  // 숫자 포맷 (쉼표만, "원" 없음)
   const fmtNumberPlain = (n?: number) =>
     typeof n === "number" && Number.isFinite(n) && n > 0 ? n.toLocaleString() : "";
 
@@ -75,7 +116,6 @@ const ContractNewPage: React.FC = () => {
   // 제작비
   const [prodFeeValue, setProdFeeValue] = useState<number>(0);
 
-  const baseAmountSafe = baseAmount ?? 0;
   // 총계약금액(VAT별도) = 계약금액 + 제작비
   const vatExcludedTotal = (contractAmountValue || 0) + (prodFeeValue || 0);
   const vatIncludedTotal = vatExcludedTotal > 0 ? Math.round(vatExcludedTotal * 1.1) : 0;
@@ -88,15 +128,46 @@ const ContractNewPage: React.FC = () => {
   // 계약 단지명 글자 수에 따라 폰트 크기 조절
   const getAptFontSize = (text: string) => {
     const len = text?.length ?? 0;
-    if (len === 0) return 11; // 기본
+    if (len === 0) return 11;
     if (len > 160) return 7;
     if (len > 120) return 8;
     if (len > 80) return 9;
     if (len > 40) return 10;
     return 11;
   };
-
   const aptFontSizes = aptLines.map((t) => getAptFontSize(t));
+
+  // 송출 시작/종료일 상태 (각 6줄)
+  const [startDates, setStartDates] = useState<string[]>(Array(6).fill(""));
+  const [endDates, setEndDates] = useState<string[]>(Array(6).fill(""));
+
+  const handleStartChange = (index: number, value: string) => {
+    setStartDates((prev) => {
+      const next = [...prev];
+      next[index] = value;
+      return next;
+    });
+
+    if (!value || !adMonths || adMonths <= 0) return;
+
+    const prodNameForRow = remarkProducts[index] || productName;
+    const isElevator = isElevatorProduct(prodNameForRow);
+    const endISO = isElevator ? addWeeksInclusive(value, adMonths) : addMonthsInclusive(value, adMonths);
+
+    setEndDates((prev) => {
+      const next = [...prev];
+      next[index] = endISO;
+      return next;
+    });
+  };
+
+  const handleEndChange = (index: number, value: string) => {
+    setEndDates((prev) => {
+      const next = [...prev];
+      next[index] = value;
+      return next;
+    });
+  };
 
   return (
     <div className="contract-root">
@@ -173,12 +244,12 @@ const ContractNewPage: React.FC = () => {
   /* 공통 필드 컨테이너 */
   .field {
     position: absolute;
-    background: transparent; /* 컨테이너는 항상 투명 */
+    background: transparent;
     color: #111827;
     font-size: 11px;
     padding: 0 2px;
     box-sizing: border-box;
-    z-index: 1; /* 배경 이미지 위로 */
+    z-index: 1;
   }
 
   .field::placeholder {
@@ -193,17 +264,18 @@ const ContractNewPage: React.FC = () => {
     height: 100%;
     border: none;
     outline: none;
-    background: #FFF6BC;      /* 수기 입력 필드는 노란 채우기 */
+    background: #FFF6BC;
     padding: 0 4px;
     box-sizing: border-box;
     font-size: 11px;
-    font-family: inherit;     /* ← Pretendard 상속 */
+    font-family: inherit;
     color: #111827;
   }
+
   /* ===== date 인풋에서 기본 달력 아이콘 숨기기 ===== */
   .field-input[type="date"] {
-    padding-right: 4px;          /* 아이콘 자리 없애면서 텍스트 안 잘리게 */
-    -moz-appearance: textfield;  /* Firefox용 */
+    padding-right: 4px;
+    -moz-appearance: textfield;
   }
 
   .field-input[type="date"]::-webkit-inner-spin-button,
@@ -226,7 +298,7 @@ const ContractNewPage: React.FC = () => {
 
   /* 드롭다운(입력용) – 텍스트 잘리지 않게 약간 여유 */
   .field-select {
-    padding: 2px 16px 0 4px; /* 위로 약간 여백 + 오른쪽 화살표 공간 */
+    padding: 2px 16px 0 4px;
   }
 
   /* 체크박스 컨테이너는 노란 박스 */
@@ -351,7 +423,6 @@ const ContractNewPage: React.FC = () => {
       print-color-adjust: exact;
     }
 
-    /* 인쇄할 때는 모든 필드 배경 투명 */
     .field-input,
     .field-select,
     .field-textarea,
@@ -414,7 +485,12 @@ const ContractNewPage: React.FC = () => {
               <input className="field-input" />
             </div>
             <div className="field field-productName">
-              <input className="field-input" readOnly defaultValue={productName} />
+              <input
+                className="field-input"
+                readOnly
+                defaultValue={productName}
+                style={{ fontSize: 10 }} // 상품명 글씨 1 작게
+              />
             </div>
 
             <div className="field field-drop1">
@@ -450,8 +526,9 @@ const ContractNewPage: React.FC = () => {
               />
             </div>
 
+            {/* 광고기간: 최장 기간 하나만 표시, 수정 가능 */}
             <div className="field field-period">
-              <input className="field-input" />
+              <input className="field-input" defaultValue={adMonths ? `${adMonths}개월` : ""} />
             </div>
 
             {/* 제작비 */}
@@ -463,7 +540,7 @@ const ContractNewPage: React.FC = () => {
               />
             </div>
 
-            {/* 3) 총계약금액 (VAT 별도) = 기준금액 + 계약금액 + 제작비 */}
+            {/* 3) 총계약금액 (VAT 별도) = 계약금액 + 제작비 */}
             <div className="field field-contractAmt2">
               <input className="field-input" readOnly value={vatExcludedDisplay} style={{ fontWeight: 700 }} />
             </div>
@@ -528,43 +605,103 @@ const ContractNewPage: React.FC = () => {
               <input className="field-input" readOnly defaultValue={remarkProducts[5]} />
             </div>
 
-            {/* 송출 개시 (달력), 종료(자동) */}
+            {/* 송출 개시 (달력), 종료(자동 계산 + 수정 가능) */}
             <div className="field field-start1">
-              <input className="field-input" type="date" />
+              <input
+                className="field-input"
+                type="date"
+                value={startDates[0]}
+                onChange={(e) => handleStartChange(0, e.target.value)}
+              />
             </div>
             <div className="field field-start2">
-              <input className="field-input" type="date" />
+              <input
+                className="field-input"
+                type="date"
+                value={startDates[1]}
+                onChange={(e) => handleStartChange(1, e.target.value)}
+              />
             </div>
             <div className="field field-start3">
-              <input className="field-input" type="date" />
+              <input
+                className="field-input"
+                type="date"
+                value={startDates[2]}
+                onChange={(e) => handleStartChange(2, e.target.value)}
+              />
             </div>
             <div className="field field-start4">
-              <input className="field-input" type="date" />
+              <input
+                className="field-input"
+                type="date"
+                value={startDates[3]}
+                onChange={(e) => handleStartChange(3, e.target.value)}
+              />
             </div>
             <div className="field field-start5">
-              <input className="field-input" type="date" />
+              <input
+                className="field-input"
+                type="date"
+                value={startDates[4]}
+                onChange={(e) => handleStartChange(4, e.target.value)}
+              />
             </div>
             <div className="field field-start6">
-              <input className="field-input" type="date" />
+              <input
+                className="field-input"
+                type="date"
+                value={startDates[5]}
+                onChange={(e) => handleStartChange(5, e.target.value)}
+              />
             </div>
 
             <div className="field field-end1">
-              <input className="field-input" readOnly />
+              <input
+                className="field-input"
+                type="date"
+                value={endDates[0]}
+                onChange={(e) => handleEndChange(0, e.target.value)}
+              />
             </div>
             <div className="field field-end2">
-              <input className="field-input" readOnly />
+              <input
+                className="field-input"
+                type="date"
+                value={endDates[1]}
+                onChange={(e) => handleEndChange(1, e.target.value)}
+              />
             </div>
             <div className="field field-end3">
-              <input className="field-input" readOnly />
+              <input
+                className="field-input"
+                type="date"
+                value={endDates[2]}
+                onChange={(e) => handleEndChange(2, e.target.value)}
+              />
             </div>
             <div className="field field-end4">
-              <input className="field-input" readOnly />
+              <input
+                className="field-input"
+                type="date"
+                value={endDates[3]}
+                onChange={(e) => handleEndChange(3, e.target.value)}
+              />
             </div>
             <div className="field field-end5">
-              <input className="field-input" readOnly />
+              <input
+                className="field-input"
+                type="date"
+                value={endDates[4]}
+                onChange={(e) => handleEndChange(4, e.target.value)}
+              />
             </div>
             <div className="field field-end6">
-              <input className="field-input" readOnly />
+              <input
+                className="field-input"
+                type="date"
+                value={endDates[5]}
+                onChange={(e) => handleEndChange(5, e.target.value)}
+              />
             </div>
 
             {/* 계약 단지명 (상품별 단지 리스트) */}
