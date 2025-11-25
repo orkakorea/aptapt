@@ -184,9 +184,9 @@ export default function QuoteModal({
   if (typeof document === "undefined") return null;
   if (!open) return null;
 
+  const navigate = useNavigate();
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [inquiryOpen, setInquiryOpen] = useState(false); // 견적 하단 CTA → 구좌문의 모달
-  const navigate = useNavigate();
 
   // 워터마크 스타일 (대각선, 작고 빽빽)
   const watermarkStyle = useMemo<React.CSSProperties>(() => {
@@ -263,54 +263,10 @@ export default function QuoteModal({
       count: items?.length ?? 0,
     };
 
-    // 기준금액 합계 (baseTotal 합)
-    const baseSubtotal = rows.reduce((s, r) => s + r.baseTotal, 0);
+    const baseAmountSum = rows.reduce((s, r) => s + r.baseTotal, 0);
 
-    // 상품별 단지 그룹화
-    const productMap = new Map<string, { productName: string; aptNames: string[] }>();
-    (items ?? []).forEach((it) => {
-      const productName = (it.mediaName || "상품 미지정").trim();
-      const key = productName;
-      const existing = productMap.get(key);
-      if (existing) {
-        existing.aptNames.push(it.name);
-      } else {
-        productMap.set(key, { productName, aptNames: [it.name] });
-      }
-    });
-    const productGroups = Array.from(productMap.values());
-
-    // 옵션 B: 상품명 요약
-    let productSummary = "";
-    if (productGroups.length === 1) {
-      productSummary = productGroups[0].productName;
-    } else if (productGroups.length > 1) {
-      productSummary = `${productGroups[0].productName} 외 ${productGroups.length - 1}건`;
-    }
-
-    // 계약단지명: 상품별 단지 목록 문자열 (최대 6줄)
-    const contractAptLines = productGroups.slice(0, 6).map((g) => {
-      const uniqueApts = Array.from(new Set(g.aptNames));
-      return `${g.productName}: ${uniqueApts.join(", ")}`;
-    });
-
-    return { rows, subtotal, vat, total, totals, baseSubtotal, productSummary, contractAptLines };
+    return { rows, subtotal, vat, total, totals, baseAmountSum };
   }, [items, vatRate]);
-
-  // 계약서 페이지로 넘길 프리필 데이터
-  const contractPrefill = {
-    productName: computed.productSummary, // 옵션 B 요약 상품명
-    baseAmount: computed.baseSubtotal, // 기준금액 합계
-    contractAmount: computed.subtotal, // 계약금액(할인 후, VAT 별도)
-    monitorCount: computed.totals.monitors, // 모니터 수량 총합
-    contractAptLines: computed.contractAptLines, // 상품별 단지 목록 문자열 배열
-  };
-
-  const handleGoContract = () => {
-    navigate("/contracts/new", {
-      state: { contractPrefill },
-    });
-  };
 
   // InquiryModal에 넘길 prefill 생성 (InquiryModal.pickCartTotal과 호환)
   const inquiryPrefill = useMemo(() => {
@@ -356,6 +312,73 @@ export default function QuoteModal({
     };
   }, [items, computed.subtotal]);
 
+  /** =========================
+   *  계약서로 넘길 contractPrefill (옵션 B + 광고기간 + 단지 리스트)
+   *  ========================= */
+  const contractPrefill = useMemo(() => {
+    if (!items || items.length === 0) return null;
+
+    const first = items[0];
+    const itemCount = items.length;
+
+    // 상품명 옵션 B: "TOWNBORD_S 외 2건"
+    const rawFirstName = first.mediaName?.trim() ?? "";
+    const productNameOptionB = rawFirstName && itemCount > 1 ? `${rawFirstName} 외 ${itemCount - 1}건` : rawFirstName;
+
+    // 광고기간(개월)들 → 최장 기간 하나만
+    const monthsList = items
+      .map((i) => i.months)
+      .filter((m) => typeof m === "number" && Number.isFinite(m) && m > 0) as number[];
+    const adMonths = monthsList.length ? Math.max(...monthsList) : undefined;
+
+    // 기준금액 = 각 라인의 baseTotal 합계
+    const baseAmount = computed.baseAmountSum;
+
+    // 계약금액 = 할인 적용 후 합계 (subtotal)
+    const contractAmount = computed.subtotal;
+
+    // 모니터 수량 합계
+    const monitorCount = computed.totals.monitors;
+
+    // 각 상품별 단지 리스트 → "상품명: 단지1, 단지2..." 형태
+    const productMap = new Map<string, string[]>();
+    for (const it of items) {
+      const key = (it.mediaName || "상품 미정").trim();
+      const list = productMap.get(key) ?? [];
+      list.push(it.name);
+      productMap.set(key, list);
+    }
+
+    const contractAptLines: string[] = [];
+    productMap.forEach((aptNames, prodName) => {
+      const uniq = Array.from(new Set(aptNames));
+      const line = `${prodName}: ${uniq.join(", ")}`;
+      contractAptLines.push(line);
+    });
+
+    // 최대 6줄까지만 사용 (계약서 템플릿 구조에 맞춤)
+    const limitedLines = contractAptLines.slice(0, 6);
+
+    return {
+      productName: productNameOptionB,
+      baseAmount,
+      contractAmount,
+      monitorCount,
+      contractAptLines: limitedLines,
+      adMonths,
+    };
+  }, [items, computed.baseAmountSum, computed.subtotal, computed.totals.monitors]);
+
+  /** 타이틀 클릭 → 계약서 작성 페이지로 이동 */
+  const handleClickTitle = () => {
+    if (!contractPrefill) return;
+    navigate("/contracts/new", {
+      state: {
+        contractPrefill,
+      },
+    });
+  };
+
   return createPortal(
     <>
       <div className="fixed inset-0 z-[9999]">
@@ -377,13 +400,12 @@ export default function QuoteModal({
               {/* 헤더 */}
               <div className="px-6 py-5 border-b border-[#E5E7EB] flex items-start justify-between sticky top-0 bg-white/95 backdrop-blur rounded-t-2xl">
                 <div>
-                  <button
-                    type="button"
-                    onClick={handleGoContract}
-                    className="text-lg font-bold text-black bg-transparent border-none p-0 cursor-pointer hover:text-[#6C2DFF] hover:underline"
+                  <div
+                    className="text-lg font-bold text-black cursor-pointer hover:text-[#6C2DFF]"
+                    onClick={handleClickTitle}
                   >
                     {title}
-                  </button>
+                  </div>
                   <div className="text-sm text-[#6B7280] mt-1">{subtitle}</div>
                 </div>
                 <button
