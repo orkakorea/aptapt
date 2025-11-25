@@ -116,6 +116,17 @@ const ContractNewPage: React.FC = () => {
     font-family: inherit;
     color: #111827;
   }
+  /* ===== date 인풋에서 기본 달력 아이콘 숨기기 ===== */
+  .field-input[type="date"] {
+    padding-right: 4px;          /* 아이콘 자리 없애면서 텍스트 안 잘리게 */
+    -moz-appearance: textfield;  /* Firefox용 */
+  }
+
+  .field-input[type="date"]::-webkit-inner-spin-button,
+  .field-input[type="date"]::-webkit-calendar-picker-indicator {
+    display: none;
+    -webkit-appearance: none;
+  }
 
   .field-textarea {
     padding-top: 4px;
@@ -290,28 +301,28 @@ const ContractNewPage: React.FC = () => {
 
             {/* 광고주 정보 */}
             <div className="field field-company">
-              <input className="field-input"/>
+              <input className="field-input" />
             </div>
             <div className="field field-ceo">
-              <input className="field-input"/>
+              <input className="field-input" />
             </div>
             <div className="field field-bizno">
-              <input className="field-input"/>
+              <input className="field-input" />
             </div>
             <div className="field field-manager">
-              <input className="field-input"/>
+              <input className="field-input" />
             </div>
             <div className="field field-email">
-              <input className="field-input"/>
+              <input className="field-input" />
             </div>
             <div className="field field-phone1">
-              <input className="field-input"/>
+              <input className="field-input" />
             </div>
             <div className="field field-biztype">
-              <input className="field-input"/>
+              <input className="field-input" />
             </div>
             <div className="field field-address">
-              <input className="field-input"/>
+              <input className="field-input" />
             </div>
 
             {/* 계약 내용 */}
@@ -353,7 +364,7 @@ const ContractNewPage: React.FC = () => {
               <input className="field-input" />
             </div>
             <div className="field field-prodFee">
-              <input className="field-input"/>
+              <input className="field-input" />
             </div>
 
             <div className="field field-contractAmt2">
@@ -388,7 +399,7 @@ const ContractNewPage: React.FC = () => {
               <input className="field-input" />
             </div>
             <div className="field field-round2">
-              <input className="field-input"/>
+              <input className="field-input" />
             </div>
 
             <div className="field field-billDate">
