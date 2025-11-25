@@ -163,8 +163,8 @@ const ContractNewPage: React.FC = () => {
   .field-brand { left: 21.5297%; top: 19.7308%; width: 67.4221%; height: 1.1538%; }
   .field-productName { left: 21.5297%; top: 21.5769%; width: 67.4221%; height: 1.1538%; }
 
-  .field-drop1 { left: 21.5297%; top: 24.4231%; width: 9.8584%; height: 1.1538%; }
-  .field-drop2 { left: 37.9037%; top: 24.4231%; width: 8.0453%; height: 1.1538%; }
+  .field-drop1 { left: 21.5297%; top: 23.4131%; width: 9.8584%; height: 1.1538%; }
+  .field-drop2 { left: 37.9037%; top: 23.4131%; width: 8.0453%; height: 1.1538%; }
   .field-baseAmount { left: 65.6657%; top: 23.4231%; width: 20.5666%; height: 1.1538%; }
 
   .field-qty { left: 21.5297%; top: 25.2692%; width: 24.4193%; height: 1.1538%; }
