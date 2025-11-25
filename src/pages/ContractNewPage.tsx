@@ -213,7 +213,7 @@ const ContractNewPage: React.FC = () => {
     font-family: "Pretendard", -apple-system, BlinkMacSystemFont, system-ui,
       "Segoe UI", sans-serif;
     color: #111827;
-    font-size: 11px;
+    font-size: 10px;
     line-height: 1.4;
   }
 
@@ -247,7 +247,7 @@ const ContractNewPage: React.FC = () => {
     position: absolute;
     background: transparent;
     color: #111827;
-    font-size: 11px;
+    font-size: 10px;
     padding: 0 2px;
     box-sizing: border-box;
     z-index: 1;
