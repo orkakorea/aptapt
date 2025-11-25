@@ -666,10 +666,18 @@ const ContractNewPage: React.FC = () => {
             </div>
 
             <div className="field field-billDate">
-              <input className="field-input" type="date" />
+              <input
+                className="field-input"
+                type="date"
+                defaultValue={todayISO} // ← 계산서 발행일: 오늘 날짜 디폴트
+              />
             </div>
             <div className="field field-paidDate">
-              <input className="field-input" type="date" />
+              <input
+                className="field-input"
+                type="date"
+                defaultValue={todayISO} // ← 입금일자: 오늘 날짜 디폴트
+              />
             </div>
 
             {/* 비고 – 상품명 / 단지명 */}
