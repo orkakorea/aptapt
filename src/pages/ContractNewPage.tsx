@@ -475,12 +475,12 @@ const ContractNewPage: React.FC = () => {
   .field-start5 { left: 20.9065%; top: 56.4231%; width: 9.1218%; height: 1.1538%; }
   .field-start6 { left: 20.9065%; top: 60.1923%; width: 9.1218%; height: 1.1538%; }
 
-  .field-end1 { left: 30.2380%; top: 41.6154%; width: 9.1218%; height: 1.1538%; }
-  .field-end2 { left: 30.2380%; top: 45.3077%; width: 9.1218%; height: 1.1538%; }
-  .field-end3 { left: 30.2380%; top: 49.0769%; width: 9.1218%; height: 1.1538%; }
-  .field-end4 { left: 30.2380%; top: 52.8077%; width: 9.1218%; height: 1.1538%; }
-  .field-end5 { left: 30.2380%; top: 56.4231%; width: 9.1218%; height: 1.1538%; }
-  .field-end6 { left: 30.2380%; top: 60.1923%; width: 9.1218%; height: 1.1538%; }
+  .field-end1 { left: 31.2380%; top: 41.6154%; width: 9.5218%; height: 1.1538%; }
+  .field-end2 { left: 31.2380%; top: 45.3077%; width: 9.5218%; height: 1.1538%; }
+  .field-end3 { left: 31.2380%; top: 49.0769%; width: 9.5218%; height: 1.1538%; }
+  .field-end4 { left: 31.2380%; top: 52.8077%; width: 9.5218%; height: 1.1538%; }
+  .field-end5 { left: 31.2380%; top: 56.4231%; width: 9.5218%; height: 1.1538%; }
+  .field-end6 { left: 31.2380%; top: 60.1923%; width: 9.5218%; height: 1.1538%; }
 
   .field-apt1 { left: 44.3626%; top: 40.6538%; width: 50.9915%; height: 3.0769%; }
   .field-apt2 { left: 44.3626%; top: 44.3462%; width: 50.9915%; height: 3.0769%; }
@@ -730,26 +730,25 @@ const ContractNewPage: React.FC = () => {
               />
             </div>
 
-{/* 비고 – 상품명 (최대 2줄) */}
-<div className="field field-item1">
-  <div className="field-item-multiline">{remarkProducts[0]}</div>
-</div>
-<div className="field field-item2">
-  <div className="field-item-multiline">{remarkProducts[1]}</div>
-</div>
-<div className="field field-item3">
-  <div className="field-item-multiline">{remarkProducts[2]}</div>
-</div>
-<div className="field field-item4">
-  <div className="field-item-multiline">{remarkProducts[3]}</div>
-</div>
-<div className="field field-item5">
-  <div className="field-item-multiline">{remarkProducts[4]}</div>
-</div>
-<div className="field field-item6">
-  <div className="field-item-multiline">{remarkProducts[5]}</div>
-</div>
-
+            {/* 비고 – 상품명 (최대 2줄) */}
+            <div className="field field-item1">
+              <div className="field-item-multiline">{remarkProducts[0]}</div>
+            </div>
+            <div className="field field-item2">
+              <div className="field-item-multiline">{remarkProducts[1]}</div>
+            </div>
+            <div className="field field-item3">
+              <div className="field-item-multiline">{remarkProducts[2]}</div>
+            </div>
+            <div className="field field-item4">
+              <div className="field-item-multiline">{remarkProducts[3]}</div>
+            </div>
+            <div className="field field-item5">
+              <div className="field-item-multiline">{remarkProducts[4]}</div>
+            </div>
+            <div className="field field-item6">
+              <div className="field-item-multiline">{remarkProducts[5]}</div>
+            </div>
 
             {/* 송출 개시 (각 행별, 상품명 있을 때만 date 타입) */}
             <div className="field field-start1">
