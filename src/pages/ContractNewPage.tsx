@@ -60,7 +60,6 @@ const ContractNewPage: React.FC = () => {
   const contractPrefill = (location?.state && location.state.contractPrefill) || {};
 
   const productName: string = contractPrefill.productName ?? "";
-  const hasProduct = !!productName;
   const baseAmount: number | undefined =
     typeof contractPrefill.baseAmount === "number" && Number.isFinite(contractPrefill.baseAmount)
       ? contractPrefill.baseAmount
@@ -213,7 +212,7 @@ const ContractNewPage: React.FC = () => {
     font-family: "Pretendard", -apple-system, BlinkMacSystemFont, system-ui,
       "Segoe UI", sans-serif;
     color: #111827;
-    font-size: 10px;
+    font-size: 11px;
     line-height: 1.4;
   }
 
@@ -247,7 +246,7 @@ const ContractNewPage: React.FC = () => {
     position: absolute;
     background: transparent;
     color: #111827;
-    font-size: 10px;
+    font-size: 11px;
     padding: 0 2px;
     box-sizing: border-box;
     z-index: 1;
@@ -610,7 +609,7 @@ const ContractNewPage: React.FC = () => {
             <div className="field field-start1">
               <input
                 className="field-input"
-                type={hasProduct ? "date" : "text"}
+                type="date"
                 value={startDates[0]}
                 onChange={(e) => handleStartChange(0, e.target.value)}
               />
@@ -618,48 +617,48 @@ const ContractNewPage: React.FC = () => {
             <div className="field field-start2">
               <input
                 className="field-input"
-                type={hasProduct ? "date" : "text"}
-                value={startDates[0]}
-                onChange={(e) => handleStartChange(0, e.target.value)}
+                type="date"
+                value={startDates[1]}
+                onChange={(e) => handleStartChange(1, e.target.value)}
               />
             </div>
             <div className="field field-start3">
               <input
                 className="field-input"
-                type={hasProduct ? "date" : "text"}
-                value={startDates[0]}
-                onChange={(e) => handleStartChange(0, e.target.value)}
+                type="date"
+                value={startDates[2]}
+                onChange={(e) => handleStartChange(2, e.target.value)}
               />
             </div>
             <div className="field field-start4">
               <input
                 className="field-input"
-                type={hasProduct ? "date" : "text"}
-                value={startDates[0]}
-                onChange={(e) => handleStartChange(0, e.target.value)}
+                type="date"
+                value={startDates[3]}
+                onChange={(e) => handleStartChange(3, e.target.value)}
               />
             </div>
             <div className="field field-start5">
               <input
                 className="field-input"
-                type={hasProduct ? "date" : "text"}
-                value={startDates[0]}
-                onChange={(e) => handleStartChange(0, e.target.value)}
+                type="date"
+                value={startDates[4]}
+                onChange={(e) => handleStartChange(4, e.target.value)}
               />
             </div>
             <div className="field field-start6">
               <input
                 className="field-input"
-                type={hasProduct ? "date" : "text"}
-                value={startDates[0]}
-                onChange={(e) => handleStartChange(0, e.target.value)}
+                type="date"
+                value={startDates[5]}
+                onChange={(e) => handleStartChange(5, e.target.value)}
               />
             </div>
 
             <div className="field field-end1">
               <input
                 className="field-input"
-                type={hasProduct ? "date" : "text"}
+                type="date"
                 value={endDates[0]}
                 onChange={(e) => handleEndChange(0, e.target.value)}
               />
@@ -667,41 +666,41 @@ const ContractNewPage: React.FC = () => {
             <div className="field field-end2">
               <input
                 className="field-input"
-                type={hasProduct ? "date" : "text"}
-                value={endDates[0]}
-                onChange={(e) => handleEndChange(0, e.target.value)}
+                type="date"
+                value={endDates[1]}
+                onChange={(e) => handleEndChange(1, e.target.value)}
               />
             </div>
             <div className="field field-end3">
               <input
                 className="field-input"
-                type={hasProduct ? "date" : "text"}
-                value={endDates[0]}
-                onChange={(e) => handleEndChange(0, e.target.value)}
+                type="date"
+                value={endDates[2]}
+                onChange={(e) => handleEndChange(2, e.target.value)}
               />
             </div>
             <div className="field field-end4">
               <input
                 className="field-input"
-                type={hasProduct ? "date" : "text"}
-                value={endDates[0]}
-                onChange={(e) => handleEndChange(0, e.target.value)}
+                type="date"
+                value={endDates[3]}
+                onChange={(e) => handleEndChange(3, e.target.value)}
               />
             </div>
             <div className="field field-end5">
               <input
                 className="field-input"
-                type={hasProduct ? "date" : "text"}
-                value={endDates[0]}
-                onChange={(e) => handleEndChange(0, e.target.value)}
+                type="date"
+                value={endDates[4]}
+                onChange={(e) => handleEndChange(4, e.target.value)}
               />
             </div>
             <div className="field field-end6">
               <input
                 className="field-input"
-                type={hasProduct ? "date" : "text"}
-                value={endDates[0]}
-                onChange={(e) => handleEndChange(0, e.target.value)}
+                type="date"
+                value={endDates[5]}
+                onChange={(e) => handleEndChange(5, e.target.value)}
               />
             </div>
 
