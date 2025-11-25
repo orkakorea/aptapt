@@ -489,21 +489,6 @@ const ContractNewPage: React.FC = () => {
   .field-apt5 { left: 44.3626%; top: 55.4615%; width: 50.9915%; height: 3.0769%; }
   .field-apt6 { left: 44.3626%; top: 59.2308%; width: 50.9915%; height: 3.0769%; }
 
-  /* 비고 영역 상품명: 줄바꿈 허용 (행이 짧으면 다음 줄로) */
-  .field-item1 .field-textarea-item,
-  .field-item2 .field-textarea-item,
-  .field-item3 .field-textarea-item,
-  .field-item4 .field-textarea-item,
-  .field-item5 .field-textarea-item,
-  .field-item6 .field-textarea-item {
-    white-space: normal;        /* 한 줄 고정 해제 */
-    overflow-wrap: break-word;  /* 단어가 길면 줄바꿈 */
-    word-break: keep-all;       /* 한글은 단어 단위로 */
-    line-height: 1.2;
-    padding-top: 2px;
-    padding-bottom: 2px;
-  }
-
   /* 하단 계약 담당자/고객 영역 */
   .field-contractManager { left: 85.8357%; top: 82.3462%; width: 9.6317%; height: 1.1538%; }
   .field-contact2 { left: 85.8357%; top: 83.8077%; width: 9.6317%; height: 1.1538%; }
