@@ -489,6 +489,21 @@ const ContractNewPage: React.FC = () => {
   .field-apt5 { left: 44.3626%; top: 55.4615%; width: 50.9915%; height: 3.0769%; }
   .field-apt6 { left: 44.3626%; top: 59.2308%; width: 50.9915%; height: 3.0769%; }
 
+  /* 비고 상품명: 최대 2줄 표시, 나머지는 숨김 */
+  .field-item-multiline {
+    width: 100%;
+    height: 100%;
+    font-size: 11px;
+    font-family: inherit;
+    line-height: 1.1;
+    white-space: normal;        /* 줄바꿈 허용 */
+    overflow: hidden;
+    display: -webkit-box;       /* 2줄 클램프용 */
+    -webkit-line-clamp: 2;      /* 최대 2줄 */
+    -webkit-box-orient: vertical;
+    word-break: keep-all;       /* 한글 단어 단위 줄바꿈 */
+  }
+
   /* 하단 계약 담당자/고객 영역 */
   .field-contractManager { left: 85.8357%; top: 82.3462%; width: 9.6317%; height: 1.1538%; }
   .field-contact2 { left: 85.8357%; top: 83.8077%; width: 9.6317%; height: 1.1538%; }
@@ -715,25 +730,26 @@ const ContractNewPage: React.FC = () => {
               />
             </div>
 
-            {/* 비고 – 상품명 / 단지명 */}
-            <div className="field field-item1">
-              <textarea className="field-textarea field-textarea-item" readOnly defaultValue={remarkProducts[0]} />
-            </div>
-            <div className="field field-item2">
-              <textarea className="field-textarea field-textarea-item" readOnly defaultValue={remarkProducts[1]} />
-            </div>
-            <div className="field field-item3">
-              <textarea className="field-textarea field-textarea-item" readOnly defaultValue={remarkProducts[2]} />
-            </div>
-            <div className="field field-item4">
-              <textarea className="field-textarea field-textarea-item" readOnly defaultValue={remarkProducts[3]} />
-            </div>
-            <div className="field field-item5">
-              <textarea className="field-textarea field-textarea-item" readOnly defaultValue={remarkProducts[4]} />
-            </div>
-            <div className="field field-item6">
-              <textarea className="field-textarea field-textarea-item" readOnly defaultValue={remarkProducts[5]} />
-            </div>
+{/* 비고 – 상품명 (최대 2줄) */}
+<div className="field field-item1">
+  <div className="field-item-multiline">{remarkProducts[0]}</div>
+</div>
+<div className="field field-item2">
+  <div className="field-item-multiline">{remarkProducts[1]}</div>
+</div>
+<div className="field field-item3">
+  <div className="field-item-multiline">{remarkProducts[2]}</div>
+</div>
+<div className="field field-item4">
+  <div className="field-item-multiline">{remarkProducts[3]}</div>
+</div>
+<div className="field field-item5">
+  <div className="field-item-multiline">{remarkProducts[4]}</div>
+</div>
+<div className="field field-item6">
+  <div className="field-item-multiline">{remarkProducts[5]}</div>
+</div>
+
 
             {/* 송출 개시 (각 행별, 상품명 있을 때만 date 타입) */}
             <div className="field field-start1">
