@@ -59,7 +59,12 @@ const ContractNewPage: React.FC = () => {
   // ============================
   const contractPrefill = (location?.state && location.state.contractPrefill) || {};
 
-  const productName: string = contractPrefill.productName ?? "";
+  // 원본 상품명 (예: "ELEVATOR TV 외 11건")
+  const rawProductName: string = contractPrefill.productName ?? "";
+
+  // 1개일 땐 그대로, "ELEVATOR TV 외 11건"일 땐 "ELEVATOR TV 외" 로 변환
+  const productName: string = rawProductName.replace(/\s*외\s*\d+\s*건?$/, " 외").trim();
+
   const baseAmount: number | undefined =
     typeof contractPrefill.baseAmount === "number" && Number.isFinite(contractPrefill.baseAmount)
       ? contractPrefill.baseAmount
@@ -98,7 +103,7 @@ const ContractNewPage: React.FC = () => {
   while (remarkApts.length < 6) remarkApts.push("");
 
   const aptLines: string[] = remarkApts;
-
+  const [companyName, setCompanyName] = useState("");
   const hasRowProduct = (index: number) => {
     const txt = remarkProducts[index];
     return !!(txt && txt.trim().length > 0);
@@ -355,6 +360,39 @@ const ContractNewPage: React.FC = () => {
   /* ===== 좌표: 원본 PNG 1765 x 2600 기준 → % 변환 ===== */
 
   /* 광고주 정보 + 상단 계약 정보 */
+    /* === 정렬 규칙 === */
+
+  /* 1. 광고주 정보 영역: 가운데 정렬 */
+  .field-company .field-input,
+  .field-ceo .field-input,
+  .field-bizno .field-input,
+  .field-manager .field-input,
+  .field-email .field-input,
+  .field-phone1 .field-input,
+  .field-biztype .field-input,
+  .field-address .field-input {
+    text-align: center;
+  }
+
+  /* 2. 브랜드명 / 상품명도 가운데 정렬 */
+  .field-brand .field-input,
+  .field-productName .field-input {
+    text-align: center;
+  }
+
+  /* 3. 그 외 계약내용 + 결제정보 숫자/날짜 필드: 우측 정렬 */
+  .field-baseAmount .field-input,
+  .field-qty .field-input,
+  .field-contractAmt1 .field-input,
+  .field-period .field-input,
+  .field-prodFee .field-input,
+  .field-contractAmt2 .field-input,
+  .field-finalQuote .field-input,
+  .field-billDate .field-input,
+  .field-paidDate .field-input {
+    text-align: right;
+  }
+
   .field-company { left: 21.5297%; top: 9.6154%; width: 28.3286%; height: 1.1538%; }
   .field-ceo { left: 60.6232%; top: 9.6154%; width: 28.3286%; height: 1.1538%; }
   .field-bizno { left: 21.5297%; top: 11.4615%; width: 28.3286%; height: 1.1538%; }
@@ -496,7 +534,7 @@ const ContractNewPage: React.FC = () => {
 
             {/* 광고주 정보 */}
             <div className="field field-company">
-              <input className="field-input" />
+              <input className="field-input" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
             </div>
             <div className="field field-ceo">
               <input className="field-input" />
@@ -568,7 +606,7 @@ const ContractNewPage: React.FC = () => {
 
             {/* 광고기간: 최장 기간 하나만 표시, 수정 가능 */}
             <div className="field field-period">
-              <input className="field-input" defaultValue={adMonths ? `${adMonths}개월` : ""} />
+              <input className="field-input" defaultValue={adMonths ? String(adMonths) : ""} />
             </div>
 
             {/* 제작비 */}
@@ -815,7 +853,7 @@ const ContractNewPage: React.FC = () => {
               <input className="field-input" type="date" defaultValue={todayISO} />
             </div>
             <div className="field field-contractCustomer">
-              <input className="field-input" placeholder="계약 고객 (상호명 자동)" readOnly />
+              <input className="field-input" readOnly value={companyName} />
             </div>
 
             <div className="field field-cb7 field-checkbox">
