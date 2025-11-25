@@ -360,6 +360,30 @@ const ContractNewPage: React.FC = () => {
   /* ===== 좌표: 원본 PNG 1765 x 2600 기준 → % 변환 ===== */
 
   /* 광고주 정보 + 상단 계약 정보 */
+  
+    /* === 계약금액 리셋 버튼 필드 === */
+  .field-contractAmtReset {
+    left: 88.3853%;   /* 1560 / 1765 * 100 */
+    top: 25.3077%;    /* 658 / 2600 * 100 */
+    width: 1.6997%;   /* 30 / 1765 * 100 */
+    height: 1.1538%;  /* 30 / 2600 * 100 */
+  }
+
+  .field-reset-btn {
+    width: 100%;
+    height: 100%;
+    border: none;
+    outline: none;
+    background: #FFF6BC;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    font-family: inherit;
+    cursor: pointer;
+    padding: 0;
+  }
+
     /* === 정렬 규칙 === */
 
   /* 1. 광고주 정보 영역: 가운데 정렬 */
@@ -602,6 +626,17 @@ const ContractNewPage: React.FC = () => {
                 value={contractAmountDisplay}
                 onChange={(e) => setContractAmountValue(parseNumber(e.target.value))}
               />
+            </div>
+            {/* 계약금액 리셋 버튼 (1560,658,30,30) */}
+            <div className="field field-contractAmtReset">
+              <button
+                type="button"
+                className="field-reset-btn"
+                onClick={() => setContractAmountValue(initialContractAmount)}
+                title="계약금액 원래 값으로 되돌리기"
+              >
+                ↺
+              </button>
             </div>
 
             {/* 광고기간: 최장 기간 하나만 표시, 수정 가능 */}
