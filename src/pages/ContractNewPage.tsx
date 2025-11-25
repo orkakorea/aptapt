@@ -99,6 +99,11 @@ const ContractNewPage: React.FC = () => {
 
   const aptLines: string[] = remarkApts;
 
+  const hasRowProduct = (index: number) => {
+    const txt = remarkProducts[index];
+    return !!(txt && txt.trim().length > 0);
+  };
+
   // 숫자 포맷 (쉼표만, "원" 없음)
   const fmtNumberPlain = (n?: number) =>
     typeof n === "number" && Number.isFinite(n) && n > 0 ? n.toLocaleString() : "";
@@ -141,32 +146,64 @@ const ContractNewPage: React.FC = () => {
   const [startDates, setStartDates] = useState<string[]>(Array(6).fill(""));
   const [endDates, setEndDates] = useState<string[]>(Array(6).fill(""));
 
-  const handleStartChange = (index: number, value: string) => {
-    setStartDates((prev) => {
-      const next = [...prev];
-      next[index] = value;
-      return next;
-    });
+  // 1~4번 요구사항용: 첫 번째 송출개시 일괄 적용 여부
+  const [applyFirstStartToAll, setApplyFirstStartToAll] = useState<boolean>(true); // 기본 체크 ON
 
-    if (!value || !adMonths || adMonths <= 0) return;
-
-    const prodNameForRow = remarkProducts[index] || productName;
+  const recalcEndForRow = (rowIndex: number, startISO: string): string => {
+    if (!startISO || !adMonths || adMonths <= 0) return "";
+    const rowProd = remarkProducts[rowIndex];
+    const prodNameForRow = rowProd && rowProd.trim().length > 0 ? rowProd : productName;
     const isElevator = isElevatorProduct(prodNameForRow);
-    const endISO = isElevator ? addWeeksInclusive(value, adMonths) : addMonthsInclusive(value, adMonths);
+    return isElevator ? addWeeksInclusive(startISO, adMonths) : addMonthsInclusive(startISO, adMonths);
+  };
 
-    setEndDates((prev) => {
-      const next = [...prev];
-      next[index] = endISO;
-      return next;
-    });
+  const handleStartChange = (index: number, value: string) => {
+    // 3/4번: 체크박스가 체크되어 있고, 첫 번째 행을 수정한 경우 → 아래 행들 일괄 적용
+    if (applyFirstStartToAll && index === 0) {
+      const newStarts = [...startDates];
+      const newEnds = [...endDates];
+
+      newStarts[0] = value;
+      newEnds[0] = value && adMonths ? recalcEndForRow(0, value) : "";
+
+      if (value && adMonths && adMonths > 0) {
+        for (let i = 1; i < 6; i++) {
+          if (!hasRowProduct(i)) continue; // 4번: 상품명이 있을 때만
+          newStarts[i] = value;
+          newEnds[i] = recalcEndForRow(i, value);
+        }
+      } else {
+        // 시작일이 비워진 경우, 아래 행들도 시작/종료를 비워줌
+        for (let i = 1; i < 6; i++) {
+          if (!hasRowProduct(i)) continue;
+          newStarts[i] = "";
+          newEnds[i] = "";
+        }
+      }
+
+      setStartDates(newStarts);
+      setEndDates(newEnds);
+      return;
+    }
+
+    // 체크해제거나 1행이 아닌 경우 → 개별 행만 처리
+    const newStarts = [...startDates];
+    newStarts[index] = value;
+    setStartDates(newStarts);
+
+    const newEnds = [...endDates];
+    if (!value || !adMonths || adMonths <= 0) {
+      newEnds[index] = "";
+    } else {
+      newEnds[index] = recalcEndForRow(index, value);
+    }
+    setEndDates(newEnds);
   };
 
   const handleEndChange = (index: number, value: string) => {
-    setEndDates((prev) => {
-      const next = [...prev];
-      next[index] = value;
-      return next;
-    });
+    const newEnds = [...endDates];
+    newEnds[index] = value;
+    setEndDates(newEnds);
   };
 
   return (
@@ -351,6 +388,9 @@ const ContractNewPage: React.FC = () => {
   .field-cb5 { left: 21.5297%; top: 34.3077%; width: 1.6997%; height: 1.1538%; }
   .field-cb6 { left: 26.9122%; top: 34.3077%; width: 1.6997%; height: 1.1538%; }
 
+  /* ✅ 신규 체크박스: 첫 행 송출개시 일괄적용 여부 */
+  .field-cb9 { left: 30.3683%; top: 38.8462%; width: 1.6997%; height: 1.1538%; }
+
   /* 회차1/회차2 (수기입력) */
   .field-round1 { left: 31.3881%; top: 32.5000%; width: 4.5326%; height: 1.1538%; }
   .field-round2 { left: 31.3881%; top: 34.3077%; width: 4.5326%; height: 1.1538%; }
@@ -445,7 +485,7 @@ const ContractNewPage: React.FC = () => {
           ← 이전 화면으로
         </button>
         <button type="button" className="primary" onClick={handlePrint}>
-          계약서 PDF로 저장
+          계약서 인쇄 / PDF 저장
         </button>
       </div>
 
@@ -570,6 +610,15 @@ const ContractNewPage: React.FC = () => {
               <input type="checkbox" />
             </div>
 
+            {/* ✅ 신규 체크박스: 첫 번째 송출개시 → 아래 행 일괄 변경 */}
+            <div className="field field-cb9 field-checkbox">
+              <input
+                type="checkbox"
+                checked={applyFirstStartToAll}
+                onChange={(e) => setApplyFirstStartToAll(e.target.checked)}
+              />
+            </div>
+
             {/* 회차1 / 회차2 */}
             <div className="field field-round1">
               <input className="field-input" />
@@ -605,11 +654,11 @@ const ContractNewPage: React.FC = () => {
               <input className="field-input" readOnly defaultValue={remarkProducts[5]} />
             </div>
 
-            {/* 송출 개시 (달력), 종료(자동 계산 + 수정 가능) */}
+            {/* 송출 개시 (각 행별, 상품명 있을 때만 date 타입) */}
             <div className="field field-start1">
               <input
                 className="field-input"
-                type="date"
+                type={hasRowProduct(0) ? "date" : "text"}
                 value={startDates[0]}
                 onChange={(e) => handleStartChange(0, e.target.value)}
               />
@@ -617,7 +666,7 @@ const ContractNewPage: React.FC = () => {
             <div className="field field-start2">
               <input
                 className="field-input"
-                type="date"
+                type={hasRowProduct(1) ? "date" : "text"}
                 value={startDates[1]}
                 onChange={(e) => handleStartChange(1, e.target.value)}
               />
@@ -625,7 +674,7 @@ const ContractNewPage: React.FC = () => {
             <div className="field field-start3">
               <input
                 className="field-input"
-                type="date"
+                type={hasRowProduct(2) ? "date" : "text"}
                 value={startDates[2]}
                 onChange={(e) => handleStartChange(2, e.target.value)}
               />
@@ -633,7 +682,7 @@ const ContractNewPage: React.FC = () => {
             <div className="field field-start4">
               <input
                 className="field-input"
-                type="date"
+                type={hasRowProduct(3) ? "date" : "text"}
                 value={startDates[3]}
                 onChange={(e) => handleStartChange(3, e.target.value)}
               />
@@ -641,7 +690,7 @@ const ContractNewPage: React.FC = () => {
             <div className="field field-start5">
               <input
                 className="field-input"
-                type="date"
+                type={hasRowProduct(4) ? "date" : "text"}
                 value={startDates[4]}
                 onChange={(e) => handleStartChange(4, e.target.value)}
               />
@@ -649,16 +698,17 @@ const ContractNewPage: React.FC = () => {
             <div className="field field-start6">
               <input
                 className="field-input"
-                type="date"
+                type={hasRowProduct(5) ? "date" : "text"}
                 value={startDates[5]}
                 onChange={(e) => handleStartChange(5, e.target.value)}
               />
             </div>
 
+            {/* 송출 종료 (자동 계산 + 수정 가능, 행별 상품명 기준) */}
             <div className="field field-end1">
               <input
                 className="field-input"
-                type="date"
+                type={hasRowProduct(0) ? "date" : "text"}
                 value={endDates[0]}
                 onChange={(e) => handleEndChange(0, e.target.value)}
               />
@@ -666,7 +716,7 @@ const ContractNewPage: React.FC = () => {
             <div className="field field-end2">
               <input
                 className="field-input"
-                type="date"
+                type={hasRowProduct(1) ? "date" : "text"}
                 value={endDates[1]}
                 onChange={(e) => handleEndChange(1, e.target.value)}
               />
@@ -674,7 +724,7 @@ const ContractNewPage: React.FC = () => {
             <div className="field field-end3">
               <input
                 className="field-input"
-                type="date"
+                type={hasRowProduct(2) ? "date" : "text"}
                 value={endDates[2]}
                 onChange={(e) => handleEndChange(2, e.target.value)}
               />
@@ -682,7 +732,7 @@ const ContractNewPage: React.FC = () => {
             <div className="field field-end4">
               <input
                 className="field-input"
-                type="date"
+                type={hasRowProduct(3) ? "date" : "text"}
                 value={endDates[3]}
                 onChange={(e) => handleEndChange(3, e.target.value)}
               />
@@ -690,7 +740,7 @@ const ContractNewPage: React.FC = () => {
             <div className="field field-end5">
               <input
                 className="field-input"
-                type="date"
+                type={hasRowProduct(4) ? "date" : "text"}
                 value={endDates[4]}
                 onChange={(e) => handleEndChange(4, e.target.value)}
               />
@@ -698,7 +748,7 @@ const ContractNewPage: React.FC = () => {
             <div className="field field-end6">
               <input
                 className="field-input"
-                type="date"
+                type={hasRowProduct(5) ? "date" : "text"}
                 value={endDates[5]}
                 onChange={(e) => handleEndChange(5, e.target.value)}
               />
