@@ -429,13 +429,7 @@ const ContractNewPage: React.FC = () => {
         </div>
 
         {/* 아래 텍스트/약관 영역 – 나중에 실제 약관 텍스트로 교체 */}
-        <div className="contract-bottom">
-          <div className="contract-bottom-title">이용약관 · 개인정보 동의 · 서명 영역</div>
-          <div>
-            이 영역에는 약관 전문, 개인정보 수집·이용 동의, 제3자 제공 동의, 계약담당자/계약고객 서명 안내 문구 등을
-            텍스트 또는 표 형식으로 배치하면 돼. (다음 단계에서 실제 문구를 채워 넣자)
-          </div>
-        </div>
+        <div className="contract-bottom"></div>
       </div>
     </div>
   );
