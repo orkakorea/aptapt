@@ -163,8 +163,8 @@ const ContractNewPage: React.FC = () => {
   .field-brand { left: 21.5297%; top: 19.7308%; width: 67.4221%; height: 1.1538%; }
   .field-productName { left: 21.5297%; top: 21.5769%; width: 67.4221%; height: 1.1538%; }
 
-  .field-drop1 { left: 21.5297%; top: 23.4231%; width: 9.8584%; height: 1.1538%; }
-  .field-drop2 { left: 37.9037%; top: 23.4231%; width: 8.0453%; height: 1.1538%; }
+  .field-drop1 { left: 21.5297%; top: 24.4231%; width: 9.8584%; height: 1.1538%; }
+  .field-drop2 { left: 37.9037%; top: 24.4231%; width: 8.0453%; height: 1.1538%; }
   .field-baseAmount { left: 65.6657%; top: 23.4231%; width: 20.5666%; height: 1.1538%; }
 
   .field-qty { left: 21.5297%; top: 25.2692%; width: 24.4193%; height: 1.1538%; }
@@ -186,7 +186,7 @@ const ContractNewPage: React.FC = () => {
 
   /* 회차1/회차2 (수기입력) */
   .field-round1 { left: 31.3881%; top: 32.5000%; width: 4.5326%; height: 1.1538%; }
-  .field-round2 { left: 50.0850%; top: 34.3077%; width: 4.5326%; height: 1.1538%; }
+  .field-round2 { left: 31.3881%; top: 34.3077%; width: 4.5326%; height: 1.1538%; }
 
   .field-billDate { left: 61.3598%; top: 32.5000%; width: 24.9292%; height: 1.1538%; }
   .field-paidDate { left: 61.3598%; top: 34.3077%; width: 24.9292%; height: 1.1538%; }
@@ -319,7 +319,7 @@ const ContractNewPage: React.FC = () => {
               <input className="field-input" />
             </div>
             <div className="field field-productName">
-              <input className="field-input" placeholder="상품명 (견적서에서 자동)" readOnly />
+              <input className="field-input" readOnly />
             </div>
 
             <div className="field field-drop1">
@@ -332,8 +332,8 @@ const ContractNewPage: React.FC = () => {
             </div>
             <div className="field field-drop2">
               <select className="field-select" defaultValue="">
-                <option value="">0.5</option>
-                <option value="1">1</option>
+                <option value="">1</option>
+                <option value="1">0.5</option>
                 <option value="2">2</option>
               </select>
             </div>
