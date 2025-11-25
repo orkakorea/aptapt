@@ -1,6 +1,7 @@
 // src/components/QuoteModal.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 import InquiryModal from "./InquiryModal";
 
 /** =========================
@@ -185,6 +186,7 @@ export default function QuoteModal({
 
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [inquiryOpen, setInquiryOpen] = useState(false); // 견적 하단 CTA → 구좌문의 모달
+  const navigate = useNavigate();
 
   // 워터마크 스타일 (대각선, 작고 빽빽)
   const watermarkStyle = useMemo<React.CSSProperties>(() => {
@@ -261,8 +263,54 @@ export default function QuoteModal({
       count: items?.length ?? 0,
     };
 
-    return { rows, subtotal, vat, total, totals };
+    // 기준금액 합계 (baseTotal 합)
+    const baseSubtotal = rows.reduce((s, r) => s + r.baseTotal, 0);
+
+    // 상품별 단지 그룹화
+    const productMap = new Map<string, { productName: string; aptNames: string[] }>();
+    (items ?? []).forEach((it) => {
+      const productName = (it.mediaName || "상품 미지정").trim();
+      const key = productName;
+      const existing = productMap.get(key);
+      if (existing) {
+        existing.aptNames.push(it.name);
+      } else {
+        productMap.set(key, { productName, aptNames: [it.name] });
+      }
+    });
+    const productGroups = Array.from(productMap.values());
+
+    // 옵션 B: 상품명 요약
+    let productSummary = "";
+    if (productGroups.length === 1) {
+      productSummary = productGroups[0].productName;
+    } else if (productGroups.length > 1) {
+      productSummary = `${productGroups[0].productName} 외 ${productGroups.length - 1}건`;
+    }
+
+    // 계약단지명: 상품별 단지 목록 문자열 (최대 6줄)
+    const contractAptLines = productGroups.slice(0, 6).map((g) => {
+      const uniqueApts = Array.from(new Set(g.aptNames));
+      return `${g.productName}: ${uniqueApts.join(", ")}`;
+    });
+
+    return { rows, subtotal, vat, total, totals, baseSubtotal, productSummary, contractAptLines };
   }, [items, vatRate]);
+
+  // 계약서 페이지로 넘길 프리필 데이터
+  const contractPrefill = {
+    productName: computed.productSummary, // 옵션 B 요약 상품명
+    baseAmount: computed.baseSubtotal, // 기준금액 합계
+    contractAmount: computed.subtotal, // 계약금액(할인 후, VAT 별도)
+    monitorCount: computed.totals.monitors, // 모니터 수량 총합
+    contractAptLines: computed.contractAptLines, // 상품별 단지 목록 문자열 배열
+  };
+
+  const handleGoContract = () => {
+    navigate("/contracts/new", {
+      state: { contractPrefill },
+    });
+  };
 
   // InquiryModal에 넘길 prefill 생성 (InquiryModal.pickCartTotal과 호환)
   const inquiryPrefill = useMemo(() => {
@@ -329,7 +377,13 @@ export default function QuoteModal({
               {/* 헤더 */}
               <div className="px-6 py-5 border-b border-[#E5E7EB] flex items-start justify-between sticky top-0 bg-white/95 backdrop-blur rounded-t-2xl">
                 <div>
-                  <div className="text-lg font-bold text-black">{title}</div>
+                  <button
+                    type="button"
+                    onClick={handleGoContract}
+                    className="text-lg font-bold text-black bg-transparent border-none p-0 cursor-pointer hover:text-[#6C2DFF] hover:underline"
+                  >
+                    {title}
+                  </button>
                   <div className="text-sm text-[#6B7280] mt-1">{subtitle}</div>
                 </div>
                 <button
