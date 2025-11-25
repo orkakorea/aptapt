@@ -717,22 +717,22 @@ const ContractNewPage: React.FC = () => {
 
             {/* 비고 – 상품명 / 단지명 */}
             <div className="field field-item1">
-              <input className="field-input" readOnly defaultValue={remarkProducts[0]} />
+              <textarea className="field-textarea field-textarea-item" readOnly defaultValue={remarkProducts[0]} />
             </div>
             <div className="field field-item2">
-              <input className="field-input" readOnly defaultValue={remarkProducts[1]} />
+              <textarea className="field-textarea field-textarea-item" readOnly defaultValue={remarkProducts[1]} />
             </div>
             <div className="field field-item3">
-              <input className="field-input" readOnly defaultValue={remarkProducts[2]} />
+              <textarea className="field-textarea field-textarea-item" readOnly defaultValue={remarkProducts[2]} />
             </div>
             <div className="field field-item4">
-              <input className="field-input" readOnly defaultValue={remarkProducts[3]} />
+              <textarea className="field-textarea field-textarea-item" readOnly defaultValue={remarkProducts[3]} />
             </div>
             <div className="field field-item5">
-              <input className="field-input" readOnly defaultValue={remarkProducts[4]} />
+              <textarea className="field-textarea field-textarea-item" readOnly defaultValue={remarkProducts[4]} />
             </div>
             <div className="field field-item6">
-              <input className="field-input" readOnly defaultValue={remarkProducts[5]} />
+              <textarea className="field-textarea field-textarea-item" readOnly defaultValue={remarkProducts[5]} />
             </div>
 
             {/* 송출 개시 (각 행별, 상품명 있을 때만 date 타입) */}
