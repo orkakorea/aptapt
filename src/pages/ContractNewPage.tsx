@@ -1,18 +1,62 @@
 // src/pages/ContractNewPage.tsx
 import React from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 
 // 계약서 템플릿 PNG 경로
 const TEMPLATE_URL = "/products/orka-contract-top.png";
 
 const ContractNewPage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation() as any;
 
   const handlePrint = () => {
     window.print();
   };
 
   const todayISO = new Date().toISOString().slice(0, 10);
+
+  // ============================
+  // 견적서(QuoteModal)에서 넘어온 값 읽기
+  // ============================
+  const contractPrefill = (location?.state && location.state.contractPrefill) || {};
+
+  const productName: string = contractPrefill.productName ?? "";
+  const baseAmount: number | undefined =
+    typeof contractPrefill.baseAmount === "number" && Number.isFinite(contractPrefill.baseAmount)
+      ? contractPrefill.baseAmount
+      : undefined;
+  const contractAmount: number | undefined =
+    typeof contractPrefill.contractAmount === "number" && Number.isFinite(contractPrefill.contractAmount)
+      ? contractPrefill.contractAmount
+      : undefined;
+  const monitorCount: number | undefined =
+    typeof contractPrefill.monitorCount === "number" && Number.isFinite(contractPrefill.monitorCount)
+      ? contractPrefill.monitorCount
+      : undefined;
+
+  const contractAptLinesRaw: string[] = Array.isArray(contractPrefill.contractAptLines)
+    ? (contractPrefill.contractAptLines as string[])
+    : [];
+
+  // 최대 6줄까지 사용 (apt1 ~ apt6)
+  const aptLines: string[] = Array.from({ length: 6 }).map((_, idx) => contractAptLinesRaw[idx] ?? "");
+
+  // 숫자 포맷 (쉼표만, "원"은 넣지 않음)
+  const fmtNumberPlain = (n?: number) =>
+    typeof n === "number" && Number.isFinite(n) && n > 0 ? n.toLocaleString() : "";
+
+  // 계약 단지명 글자 수에 따라 폰트 크기 조절
+  const getAptFontSize = (text: string) => {
+    const len = text?.length ?? 0;
+    if (len === 0) return 11; // 기본
+    if (len > 160) return 7;
+    if (len > 120) return 8;
+    if (len > 80) return 9;
+    if (len > 40) return 10;
+    return 11;
+  };
+
+  const aptFontSizes = aptLines.map((t) => getAptFontSize(t));
 
   return (
     <div className="contract-root">
@@ -330,7 +374,7 @@ const ContractNewPage: React.FC = () => {
               <input className="field-input" />
             </div>
             <div className="field field-productName">
-              <input className="field-input" readOnly />
+              <input className="field-input" readOnly defaultValue={productName} />
             </div>
 
             <div className="field field-drop1">
@@ -350,14 +394,14 @@ const ContractNewPage: React.FC = () => {
             </div>
 
             <div className="field field-baseAmount">
-              <input className="field-input" readOnly />
+              <input className="field-input" readOnly defaultValue={fmtNumberPlain(baseAmount)} />
             </div>
 
             <div className="field field-qty">
-              <input className="field-input" readOnly />
+              <input className="field-input" readOnly defaultValue={fmtNumberPlain(monitorCount)} />
             </div>
             <div className="field field-contractAmt1">
-              <input className="field-input" readOnly />
+              <input className="field-input" readOnly defaultValue={fmtNumberPlain(contractAmount)} />
             </div>
 
             <div className="field field-period">
@@ -368,10 +412,10 @@ const ContractNewPage: React.FC = () => {
             </div>
 
             <div className="field field-contractAmt2">
-              <input className="field-input" readOnly />
+              <input className="field-input" readOnly defaultValue={fmtNumberPlain(contractAmount)} />
             </div>
             <div className="field field-finalQuote">
-              <input className="field-input" readOnly />
+              <input className="field-input" readOnly defaultValue={fmtNumberPlain(contractAmount)} />
             </div>
 
             {/* 결제 정보 체크박스 + 회차 */}
@@ -470,22 +514,52 @@ const ContractNewPage: React.FC = () => {
 
             {/* 계약 단지명 */}
             <div className="field field-apt1">
-              <textarea className="field-textarea" readOnly />
+              <textarea
+                className="field-textarea"
+                readOnly
+                defaultValue={aptLines[0]}
+                style={{ fontSize: aptFontSizes[0] }}
+              />
             </div>
             <div className="field field-apt2">
-              <textarea className="field-textarea" readOnly />
+              <textarea
+                className="field-textarea"
+                readOnly
+                defaultValue={aptLines[1]}
+                style={{ fontSize: aptFontSizes[1] }}
+              />
             </div>
             <div className="field field-apt3">
-              <textarea className="field-textarea" readOnly />
+              <textarea
+                className="field-textarea"
+                readOnly
+                defaultValue={aptLines[2]}
+                style={{ fontSize: aptFontSizes[2] }}
+              />
             </div>
             <div className="field field-apt4">
-              <textarea className="field-textarea" readOnly />
+              <textarea
+                className="field-textarea"
+                readOnly
+                defaultValue={aptLines[3]}
+                style={{ fontSize: aptFontSizes[3] }}
+              />
             </div>
             <div className="field field-apt5">
-              <textarea className="field-textarea" readOnly />
+              <textarea
+                className="field-textarea"
+                readOnly
+                defaultValue={aptLines[4]}
+                style={{ fontSize: aptFontSizes[4] }}
+              />
             </div>
             <div className="field field-apt6">
-              <textarea className="field-textarea" readOnly />
+              <textarea
+                className="field-textarea"
+                readOnly
+                defaultValue={aptLines[5]}
+                style={{ fontSize: aptFontSizes[5] }}
+              />
             </div>
 
             {/* 하단 계약 담당자 / 고객 */}
