@@ -1,5 +1,5 @@
 // src/pages/ContractNewPage.tsx
-import React from "react";
+import React, { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 
 // 계약서 템플릿 PNG 경로
@@ -25,10 +25,10 @@ const ContractNewPage: React.FC = () => {
     typeof contractPrefill.baseAmount === "number" && Number.isFinite(contractPrefill.baseAmount)
       ? contractPrefill.baseAmount
       : undefined;
-  const contractAmount: number | undefined =
+  const initialContractAmount: number =
     typeof contractPrefill.contractAmount === "number" && Number.isFinite(contractPrefill.contractAmount)
       ? contractPrefill.contractAmount
-      : undefined;
+      : 0;
   const monitorCount: number | undefined =
     typeof contractPrefill.monitorCount === "number" && Number.isFinite(contractPrefill.monitorCount)
       ? contractPrefill.monitorCount
@@ -38,12 +38,51 @@ const ContractNewPage: React.FC = () => {
     ? (contractPrefill.contractAptLines as string[])
     : [];
 
+  // "상품명: 단지1, 단지2..." 형식을 상품명/단지명으로 분리
+  const remarkProducts: string[] = [];
+  const remarkApts: string[] = [];
+  contractAptLinesRaw.slice(0, 6).forEach((line) => {
+    if (!line) {
+      remarkProducts.push("");
+      remarkApts.push("");
+      return;
+    }
+    const [prod, rest] = line.split(":");
+    remarkProducts.push((prod ?? "").trim());
+    remarkApts.push((rest ?? "").trim());
+  });
+  // 항상 6줄 채우기
+  while (remarkProducts.length < 6) remarkProducts.push("");
+  while (remarkApts.length < 6) remarkApts.push("");
+
   // 최대 6줄까지 사용 (apt1 ~ apt6)
-  const aptLines: string[] = Array.from({ length: 6 }).map((_, idx) => contractAptLinesRaw[idx] ?? "");
+  const aptLines: string[] = remarkApts;
 
   // 숫자 포맷 (쉼표만, "원"은 넣지 않음)
   const fmtNumberPlain = (n?: number) =>
     typeof n === "number" && Number.isFinite(n) && n > 0 ? n.toLocaleString() : "";
+
+  const parseNumber = (s: string): number => {
+    if (!s) return 0;
+    const cleaned = s.replace(/[^0-9.-]/g, "");
+    if (!cleaned) return 0;
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : 0;
+  };
+
+  // 2) 계약금액: 자동 입력 + 수정 가능한 필드
+  const [contractAmountValue, setContractAmountValue] = useState<number>(initialContractAmount);
+  // 제작비
+  const [prodFeeValue, setProdFeeValue] = useState<number>(0);
+
+  const baseAmountSafe = baseAmount ?? 0;
+  const vatExcludedTotal = baseAmountSafe + (contractAmountValue || 0) + (prodFeeValue || 0);
+  const vatIncludedTotal = vatExcludedTotal > 0 ? Math.round(vatExcludedTotal * 1.1) : 0;
+
+  const contractAmountDisplay = fmtNumberPlain(contractAmountValue);
+  const prodFeeDisplay = fmtNumberPlain(prodFeeValue);
+  const vatExcludedDisplay = fmtNumberPlain(vatExcludedTotal);
+  const vatIncludedDisplay = fmtNumberPlain(vatIncludedTotal);
 
   // 계약 단지명 글자 수에 따라 폰트 크기 조절
   const getAptFontSize = (text: string) => {
@@ -98,8 +137,8 @@ const ContractNewPage: React.FC = () => {
     padding: 16px;
     box-shadow: 0 8px 18px rgba(15, 23, 42, 0.16);
     box-sizing: border-box;
-    font-family: "Malgun Gothic", "Apple SD Gothic Neo", system-ui, -apple-system,
-      BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-family: "Pretendard", -apple-system, BlinkMacSystemFont, system-ui,
+      "Segoe UI", sans-serif;
     color: #111827;
     font-size: 11px;
     line-height: 1.4;
@@ -157,7 +196,7 @@ const ContractNewPage: React.FC = () => {
     padding: 0 4px;
     box-sizing: border-box;
     font-size: 11px;
-    font-family: inherit;
+    font-family: inherit;     /* ← Pretendard 상속 */
     color: #111827;
   }
   /* ===== date 인풋에서 기본 달력 아이콘 숨기기 ===== */
@@ -394,28 +433,43 @@ const ContractNewPage: React.FC = () => {
             </div>
 
             <div className="field field-baseAmount">
-              <input className="field-input" readOnly defaultValue={fmtNumberPlain(baseAmount)} />
+              <input className="field-input" readOnly value={fmtNumberPlain(baseAmount)} />
             </div>
 
             <div className="field field-qty">
               <input className="field-input" readOnly defaultValue={fmtNumberPlain(monitorCount)} />
             </div>
+
+            {/* 2) 계약금액: 자동 입력 + 수정 가능 */}
             <div className="field field-contractAmt1">
-              <input className="field-input" readOnly defaultValue={fmtNumberPlain(contractAmount)} />
+              <input
+                className="field-input"
+                value={contractAmountDisplay}
+                onChange={(e) => setContractAmountValue(parseNumber(e.target.value))}
+              />
             </div>
 
             <div className="field field-period">
               <input className="field-input" />
             </div>
+
+            {/* 제작비 */}
             <div className="field field-prodFee">
-              <input className="field-input" />
+              <input
+                className="field-input"
+                value={prodFeeDisplay}
+                onChange={(e) => setProdFeeValue(parseNumber(e.target.value))}
+              />
             </div>
 
+            {/* 3) 총계약금액 (VAT 별도) = 기준금액 + 계약금액 + 제작비 */}
             <div className="field field-contractAmt2">
-              <input className="field-input" readOnly defaultValue={fmtNumberPlain(contractAmount)} />
+              <input className="field-input" readOnly value={vatExcludedDisplay} style={{ fontWeight: 700 }} />
             </div>
+
+            {/* 4) 총계약금액 (VAT 포함) = VAT 별도 × 1.1 */}
             <div className="field field-finalQuote">
-              <input className="field-input" readOnly defaultValue={fmtNumberPlain(contractAmount)} />
+              <input className="field-input" readOnly value={vatIncludedDisplay} style={{ fontWeight: 700 }} />
             </div>
 
             {/* 결제 정보 체크박스 + 회차 */}
@@ -453,24 +507,24 @@ const ContractNewPage: React.FC = () => {
               <input className="field-input" type="date" />
             </div>
 
-            {/* 비고 – 상품/기간/단지명 */}
+            {/* 비고 – 상품명 / 단지명 */}
             <div className="field field-item1">
-              <input className="field-input" readOnly />
+              <input className="field-input" readOnly defaultValue={remarkProducts[0]} />
             </div>
             <div className="field field-item2">
-              <input className="field-input" readOnly />
+              <input className="field-input" readOnly defaultValue={remarkProducts[1]} />
             </div>
             <div className="field field-item3">
-              <input className="field-input" readOnly />
+              <input className="field-input" readOnly defaultValue={remarkProducts[2]} />
             </div>
             <div className="field field-item4">
-              <input className="field-input" readOnly />
+              <input className="field-input" readOnly defaultValue={remarkProducts[3]} />
             </div>
             <div className="field field-item5">
-              <input className="field-input" readOnly />
+              <input className="field-input" readOnly defaultValue={remarkProducts[4]} />
             </div>
             <div className="field field-item6">
-              <input className="field-input" readOnly />
+              <input className="field-input" readOnly defaultValue={remarkProducts[5]} />
             </div>
 
             {/* 송출 개시 (달력), 종료(자동) */}
@@ -512,7 +566,7 @@ const ContractNewPage: React.FC = () => {
               <input className="field-input" readOnly />
             </div>
 
-            {/* 계약 단지명 */}
+            {/* 계약 단지명 (상품별 단지 리스트) */}
             <div className="field field-apt1">
               <textarea
                 className="field-textarea"
