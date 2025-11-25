@@ -174,7 +174,7 @@ const ContractNewPage: React.FC = () => {
   /* 결제 정보 체크박스 + 날짜 */
   .field-cb1 { left: 11.8414%; top: 32.5385%; width: 1.6997%; height: 1.1538%; }
   .field-cb2 { left: 21.5297%; top: 32.5000%; width: 1.6997%; height: 1.1538%; }
-  .field-cb3 { left: 42.2096%; top: 32.5000%; width: 1.6997%; height: 1.1538%; }
+  .field-cb3 { left: 26.9122%; top: 32.5000%; width: 1.6997%; height: 1.1538%; }
   .field-cb4 { left: 11.8414%; top: 34.3077%; width: 1.6997%; height: 1.1538%; }
   .field-cb5 { left: 21.5297%; top: 34.3077%; width: 1.6997%; height: 1.1538%; }
   .field-cb6 { left: 26.9122%; top: 34.3077%; width: 1.6997%; height: 1.1538%; }
