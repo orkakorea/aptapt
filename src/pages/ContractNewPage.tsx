@@ -316,7 +316,7 @@ const ContractNewPage: React.FC = () => {
 
             {/* 계약 내용 */}
             <div className="field field-brand">
-              <input className="field-input" >
+              <input className="field-input" />
             </div>
             <div className="field field-productName">
               <input className="field-input" placeholder="상품명 (견적서에서 자동)" readOnly />
@@ -333,8 +333,8 @@ const ContractNewPage: React.FC = () => {
             <div className="field field-drop2">
               <select className="field-select" defaultValue="">
                 <option value="">0.5</option>
-                <option value="1">1구좌</option>
-                <option value="2">2구좌</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
               </select>
             </div>
 
