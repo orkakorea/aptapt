@@ -17,11 +17,8 @@ export type PolicyKey = keyof typeof DEFAULT_POLICY;
  * 기본 정책 (PC 버전과 동일)
  * ========================= */
 export const DEFAULT_POLICY = {
+  // ✅ ELEVATOR TV: 사전보상 할인 없음(= precomp 제거)
   "ELEVATOR TV": {
-    precomp: [
-      { min: 1, max: 2, rate: 0.03 },
-      { min: 3, max: 12, rate: 0.05 },
-    ],
     period: [
       { min: 1, max: 2, rate: 0 },
       { min: 3, max: 5, rate: 0.1 },
@@ -29,6 +26,13 @@ export const DEFAULT_POLICY = {
       { min: 12, max: 12, rate: 0.2 },
     ],
   },
+
+  // ✅ 강남/서초/송파 전용: 기간할인 없는 정책 키 (나중에 호출부에서 이 키로 호출)
+  "ELEVATOR TV_NOPD": {
+    // 모든 기간에 할인 0%
+    period: [{ min: 1, max: 12, rate: 0 }],
+  },
+
   TOWNBORD_S: {
     period: [
       { min: 1, max: 2, rate: 0 },
