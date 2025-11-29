@@ -1685,7 +1685,7 @@ export default function MapPage() {
         const dy = t.clientY - lastY;
 
         // 이동 민감도(배율): 숫자를 1.3 ~ 2.0 사이로 조절해도 됨
-        const PAN_SCALE = 1.6;
+        const PAN_SCALE = 10.0;
 
         // 너무 미세한 움직임은 무시 (데드존을 살짝 줄였음)
         if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
