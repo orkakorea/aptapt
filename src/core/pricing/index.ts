@@ -19,7 +19,7 @@ export type PolicyKey = keyof typeof DEFAULT_POLICY;
 export const DEFAULT_POLICY = {
   // ✅ ELEVATOR TV: 사전보상 할인 없음(= precomp는 빈 배열)
   "ELEVATOR TV": {
-    precomp: [], // << 이 줄만 추가
+    precomp: [], // 사전보상 없음
     period: [
       { min: 1, max: 2, rate: 0 },
       { min: 3, max: 5, rate: 0.1 },
@@ -31,11 +31,9 @@ export const DEFAULT_POLICY = {
   // ✅ 강남/서초/송파 전용: 기간할인 없는 정책 키
   "ELEVATOR TV_NOPD": {
     // 사전보상 없음
-    precomp: [], // 없어도 되지만 통일감 위해 넣어두면 좋음
+    precomp: [],
     // 모든 기간에 할인 0%
-    period: [
-      { min: 1, max: 12, rate: 0 },
-    ],
+    period: [{ min: 1, max: 12, rate: 0 }],
   },
 
   TOWNBORD_S: {
@@ -79,7 +77,6 @@ export const DEFAULT_POLICY = {
   },
 } as const satisfies DiscountPolicy;
 
-
 export const POLICY_KEY_NONE = "_NONE" as const;
 
 /* =========================
@@ -100,6 +97,28 @@ export function normPolicyKey(productName?: string): PolicyKey | typeof POLICY_K
   return POLICY_KEY_NONE;
 }
 
+/**
+ * ✅ 주소/구 단위까지 고려한 정책 키 선택
+ * - ELEVATOR TV + (강남구/서초구/송파구)이면 "ELEVATOR TV_NOPD" 로 매핑
+ * - 그 외에는 기존 normPolicyKey 결과 사용
+ */
+export function normPolicyKeyWithRegion(
+  productName?: string,
+  addressOrDistrict?: string | null,
+): PolicyKey | typeof POLICY_KEY_NONE {
+  const base = normPolicyKey(productName);
+  if (!addressOrDistrict) return base;
+
+  if (base === "ELEVATOR TV") {
+    const addr = addressOrDistrict.toString();
+    if (addr.includes("강남구") || addr.includes("서초구") || addr.includes("송파구")) {
+      return "ELEVATOR TV_NOPD";
+    }
+  }
+
+  return base;
+}
+
 /* =========================
  * 구간(rate) 조회
  * ========================= */
@@ -117,6 +136,7 @@ export function rateFromRanges(ranges: RangeRule[] | undefined, value: number): 
  *  - baseMonthly: 기본 월 광고료(정가)
  *  - monthlyFeeY1: 12개월 전용 월가(별도 제공 시)
  *  - sameProductCountInCart: 같은 상품 유형의 카트 수량(사전보상 할인용)
+ *  - addressOrDistrict: "강남구 서초구 송파구 ..." 형태 주소/구 문자열 (선택)
  * 결과:
  *  - monthly: 할인 적용 후 월 광고료(반올림)
  *  - rate: 총 할인율(0~1)
@@ -128,23 +148,29 @@ export function calcMonthlyWithPolicy(
   monthlyFeeY1: number | undefined,
   sameProductCountInCart: number,
   policy: DiscountPolicy = DEFAULT_POLICY,
+  addressOrDistrict?: string | null,
 ): { monthly: number; rate: number } {
   if (!Number.isFinite(baseMonthly) || baseMonthly <= 0) {
     return { monthly: 0, rate: 0 };
   }
 
-  // 12개월 전용 월가가 제공되면 그것을 우선 사용
-  if (months === 12 && Number.isFinite(monthlyFeeY1) && (monthlyFeeY1 as number) > 0) {
-    const y1 = Math.round(monthlyFeeY1 as number);
-    const impliedRate = clamp01(1 - y1 / baseMonthly);
-    return { monthly: y1, rate: impliedRate };
-  }
-
-  const key = normPolicyKey(productName);
+  // ▼ 상품 + 주소 기반으로 정책 키 선택
+  const key =
+    addressOrDistrict != null ? normPolicyKeyWithRegion(productName, addressOrDistrict) : normPolicyKey(productName);
   const rules = key !== POLICY_KEY_NONE ? policy[key] : undefined;
 
   const periodRate = rateFromRanges(rules?.period, months);
   const precompRate = rateFromRanges(rules?.precomp, sameProductCountInCart);
+
+  // ✅ 강남/서초/송파 ELEVATOR TV 전용: 기간할인 없는 정책
+  const isNoPeriodPolicy = key === "ELEVATOR TV_NOPD";
+
+  // 12개월 전용 월가가 제공되면 그것을 우선 사용 (단, '기간할인 없음' 정책은 예외)
+  if (!isNoPeriodPolicy && months === 12 && Number.isFinite(monthlyFeeY1) && (monthlyFeeY1 as number) > 0) {
+    const y1 = Math.round(monthlyFeeY1 as number);
+    const impliedRate = clamp01(1 - y1 / baseMonthly);
+    return { monthly: y1, rate: impliedRate };
+  }
 
   // 복합 할인: (1 - a) * (1 - b) 형태로 합성
   const effectiveRate = clamp01(1 - (1 - periodRate) * (1 - precompRate));
@@ -162,6 +188,8 @@ export type CartPricingInput = {
   baseMonthly: number;
   monthlyFeeY1?: number;
   sameProductCountInCart: number;
+  /** 강남구/서초구/송파구 여부 판단용 주소 or 구 텍스트 (선택) */
+  addressOrDistrict?: string | null;
 };
 
 export type CartPricingOutput = CartPricingInput & {
@@ -172,7 +200,7 @@ export type CartPricingOutput = CartPricingInput & {
 
 /** 카트 아이템 1개에 정책 적용 */
 export function priceCartItem(input: CartPricingInput, policy: DiscountPolicy = DEFAULT_POLICY): CartPricingOutput {
-  const { productName, months, baseMonthly, monthlyFeeY1, sameProductCountInCart } = input;
+  const { productName, months, baseMonthly, monthlyFeeY1, sameProductCountInCart, addressOrDistrict } = input;
   const { monthly, rate } = calcMonthlyWithPolicy(
     productName,
     months,
@@ -180,6 +208,7 @@ export function priceCartItem(input: CartPricingInput, policy: DiscountPolicy = 
     monthlyFeeY1,
     sameProductCountInCart,
     policy,
+    addressOrDistrict,
   );
   return {
     ...input,
