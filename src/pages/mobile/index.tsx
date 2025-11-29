@@ -27,6 +27,63 @@ const COLOR_PRIMARY = "#6F4BF2";
 
 type ActiveTab = "detail" | "cart" | "quote";
 
+/** =========================
+ * PC MapChrome과 동일한 상품 분류(할인 정책용)
+ * ========================= */
+const norm = (s?: string) => (s ? s.replace(/\s+/g, "").toLowerCase() : "");
+
+function classifyProductForPolicy(
+  productName?: string,
+  installLocation?: string,
+  district?: string | null,
+): string | undefined {
+  const pn = norm(productName);
+  const loc = norm(installLocation);
+  const d = (district ?? "").trim();
+
+  if (!pn) return undefined;
+
+  // TOWNBORD 대형/소형
+  if (
+    pn.includes("townbord_l") ||
+    pn.includes("townboard_l") ||
+    /\btownbord[-_\s]?l\b/.test(pn) ||
+    /\btownboard[-_\s]?l\b/.test(pn)
+  ) {
+    return "TOWNBORD_L";
+  }
+  if (
+    pn.includes("townbord_s") ||
+    pn.includes("townboard_s") ||
+    /\btownbord[-_\s]?s\b/.test(pn) ||
+    /\btownboard[-_\s]?s\b/.test(pn)
+  ) {
+    return "TOWNBORD_S";
+  }
+
+  // ELEVATOR TV : 강남/서초/송파는 기간할인 없는 별도 정책 사용
+  if (pn.includes("elevatortv") || pn.includes("엘리베이터tv") || pn.includes("elevator")) {
+    if (d === "강남구" || d === "서초구" || d === "송파구") {
+      return "ELEVATOR TV_NOPD";
+    }
+    return "ELEVATOR TV";
+  }
+
+  // 기타 상품
+  if (pn.includes("mediameet") || pn.includes("media-meet") || pn.includes("미디어")) return "MEDIA MEET";
+  if (pn.includes("spaceliving") || pn.includes("스페이스") || pn.includes("living")) return "SPACE LIVING";
+  if (pn.includes("hipost") || pn.includes("hi-post") || pn.includes("하이포스트")) return "HI-POST";
+
+  if (pn.includes("townbord") || pn.includes("townboard") || pn.includes("타운보드")) {
+    if (loc.includes("ev내부")) return "TOWNBORD_L";
+    if (loc.includes("ev대기공간")) return "TOWNBORD_S";
+    return "TOWNBORD_S";
+  }
+
+  // 나머지는 기존 normPolicyKey 로 처리
+  return undefined;
+}
+
 export default function MapMobilePageV2() {
   /** =========================
    * Kakao 지도
@@ -386,20 +443,7 @@ export default function MapMobilePageV2() {
       const base = c.baseMonthly ?? 0;
       const months = c.months || 0;
 
-      // ✅ 정책 키 (핵심 상품코드) — PC의 productKey 역할
-      const key = normPolicyKey(name);
-      const rules: any = (DEFAULT_POLICY as any)[key as any];
-
-      // ✅ 기간 할인율 / 사전보상 할인율 (PC MapChrome과 동일하게 '개월 수' 기준)
-      const discPeriodRate = rateFromRanges(rules?.period, months);
-      const discPrecompRate = rateFromRanges(rules?.precomp, months);
-
-      // ✅ 최종 월광고료 & 총광고료 (사전보상 × 기간 복합할인)
-      const monthly = Math.round(base * (1 - discPrecompRate) * (1 - discPeriodRate));
-      const discountCombined = 1 - (1 - discPrecompRate) * (1 - discPeriodRate);
-      const total = monthly * months;
-
-      // 🔹 최신 상세에서 카운터 보강 (기존 로직 그대로 유지)
+      // 🔹 최신 상세에서 카운터 보강 + 설치위치/구 정보
       const detail = detailByRowKeyRef.current.get(c.rowKey) || {};
       const households = Number((detail as any).households ?? NaN);
       const residents = Number((detail as any).residents ?? NaN);
@@ -409,6 +453,23 @@ export default function MapMobilePageV2() {
         typeof (detail as any).installLocation === "string" && (detail as any).installLocation.trim() !== ""
           ? (detail as any).installLocation
           : undefined;
+      const district =
+        typeof (detail as any).district === "string" && (detail as any).district.trim() !== ""
+          ? (detail as any).district.trim()
+          : undefined;
+
+      // ✅ PC MapChrome과 동일: 상품명 + 설치위치 + 구(강남/서초/송파) 기반 정책 키
+      const policyKey = classifyProductForPolicy(name, installLocation, district ?? null) ?? normPolicyKey(name);
+      const rules: any = (DEFAULT_POLICY as any)[policyKey as any];
+
+      // ✅ 기간 할인율 / 사전보상 할인율 (개월 수 기준)
+      const discPeriodRate = rateFromRanges(rules?.period, months);
+      const discPrecompRate = rateFromRanges(rules?.precomp, months);
+
+      // ✅ 최종 월광고료 & 총광고료 (사전보상 × 기간 복합할인)
+      const monthly = Math.round(base * (1 - discPrecompRate) * (1 - discPeriodRate));
+      const discountCombined = 1 - (1 - discPrecompRate) * (1 - discPeriodRate);
+      const total = monthly * months;
 
       return {
         ...c,
