@@ -33,7 +33,7 @@ function addWeeksInclusive(startISO: string, months: number): string {
   date.setDate(date.getDate() + days - 1); // 포함 기간
   const yy = date.getFullYear();
   const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const dd = String(date.getDate()).padStart(2, "0");
+  const dd = String(date.getDate() + 0).padStart(2, "0");
   return `${yy}-${mm}-${dd}`;
 }
 
@@ -82,12 +82,6 @@ const ContractNewPage: React.FC = () => {
       ? contractPrefill.adMonths
       : undefined;
 
-  // 계약기간(개월) 상태: 자동입력값을 기본으로, 수정 시 비고 종료일 재계산
-  const initialPeriodMonths: number | undefined =
-    typeof adMonths === "number" && Number.isFinite(adMonths) && adMonths > 0 ? adMonths : undefined;
-  const [periodMonths, setPeriodMonths] = useState<number | undefined>(initialPeriodMonths);
-  const [periodInput, setPeriodInput] = useState<string>(initialPeriodMonths ? String(initialPeriodMonths) : "");
-
   const contractAptLinesRaw: string[] = Array.isArray(contractPrefill.contractAptLines)
     ? (contractPrefill.contractAptLines as string[])
     : [];
@@ -108,11 +102,10 @@ const ContractNewPage: React.FC = () => {
   while (remarkProducts.length < 6) remarkProducts.push("");
   while (remarkApts.length < 6) remarkApts.push("");
 
-  // 계약 단지명: 자동입력 + 수정 가능
+  // ✅ 아파트명: 자동입력 + 수정 가능 상태
   const [aptLines, setAptLines] = useState<string[]>(remarkApts);
 
   const [companyName, setCompanyName] = useState("");
-
   const hasRowProduct = (index: number) => {
     const txt = remarkProducts[index];
     return !!(txt && txt.trim().length > 0);
@@ -144,6 +137,12 @@ const ContractNewPage: React.FC = () => {
   const vatExcludedDisplay = fmtNumberPlain(vatExcludedTotal);
   const vatIncludedDisplay = fmtNumberPlain(vatIncludedTotal);
 
+  // ✅ 계약기간(개월): 자동입력 + 수정 가능 + 비고 종료일 연동
+  const initialPeriod =
+    typeof adMonths === "number" && Number.isFinite(adMonths) && adMonths > 0 ? (adMonths as number) : 0;
+  const [periodMonths, setPeriodMonths] = useState<number>(initialPeriod);
+  const [periodInput, setPeriodInput] = useState<string>(initialPeriod ? String(initialPeriod) : "");
+
   // 계약 단지명 글자 수에 따라 폰트 크기 조절
   const getAptFontSize = (text: string) => {
     const len = text?.length ?? 0;
@@ -168,10 +167,11 @@ const ContractNewPage: React.FC = () => {
   const [startDates, setStartDates] = useState<string[]>(Array(6).fill(""));
   const [endDates, setEndDates] = useState<string[]>(Array(6).fill(""));
 
-  // 첫 번째 송출개시 일괄 적용 여부
+  // 1~4번 요구사항용: 첫 번째 송출개시 일괄 적용 여부
   const [applyFirstStartToAll, setApplyFirstStartToAll] = useState<boolean>(true); // 기본 체크 ON
 
-  const recalcEndForRow = (rowIndex: number, startISO: string, months: number | undefined): string => {
+  // ✅ 종료일 계산 시, adMonths가 아니라 "현재 계약기간 상태값(periodMonths)" 사용
+  const recalcEndForRow = (rowIndex: number, startISO: string, months: number): string => {
     if (!startISO || !months || months <= 0) return "";
     const rowProd = remarkProducts[rowIndex];
     const prodNameForRow = rowProd && rowProd.trim().length > 0 ? rowProd : productName;
@@ -180,7 +180,7 @@ const ContractNewPage: React.FC = () => {
   };
 
   const handleStartChange = (index: number, value: string) => {
-    // 체크박스가 체크되어 있고, 첫 번째 행을 수정한 경우 → 아래 행들 일괄 적용
+    // 3/4번: 체크박스가 체크되어 있고, 첫 번째 행을 수정한 경우 → 아래 행들 일괄 적용
     if (applyFirstStartToAll && index === 0) {
       const newStarts = [...startDates];
       const newEnds = [...endDates];
@@ -190,7 +190,7 @@ const ContractNewPage: React.FC = () => {
 
       if (value && periodMonths && periodMonths > 0) {
         for (let i = 1; i < 6; i++) {
-          if (!hasRowProduct(i)) continue; // 상품명이 있을 때만
+          if (!hasRowProduct(i)) continue; // 4번: 상품명이 있을 때만
           newStarts[i] = value;
           newEnds[i] = recalcEndForRow(i, value, periodMonths);
         }
@@ -228,20 +228,19 @@ const ContractNewPage: React.FC = () => {
     setEndDates(newEnds);
   };
 
-  // 계약기간(개월) 변경 시 → 상태 업데이트 + 비고 종료일 재계산
+  // ✅ 계약기간 필드 변경 시 → 기간 상태 업데이트 + 비고 종료일 전부 재계산
   const handlePeriodChange = (value: string) => {
     setPeriodInput(value);
     const num = parseNumber(value);
-    const monthsVal = num > 0 ? num : undefined;
-    setPeriodMonths(monthsVal);
+    const months = num > 0 ? num : 0;
+    setPeriodMonths(months);
 
-    if (!monthsVal) {
-      // 기간이 없으면 종료일 모두 비움
+    if (!months) {
+      // 유효한 기간이 없으면 종료일 모두 비움
       setEndDates(Array(6).fill(""));
       return;
     }
 
-    // 기존 시작일 기준으로 종료일 재계산
     setEndDates((prev) => {
       const next = [...prev];
       for (let i = 0; i < 6; i++) {
@@ -250,7 +249,7 @@ const ContractNewPage: React.FC = () => {
           next[i] = "";
           continue;
         }
-        next[i] = recalcEndForRow(i, startISO, monthsVal);
+        next[i] = recalcEndForRow(i, startISO, months);
       }
       return next;
     });
@@ -306,8 +305,6 @@ const ContractNewPage: React.FC = () => {
   /* ====== 위쪽 PNG 영역 ====== */
   .contract-sheet-wrapper {
     width: 100%;
-    max-height: 80vh;      /* 🔹 세로 스크롤 영역 높이 제한 */
-    overflow-y: auto;      /* 🔹 세로 스크롤 생성 */
     display: flex;
     justify-content: center;
   }
@@ -581,11 +578,6 @@ const ContractNewPage: React.FC = () => {
       padding: 4mm 6mm 6mm;
     }
 
-    .contract-sheet-wrapper {
-      max-height: none;
-      overflow: visible;
-    }
-
     .contract-sheet,
     .contract-bg {
       -webkit-print-color-adjust: exact;
@@ -706,7 +698,7 @@ const ContractNewPage: React.FC = () => {
               </button>
             </div>
 
-            {/* 광고기간: 최장 기간 하나만 표시, 수정 가능 + 비고 종료일 연동 */}
+            {/* ✅ 광고기간: 자동입력 + 수정 가능 + 비고 종료일 반영 */}
             <div className="field field-period">
               <input className="field-input" value={periodInput} onChange={(e) => handlePeriodChange(e.target.value)} />
             </div>
@@ -750,7 +742,7 @@ const ContractNewPage: React.FC = () => {
               <input type="checkbox" />
             </div>
 
-            {/* 첫 번째 송출개시 → 아래 행 일괄 변경 */}
+            {/* ✅ 신규 체크박스: 첫 번째 송출개시 → 아래 행 일괄 변경 */}
             <div className="field field-cb9 field-checkbox">
               <input
                 type="checkbox"
@@ -902,7 +894,7 @@ const ContractNewPage: React.FC = () => {
               />
             </div>
 
-            {/* 계약 단지명 (상품별 단지 리스트) – 자동입력 + 수정 가능 */}
+            {/* ✅ 계약 단지명 (상품별 단지 리스트) – 자동입력 + 수정 가능 */}
             <div className="field field-apt1">
               <textarea
                 className="field-textarea"
