@@ -107,7 +107,7 @@ type QuoteModalProps = {
   items: QuoteLineItem[];
   vatRate?: number;
   onClose?: () => void;
-  // onSubmitInquiry는 남겨두되, 이제 엑셀 다운로드에는 사용하지 않음
+  // onSubmitInquiry는 남겨두되 현재 엑셀 다운로드에는 사용 안 함
   onSubmitInquiry?: (payload: { items: QuoteLineItem[]; subtotal: number; vat: number; total: number }) => void;
   title?: string;
   subtitle?: string;
@@ -337,12 +337,16 @@ export default function QuoteModal({
     });
   };
 
-  /** 견적 내보내기 핸들러: CSV(엑셀) 다운로드 */
+  /** 로그인 모달 열기 이벤트 발사 */
+  const handleOpenLogin = () => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(new Event("orca:open-login"));
+  };
+
+  /** 견적 내보내기 핸들러: CSV(엑셀) 다운로드 (UTF-8 BOM 포함) */
   const handleExportQuote = () => {
-    // 아이템이 없으면 그냥 리턴
     if (!items || items.length === 0) return;
 
-    // 헤더 (테이블 컬럼과 동일 순서)
     const headers = [
       "단지명",
       "상품명",
@@ -361,7 +365,6 @@ export default function QuoteModal({
     const lines: string[] = [];
     lines.push(headers.map(csvEscape).join(","));
 
-    // 각 라인 → CSV 행
     for (const row of computed.rows) {
       const { it, combinedRate, baseMonthly, baseTotal, lineTotal } = row;
 
@@ -383,8 +386,8 @@ export default function QuoteModal({
       lines.push(cells.map(csvEscape).join(","));
     }
 
-    // 합계/부가세/최종광고료 요약 행 추가
-    lines.push(""); // 빈 줄
+    // 합계/부가세/최종광고료 요약 행
+    lines.push("");
     lines.push(
       ["", "", "", "", "", "", "", "", "", "소계(총광고료 합계)", "", fmtWon(computed.subtotal)]
         .map(csvEscape)
@@ -395,7 +398,8 @@ export default function QuoteModal({
       ["", "", "", "", "", "", "", "", "", "최종광고료(VAT 포함)", "", fmtWon(computed.total)].map(csvEscape).join(","),
     );
 
-    const csvContent = lines.join("\r\n");
+    // ⚠ 여기서 UTF-8 BOM 추가 → 엑셀이 한글을 제대로 인식
+    const csvContent = "\uFEFF" + lines.join("\r\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
 
     const url = URL.createObjectURL(blob);
@@ -438,15 +442,26 @@ export default function QuoteModal({
                   </div>
                   <div className="text-sm text-[#6B7280] mt-1">{subtitle}</div>
                 </div>
-                <button
-                  onClick={onClose}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB]"
-                  aria-label="닫기"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" fill="none">
-                    <path d="M6 6L18 18M6 18L18 6" strokeWidth="2" strokeLinecap="round" />
-                  </svg>
-                </button>
+
+                {/* 오른쪽: 로그인 + 닫기 버튼 */}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleOpenLogin}
+                    className="h-9 px-3 rounded-md border border-[#6C2DFF] text-xs text-[#6C2DFF] hover:bg-[#F4F0FB] whitespace-nowrap"
+                  >
+                    로그인
+                  </button>
+                  <button
+                    onClick={onClose}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB]"
+                    aria-label="닫기"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" stroke="currentColor" fill="none">
+                      <path d="M6 6L18 18M6 18L18 6" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                  </button>
+                </div>
               </div>
 
               {/* 상단 카운터 + (단위) */}
