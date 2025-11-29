@@ -9,6 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
  * - 이메일/패스워드 로그인 모달
  * - ✅ 관리자 분기: JWT 메타데이터(role) 사용 금지, DB RPC(is_admin) 결과만 사용
  * - 유료 플랜(plan)은 메타데이터 참고(표시/UX용), 권한 통제와 무관
+ * - ✅ 구독회원 여부: DB RPC(is_subscriber) 결과 사용
  */
 
 type Plan = "free" | "pro";
@@ -40,8 +41,9 @@ const LoginModal: React.FC = () => {
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [plan, setPlan] = useState<Plan>("free");
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isSubscriber, setIsSubscriber] = useState(false);
 
-  // 세션 변화 감지 → 표시 정보/관리자 여부 동기화
+  // 세션 변화 감지 → 표시 정보/관리자 여부/구독 여부 동기화
   useEffect(() => {
     let mounted = true;
 
@@ -65,15 +67,46 @@ const LoginModal: React.FC = () => {
         try {
           const { data: ok, error } = await (supabase as any).rpc("is_admin");
           if (!mounted) return;
-          setIsAdmin(Boolean(ok) && !error);
+          const nextAdmin = Boolean(ok) && !error;
+          setIsAdmin(nextAdmin);
         } catch {
           if (!mounted) return;
           setIsAdmin(false);
+        }
+
+        // ✅ 구독회원 여부는 DB 기준
+        try {
+          const { data: subOk, error: subErr } = await (supabase as any).rpc("is_subscriber");
+          if (!mounted) return;
+          const nextSub = Boolean(subOk) && !subErr;
+          setIsSubscriber(nextSub);
+          try {
+            localStorage.setItem("orca.subscriber", nextSub ? "true" : "false");
+            window.dispatchEvent(new CustomEvent("orca:subscriber", { detail: { isSubscriber: nextSub } }));
+          } catch {
+            // localStorage / 이벤트 실패는 무시
+          }
+        } catch {
+          if (!mounted) return;
+          setIsSubscriber(false);
+          try {
+            localStorage.setItem("orca.subscriber", "false");
+            window.dispatchEvent(new CustomEvent("orca:subscriber", { detail: { isSubscriber: false } }));
+          } catch {
+            // 무시
+          }
         }
       } else {
         setDisplayName(null);
         setPlan("free");
         setIsAdmin(false);
+        setIsSubscriber(false);
+        try {
+          localStorage.setItem("orca.subscriber", "false");
+          window.dispatchEvent(new CustomEvent("orca:subscriber", { detail: { isSubscriber: false } }));
+        } catch {
+          // 무시
+        }
       }
     };
 
@@ -109,13 +142,30 @@ const LoginModal: React.FC = () => {
       localStorage.setItem("orca.plan", isPro ? "pro" : "free");
       window.dispatchEvent(new CustomEvent("orca:plan", { detail: { plan: isPro ? "pro" : "free" } }));
 
-      // ✅ 권한 분기: DB RPC 기반
+      // ✅ 권한 분기: DB RPC 기반 (관리자)
       let admin = false;
       try {
         const { data: ok } = await (supabase as any).rpc("is_admin");
         admin = ok === true;
       } catch {
         admin = false;
+      }
+      setIsAdmin(admin);
+
+      // ✅ 구독회원 여부: DB RPC 기반
+      let subscriber = false;
+      try {
+        const { data: subOk } = await (supabase as any).rpc("is_subscriber");
+        subscriber = subOk === true;
+      } catch {
+        subscriber = false;
+      }
+      setIsSubscriber(subscriber);
+      try {
+        localStorage.setItem("orca.subscriber", subscriber ? "true" : "false");
+        window.dispatchEvent(new CustomEvent("orca:subscriber", { detail: { isSubscriber: subscriber } }));
+      } catch {
+        // 무시
       }
 
       setOpen(false); // 성공 시 모달 닫기
@@ -145,13 +195,22 @@ const LoginModal: React.FC = () => {
           (k) => k.includes("auth-token") && k.includes("qislrfbqilfqzkvkuknn"),
         );
         if (key) localStorage.removeItem(key);
-      } catch {}
+      } catch {
+        // 무시
+      }
     } finally {
       setDisplayName(null);
       setPlan("free");
       setIsAdmin(false);
+      setIsSubscriber(false);
       localStorage.setItem("orca.plan", "free");
       window.dispatchEvent(new CustomEvent("orca:plan", { detail: { plan: "free" } }));
+      try {
+        localStorage.setItem("orca.subscriber", "false");
+        window.dispatchEvent(new CustomEvent("orca:subscriber", { detail: { isSubscriber: false } }));
+      } catch {
+        // 무시
+      }
       if (location.pathname.startsWith("/admin")) {
         navigate("/");
       }
@@ -160,9 +219,10 @@ const LoginModal: React.FC = () => {
 
   const badge = useMemo(() => {
     if (isAdmin) return "관리자";
+    if (isSubscriber) return "구독회원";
     if (plan === "pro") return "유료회원";
     return "게스트";
-  }, [isAdmin, plan]);
+  }, [isAdmin, isSubscriber, plan]);
 
   ensureOverlayRoot();
 
@@ -256,7 +316,7 @@ const LoginModal: React.FC = () => {
 
               <div className="mt-4 text-xs text-gray-500">
                 <p>• 관리자 로그인: 권한 확인 후 관리자 페이지로 이동해요.</p>
-                <p>• 유료회원 로그인: 프론트에서 추가 기능이 활성화돼요.</p>
+                <p>• 유료회원/구독회원 로그인: 프론트에서 추가 기능이 활성화돼요.</p>
               </div>
             </div>
           </div>,
