@@ -428,6 +428,7 @@ export default function MapPage() {
           gridSize: 80,
           styles: clusterStyles,
         });
+        console.log("[map] clusterer init", clustererRef.current);
         // ✅ 클러스터 클릭 시: 해당 클러스터 범위로 지도 이동/확대
         kakao.maps.event.addListener(clustererRef.current, "clusterclick", (cluster: any) => {
           const m = mapObjRef.current;
@@ -932,7 +933,7 @@ export default function MapPage() {
     const maps = kakao?.maps;
     const map = mapObjRef.current;
     const clusterer = clustererRef.current;
-       if (!maps || !map || !clusterer) return;
+    if (!maps || !map || !clusterer) return;
 
     const bounds = map.getBounds();
     if (!bounds) return;
@@ -1609,9 +1610,7 @@ export default function MapPage() {
     if (!el || !map) return;
 
     // 📌 터치 기반 환경: ontouchstart 또는 pointer: coarse
-    const isTouchLike =
-      ("ontouchstart" in window) ||
-      (window.matchMedia?.("(pointer: coarse)")?.matches ?? false);
+    const isTouchLike = "ontouchstart" in window || (window.matchMedia?.("(pointer: coarse)")?.matches ?? false);
 
     if (!isTouchLike) return;
 
