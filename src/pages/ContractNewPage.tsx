@@ -168,11 +168,8 @@ const ContractNewPage: React.FC = () => {
   const [startDates, setStartDates] = useState<string[]>(Array(6).fill(""));
   const [endDates, setEndDates] = useState<string[]>(Array(6).fill(""));
 
-  // 1~4번 요구사항용: 첫 번째 송출개시 일괄 적용 여부
+  // 첫 번째 송출개시 일괄 적용 여부
   const [applyFirstStartToAll, setApplyFirstStartToAll] = useState<boolean>(true); // 기본 체크 ON
-
-  // 확대/축소
-  const [zoom, setZoom] = useState<number>(1);
 
   const recalcEndForRow = (rowIndex: number, startISO: string, months: number | undefined): string => {
     if (!startISO || !months || months <= 0) return "";
@@ -183,7 +180,7 @@ const ContractNewPage: React.FC = () => {
   };
 
   const handleStartChange = (index: number, value: string) => {
-    // 3/4번: 체크박스가 체크되어 있고, 첫 번째 행을 수정한 경우 → 아래 행들 일괄 적용
+    // 체크박스가 체크되어 있고, 첫 번째 행을 수정한 경우 → 아래 행들 일괄 적용
     if (applyFirstStartToAll && index === 0) {
       const newStarts = [...startDates];
       const newEnds = [...endDates];
@@ -193,7 +190,7 @@ const ContractNewPage: React.FC = () => {
 
       if (value && periodMonths && periodMonths > 0) {
         for (let i = 1; i < 6; i++) {
-          if (!hasRowProduct(i)) continue; // 4번: 상품명이 있을 때만
+          if (!hasRowProduct(i)) continue; // 상품명이 있을 때만
           newStarts[i] = value;
           newEnds[i] = recalcEndForRow(i, value, periodMonths);
         }
@@ -259,14 +256,6 @@ const ContractNewPage: React.FC = () => {
     });
   };
 
-  const handleZoomIn = () => {
-    setZoom((z) => Math.min(z + 0.1, 1.5));
-  };
-
-  const handleZoomOut = () => {
-    setZoom((z) => Math.max(z - 0.1, 0.7));
-  };
-
   return (
     <div className="contract-root">
       <style>{`
@@ -277,7 +266,7 @@ const ContractNewPage: React.FC = () => {
 
   .contract-toolbar {
     max-width: 900px;
-    margin: 0 auto 8px;
+    margin: 0 auto 12px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -300,32 +289,6 @@ const ContractNewPage: React.FC = () => {
     font-weight: 600;
   }
 
-  /* 확대/축소 컨트롤 (상단 가운데) */
-  .contract-zoom-controls {
-    max-width: 900px;
-    margin: 0 auto 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-  }
-
-  .contract-zoom-controls button {
-    padding: 4px 10px;
-    font-size: 12px;
-    border-radius: 999px;
-    border: 1px solid #d1d5db;
-    background: #ffffff;
-    cursor: pointer;
-  }
-
-  .contract-zoom-controls span {
-    font-size: 12px;
-    color: #4b5563;
-    min-width: 40px;
-    text-align: center;
-  }
-
   .contract-paper {
     max-width: 900px;
     margin: 0 auto 32px;
@@ -343,6 +306,8 @@ const ContractNewPage: React.FC = () => {
   /* ====== 위쪽 PNG 영역 ====== */
   .contract-sheet-wrapper {
     width: 100%;
+    max-height: 80vh;      /* 🔹 세로 스크롤 영역 높이 제한 */
+    overflow-y: auto;      /* 🔹 세로 스크롤 생성 */
     display: flex;
     justify-content: center;
   }
@@ -353,7 +318,6 @@ const ContractNewPage: React.FC = () => {
     max-width: 820px;
     /* 원본 PNG 1765 x 2600 기준 비율 */
     aspect-ratio: 1765 / 2600;
-    transform-origin: top center;
   }
 
   /* 배경 PNG (background-image 대신 img로 인쇄 호환용) */
@@ -617,6 +581,11 @@ const ContractNewPage: React.FC = () => {
       padding: 4mm 6mm 6mm;
     }
 
+    .contract-sheet-wrapper {
+      max-height: none;
+      overflow: visible;
+    }
+
     .contract-sheet,
     .contract-bg {
       -webkit-print-color-adjust: exact;
@@ -631,10 +600,6 @@ const ContractNewPage: React.FC = () => {
     }
 
     .contract-toolbar {
-      display: none !important;
-    }
-
-    .contract-zoom-controls {
       display: none !important;
     }
 
@@ -653,20 +618,9 @@ const ContractNewPage: React.FC = () => {
         </button>
       </div>
 
-      {/* 확대/축소 버튼 – 상단 가운데 */}
-      <div className="contract-zoom-controls">
-        <button type="button" onClick={handleZoomOut}>
-          -
-        </button>
-        <span>{Math.round(zoom * 100)}%</span>
-        <button type="button" onClick={handleZoomIn}>
-          +
-        </button>
-      </div>
-
       <div className="contract-paper">
         <div className="contract-sheet-wrapper">
-          <div className="contract-sheet" style={{ transform: `scale(${zoom})` }}>
+          <div className="contract-sheet">
             <img src={TEMPLATE_URL} className="contract-bg" alt="" />
 
             {/* 광고주 정보 */}
@@ -796,7 +750,7 @@ const ContractNewPage: React.FC = () => {
               <input type="checkbox" />
             </div>
 
-            {/* ✅ 신규 체크박스: 첫 번째 송출개시 → 아래 행 일괄 변경 */}
+            {/* 첫 번째 송출개시 → 아래 행 일괄 변경 */}
             <div className="field field-cb9 field-checkbox">
               <input
                 type="checkbox"
