@@ -607,6 +607,10 @@ export default function MapChrome({
 
     if (selected.rowKey) setMarkerStateByRowKey?.(selected.rowKey, "selected", true);
     else setMarkerState?.(selected.name, "selected");
+    if (selected.rowKey) {
+      // 2탭에서 담은 것도 RPC로 보강해서 district / productKey 다시 확정
+      hydrateCartItemByRowKey(selected.rowKey, selected as any);
+    }
   };
   const removeItem = (id: string) => {
     setCart((prev) => {
