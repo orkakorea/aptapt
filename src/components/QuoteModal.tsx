@@ -324,6 +324,18 @@ export default function QuoteModal({
     });
   };
 
+  /** 견적 내보내기 핸들러 (기존 onSubmitInquiry 기능) */
+  const handleExportQuote = () => {
+    onSubmitInquiry?.({
+      items,
+      subtotal: computed.subtotal,
+      vat: computed.vat,
+      total: computed.total,
+    });
+    // 필요 시 문의 모달까지 여는 플로우로 확장 가능:
+    // setInquiryOpen(true);
+  };
+
   return createPortal(
     <>
       <div className="fixed inset-0 z-[9999]">
@@ -474,23 +486,27 @@ export default function QuoteModal({
                 </div>
               </div>
 
-              {/* CTA */}
+              {/* CTA: 견적 내보내기 + 계약서 작성하기 */}
               <div className="px-6 pb-6">
-                <button
-                  onClick={() => {
-                    onSubmitInquiry?.({
-                      items,
-                      subtotal: computed.subtotal,
-                      vat: computed.vat,
-                      total: computed.total,
-                    });
-                    // 필요 시 모달 열기:
-                    // setInquiryOpen(true);
-                  }}
-                  className="w-full h-12 rounded-xl bg-[#6C2DFF] text-white font-semibold hover:opacity-95 whitespace-nowrap"
-                >
-                  위 견적으로 구좌 (T.O.) 문의하기
-                </button>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  {/* 견적 내보내기 (기존 onSubmitInquiry 기능) */}
+                  <button
+                    onClick={handleExportQuote}
+                    className="w-full sm:flex-1 h-12 rounded-xl bg-[#6C2DFF] text-white font-semibold hover:opacity-95 whitespace-nowrap"
+                  >
+                    견적 내보내기
+                  </button>
+
+                  {/* 계약서 작성하기 */}
+                  <button
+                    type="button"
+                    onClick={handleClickTitle}
+                    disabled={!contractPrefill}
+                    className="w-full sm:flex-1 h-12 rounded-xl border border-[#6C2DFF] text-[#6C2DFF] bg-white font-semibold hover:bg-[#F4F0FB] disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                  >
+                    계약서 작성하기
+                  </button>
+                </div>
               </div>
             </div>
           </div>
