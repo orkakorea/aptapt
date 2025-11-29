@@ -80,7 +80,7 @@ function classifyProductForPolicy(
     return "TOWNBORD_S";
   }
 
-  // 나머지는 기존 normPolicyKey 로 처리
+  // 나머지는 기존 규칙 사용
   return undefined;
 }
 
@@ -464,7 +464,7 @@ export default function MapMobilePageV2() {
 
       // ✅ 기간 할인율 / 사전보상 할인율 (개월 수 기준)
       const discPeriodRate = rateFromRanges(rules?.period, months);
-      const discPrecompRate = rateFromRanges(rules?.precomp, months);
+      const discPrecompRate = policyKey === "ELEVATOR TV" ? rateFromRanges(rules?.precomp, months) : 0;
 
       // ✅ 최종 월광고료 & 총광고료 (사전보상 × 기간 복합할인)
       const monthly = Math.round(base * (1 - discPrecompRate) * (1 - discPeriodRate));
