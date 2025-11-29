@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import InquiryModal from "./InquiryModal";
 import { DEFAULT_POLICY } from "@/core/pricing";
 import type { DiscountPolicy, RangeRule } from "@/core/pricing";
+import { useSubscriptionFlags } from "@/hooks/useSubscriptionFlags";
 
 /** =========================
  *  외부에서 사용할 라인아이템 타입
@@ -93,8 +94,8 @@ function buildWatermarkDataURL(text: string) {
     text { font-family: Pretendard, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans KR", sans-serif; }
   </style>
   <text x='0' y='18' font-size='12' fill='#6B7280' fill-opacity='0.3'>${text}</text>
-  <text x='0' y='42' font-size='12' fill='#6B7280' fill-opacity='0.3'>${text}</text>
-  <text x='0' y='66' font-size='12' fill='#6B7280' fill-opacity='0.3'>${text}</text>
+  <text x='0' y='42' font-size='12' fill-opacity='0.3' fill='#6B7280'>${text}</text>
+  <text x='0' y='66' font-size='12' fill-opacity='0.3' fill='#6B7280'>${text}</text>
 </svg>`;
   return `url("data:image/svg+xml;utf8,${encodeURIComponent(svg)}")`;
 }
@@ -107,7 +108,7 @@ type QuoteModalProps = {
   items: QuoteLineItem[];
   vatRate?: number;
   onClose?: () => void;
-  // onSubmitInquiry는 남겨두되 현재 엑셀 다운로드에는 사용 안 함
+  // 비구독자 구좌문의 버튼에서만 사용
   onSubmitInquiry?: (payload: { items: QuoteLineItem[]; subtotal: number; vat: number; total: number }) => void;
   title?: string;
   subtitle?: string;
@@ -144,7 +145,8 @@ export default function QuoteModal({
 
   const navigate = useNavigate();
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const [inquiryOpen, setInquiryOpen] = useState(false); // 견적 하단 CTA → 구좌문의 모달
+  const [inquiryOpen, setInquiryOpen] = useState(false); // (현재는 내부 InquiryModal 미사용)
+  const { isSubscriber } = useSubscriptionFlags();
 
   // 워터마크 스타일 (대각선, 작고 빽빽)
   const watermarkStyle = useMemo<React.CSSProperties>(() => {
@@ -398,8 +400,7 @@ export default function QuoteModal({
       ["", "", "", "", "", "", "", "", "", "최종광고료(VAT 포함)", "", fmtWon(computed.total)].map(csvEscape).join(","),
     );
 
-    // ⚠ 여기서 UTF-8 BOM 추가 → 엑셀이 한글을 제대로 인식
-    const csvContent = "\uFEFF" + lines.join("\r\n");
+    const csvContent = "\uFEFF" + lines.join("\r\n"); // UTF-8 BOM
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
 
     const url = URL.createObjectURL(blob);
@@ -574,35 +575,54 @@ export default function QuoteModal({
                 </div>
               </div>
 
-              {/* CTA: 견적 내보내기(엑셀) + 계약서 작성하기 */}
+              {/* CTA: 비구독자 / 구독자 분기 */}
               <div className="px-6 pb-6">
-                <div className="flex flex-col sm:flex-row gap-3">
-                  {/* 견적 내보내기 → 엑셀(CSV) 다운로드 */}
-                  <button
-                    type="button"
-                    onClick={handleExportQuote}
-                    className="w-full sm:flex-1 h-12 rounded-xl bg-[#6C2DFF] text-white font-semibold hover:opacity-95 whitespace-nowrap"
-                  >
-                    견적 내보내기(엑셀)
-                  </button>
+                {isSubscriber ? (
+                  // ✅ 구독회원: 엑셀 + 계약서 작성하기
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    {/* 견적 내보내기 → 엑셀(CSV) 다운로드 */}
+                    <button
+                      type="button"
+                      onClick={handleExportQuote}
+                      className="w-full sm:flex-1 h-12 rounded-xl bg-[#6C2DFF] text-white font-semibold hover:opacity-95 whitespace-nowrap"
+                    >
+                      견적 내보내기(엑셀)
+                    </button>
 
-                  {/* 계약서 작성하기 */}
+                    {/* 계약서 작성하기 */}
+                    <button
+                      type="button"
+                      onClick={handleClickTitle}
+                      disabled={!contractPrefill}
+                      className="w-full sm:flex-1 h-12 rounded-xl border border-[#6C2DFF] text-[#6C2DFF] bg-white font-semibold hover:bg-[#F4F0FB] disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                    >
+                      계약서 작성하기
+                    </button>
+                  </div>
+                ) : (
+                  // ❌ 비로그인/비구독: 구좌 문의하기 버튼 1개
                   <button
                     type="button"
-                    onClick={handleClickTitle}
-                    disabled={!contractPrefill}
-                    className="w-full sm:flex-1 h-12 rounded-xl border border-[#6C2DFF] text-[#6C2DFF] bg-white font-semibold hover:bg-[#F4F0FB] disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                    onClick={() => {
+                      onSubmitInquiry?.({
+                        items,
+                        subtotal: computed.subtotal,
+                        vat: computed.vat,
+                        total: computed.total,
+                      });
+                    }}
+                    className="w-full h-12 rounded-xl bg-[#6C2DFF] text-white font-semibold hover:opacity-95 whitespace-nowrap"
                   >
-                    계약서 작성하기
+                    위 견적으로 구좌 (T.O.) 문의하기
                   </button>
-                </div>
+                )}
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* 구좌 문의 모달 (필수 prop: mode 추가) */}
+      {/* 구좌 문의 모달 (현재는 내부에서 직접 열지 않음) */}
       {inquiryOpen && (
         <InquiryModal
           open={inquiryOpen}
