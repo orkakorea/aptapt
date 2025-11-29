@@ -1,6 +1,9 @@
+// src/components/mobile/DetailPanel.tsx
 import React, { useEffect, useMemo, useState } from "react";
 import type { SelectedApt } from "@/core/types";
 import { fmtNum, fmtWon } from "@/core/utils";
+import { DEFAULT_POLICY, rateFromRanges } from "@/core/pricing";
+import type { DiscountPolicy } from "@/core/pricing";
 
 const COLOR_PRIMARY = "#6F4BF2";
 const COLOR_PRIMARY_LIGHT = "#EEE8FF";
@@ -32,6 +35,55 @@ const isElevatorFile = (p?: string) => !!p && /(^|\/)elevator-tv\.png$/i.test(p)
 
 /** 문자열 정규화 */
 const norm = (s?: string) => (s ? s.replace(/\s+/g, "").toLowerCase() : "");
+
+type DiscountKey = keyof DiscountPolicy;
+
+/** 상품/설치위치/자치구 → 할인정책 키 (PC MapChrome과 동일 로직) */
+function classifyProductForPolicy(
+  productName?: string,
+  installLocation?: string | null,
+  district?: string | null,
+): DiscountKey | undefined {
+  const pn = norm(productName);
+  const loc = norm(installLocation ?? undefined);
+  const d = (district ?? "").trim();
+
+  if (!pn) return undefined;
+
+  if (
+    pn.includes("townbord_l") ||
+    pn.includes("townboard_l") ||
+    /\btownbord[-_\s]?l\b/.test(pn) ||
+    /\btownboard[-_\s]?l\b/.test(pn)
+  )
+    return "TOWNBORD_L";
+
+  if (
+    pn.includes("townbord_s") ||
+    pn.includes("townboard_s") ||
+    /\btownbord[-_\s]?s\b/.test(pn) ||
+    /\btownboard[-_\s]?s\b/.test(pn)
+  )
+    return "TOWNBORD_S";
+
+  // ELEVATOR TV: 강남/서초/송파는 별도 정책(ELEVATOR TV_NOPD) 사용
+  if (pn.includes("elevatortv") || pn.includes("엘리베이터tv") || pn.includes("elevator")) {
+    if (d === "강남구" || d === "서초구" || d === "송파구") return "ELEVATOR TV_NOPD";
+    return "ELEVATOR TV";
+  }
+
+  if (pn.includes("mediameet") || pn.includes("media-meet") || pn.includes("미디어")) return "MEDIA MEET";
+  if (pn.includes("spaceliving") || pn.includes("스페이스") || pn.includes("living")) return "SPACE LIVING";
+  if (pn.includes("hipost") || pn.includes("hi-post") || pn.includes("하이포스트")) return "HI-POST";
+
+  if (pn.includes("townbord") || pn.includes("townboard") || pn.includes("타운보드")) {
+    if (loc.includes("ev내부")) return "TOWNBORD_L";
+    if (loc.includes("ev대기공간")) return "TOWNBORD_S";
+    return "TOWNBORD_S";
+  }
+
+  return undefined;
+}
 
 /** 상품명 + 설치위치 → 파일명 (PC MapChrome.tsx와 동일 로직) */
 function resolveProductFile(productName?: string, installLocation?: string): string | undefined {
@@ -86,8 +138,33 @@ export default function DetailPanel({
   const productForDisplay: string =
     (getField(selected as any, ["productName", "product_name", "product", "상품명"]) as string) || "-";
 
-  const installLocForDisplay: string = (getField(selected as any, ["installLocation", "설치위치"]) as string) || "-";
+  const installLocRaw = getField(selected as any, ["installLocation", "설치위치"]) as string | undefined;
+  const installLocForDisplay: string = installLocRaw || "-";
   const displayedAddress: string = (getField(selected as any, ["address", "주소"]) as string) || "-";
+
+  // ✅ 할인정책 기준으로 월가/1년 월가 계산 (PC와 동일 컨셉)
+  const district = getField(selected as any, ["district", "자치구"]) as string | undefined;
+  const productKey = classifyProductForPolicy(productForDisplay, installLocRaw ?? null, district ?? null);
+
+  const baseMonthly = selected.monthlyFee ?? 0;
+
+  let monthlyDisplay = baseMonthly;
+  let y1Monthly =
+    typeof selected.monthlyFeeY1 === "number" && selected.monthlyFeeY1 > 0 ? selected.monthlyFeeY1 : baseMonthly;
+
+  if (productKey) {
+    const rules: any = (DEFAULT_POLICY as any)[productKey];
+
+    // 월 광고료: 1개월 기준
+    const pd1 = rateFromRanges(rules?.period, 1);
+    const pc1 = rateFromRanges(rules?.precomp, 1);
+    monthlyDisplay = Math.round(baseMonthly * (1 - pc1) * (1 - pd1));
+
+    // 1년 계약 시 월 광고료: 12개월 기준
+    const pdY1 = rateFromRanges(rules?.period, 12);
+    const pcY1 = rateFromRanges(rules?.precomp, 12);
+    y1Monthly = Math.round(baseMonthly * (1 - pcY1) * (1 - pdY1));
+  }
 
   // 후보 1: selected.imageUrl (절대/루트면 그대로, 파일명이면 /products/)
   const candidateFromSelected =
@@ -97,14 +174,11 @@ export default function DetailPanel({
   // 후보 2: 상품/설치위치로 계산한 파일명
   const mappedFile = resolveProductFile(
     getField(selected as any, ["productName", "product_name", "상품명"]) as string,
-    getField(selected as any, ["installLocation", "설치위치"]) as string,
+    installLocRaw as string,
   );
   const mappedUrl = toImageUrl(mappedFile);
 
-  // ✅ 최종 선택 규칙 (핵심 수정)
-  // - mappedUrl 이 있고,
-  //   (candidate 가 없거나 placeholder 이거나 "elevator-tv.png"인 경우) → mappedUrl 우선
-  // - 그 외는 candidateUrl → mappedUrl → PLACEHOLDER
+  // ✅ 최종 선택 규칙
   const initialImg =
     (mappedUrl && (!candidateUrl || candidateUrl.endsWith(PLACEHOLDER) || isElevatorFile(candidateUrl))) ||
     (!candidateUrl && mappedUrl)
@@ -149,11 +223,6 @@ export default function DetailPanel({
     }
   };
 
-  const y1Monthly =
-    typeof selected.monthlyFeeY1 === "number" && selected.monthlyFeeY1 > 0
-      ? selected.monthlyFeeY1
-      : Math.round((selected.monthlyFee ?? 0) * 0.7);
-
   // 세대/거주 인원 보조 텍스트 (기존 UI 유지)
   const subline = useMemo(() => {
     return `${fmtNum(selected.households)} 세대 · ${fmtNum(selected.residents)} 명`;
@@ -195,7 +264,7 @@ export default function DetailPanel({
         <div className="rounded-2xl px-4 py-3" style={{ backgroundColor: COLOR_GRAY_CARD }}>
           <div className="text-sm text-gray-600">월 광고료</div>
           <div className="text-[20px] font-extrabold">
-            {fmtWon(selected.monthlyFee)} <span className="text-xs text-gray-500">(VAT별도)</span>
+            {fmtWon(monthlyDisplay)} <span className="text-xs text-gray-500">(VAT별도)</span>
           </div>
         </div>
 
