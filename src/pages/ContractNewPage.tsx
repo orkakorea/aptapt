@@ -82,6 +82,12 @@ const ContractNewPage: React.FC = () => {
       ? contractPrefill.adMonths
       : undefined;
 
+  // 계약기간(개월) 상태: 자동입력값을 기본으로, 수정 시 비고 종료일 재계산
+  const initialPeriodMonths: number | undefined =
+    typeof adMonths === "number" && Number.isFinite(adMonths) && adMonths > 0 ? adMonths : undefined;
+  const [periodMonths, setPeriodMonths] = useState<number | undefined>(initialPeriodMonths);
+  const [periodInput, setPeriodInput] = useState<string>(initialPeriodMonths ? String(initialPeriodMonths) : "");
+
   const contractAptLinesRaw: string[] = Array.isArray(contractPrefill.contractAptLines)
     ? (contractPrefill.contractAptLines as string[])
     : [];
@@ -102,8 +108,11 @@ const ContractNewPage: React.FC = () => {
   while (remarkProducts.length < 6) remarkProducts.push("");
   while (remarkApts.length < 6) remarkApts.push("");
 
-  const aptLines: string[] = remarkApts;
+  // 계약 단지명: 자동입력 + 수정 가능
+  const [aptLines, setAptLines] = useState<string[]>(remarkApts);
+
   const [companyName, setCompanyName] = useState("");
+
   const hasRowProduct = (index: number) => {
     const txt = remarkProducts[index];
     return !!(txt && txt.trim().length > 0);
@@ -147,6 +156,14 @@ const ContractNewPage: React.FC = () => {
   };
   const aptFontSizes = aptLines.map((t) => getAptFontSize(t));
 
+  const handleAptChange = (index: number, value: string) => {
+    setAptLines((prev) => {
+      const next = [...prev];
+      next[index] = value;
+      return next;
+    });
+  };
+
   // 송출 시작/종료일 상태 (각 6줄)
   const [startDates, setStartDates] = useState<string[]>(Array(6).fill(""));
   const [endDates, setEndDates] = useState<string[]>(Array(6).fill(""));
@@ -154,12 +171,15 @@ const ContractNewPage: React.FC = () => {
   // 1~4번 요구사항용: 첫 번째 송출개시 일괄 적용 여부
   const [applyFirstStartToAll, setApplyFirstStartToAll] = useState<boolean>(true); // 기본 체크 ON
 
-  const recalcEndForRow = (rowIndex: number, startISO: string): string => {
-    if (!startISO || !adMonths || adMonths <= 0) return "";
+  // 확대/축소
+  const [zoom, setZoom] = useState<number>(1);
+
+  const recalcEndForRow = (rowIndex: number, startISO: string, months: number | undefined): string => {
+    if (!startISO || !months || months <= 0) return "";
     const rowProd = remarkProducts[rowIndex];
     const prodNameForRow = rowProd && rowProd.trim().length > 0 ? rowProd : productName;
     const isElevator = isElevatorProduct(prodNameForRow);
-    return isElevator ? addWeeksInclusive(startISO, adMonths) : addMonthsInclusive(startISO, adMonths);
+    return isElevator ? addWeeksInclusive(startISO, months) : addMonthsInclusive(startISO, months);
   };
 
   const handleStartChange = (index: number, value: string) => {
@@ -169,13 +189,13 @@ const ContractNewPage: React.FC = () => {
       const newEnds = [...endDates];
 
       newStarts[0] = value;
-      newEnds[0] = value && adMonths ? recalcEndForRow(0, value) : "";
+      newEnds[0] = value && periodMonths ? recalcEndForRow(0, value, periodMonths) : "";
 
-      if (value && adMonths && adMonths > 0) {
+      if (value && periodMonths && periodMonths > 0) {
         for (let i = 1; i < 6; i++) {
           if (!hasRowProduct(i)) continue; // 4번: 상품명이 있을 때만
           newStarts[i] = value;
-          newEnds[i] = recalcEndForRow(i, value);
+          newEnds[i] = recalcEndForRow(i, value, periodMonths);
         }
       } else {
         // 시작일이 비워진 경우, 아래 행들도 시작/종료를 비워줌
@@ -197,10 +217,10 @@ const ContractNewPage: React.FC = () => {
     setStartDates(newStarts);
 
     const newEnds = [...endDates];
-    if (!value || !adMonths || adMonths <= 0) {
+    if (!value || !periodMonths || periodMonths <= 0) {
       newEnds[index] = "";
     } else {
-      newEnds[index] = recalcEndForRow(index, value);
+      newEnds[index] = recalcEndForRow(index, value, periodMonths);
     }
     setEndDates(newEnds);
   };
@@ -209,6 +229,42 @@ const ContractNewPage: React.FC = () => {
     const newEnds = [...endDates];
     newEnds[index] = value;
     setEndDates(newEnds);
+  };
+
+  // 계약기간(개월) 변경 시 → 상태 업데이트 + 비고 종료일 재계산
+  const handlePeriodChange = (value: string) => {
+    setPeriodInput(value);
+    const num = parseNumber(value);
+    const monthsVal = num > 0 ? num : undefined;
+    setPeriodMonths(monthsVal);
+
+    if (!monthsVal) {
+      // 기간이 없으면 종료일 모두 비움
+      setEndDates(Array(6).fill(""));
+      return;
+    }
+
+    // 기존 시작일 기준으로 종료일 재계산
+    setEndDates((prev) => {
+      const next = [...prev];
+      for (let i = 0; i < 6; i++) {
+        const startISO = startDates[i];
+        if (!startISO || !hasRowProduct(i)) {
+          next[i] = "";
+          continue;
+        }
+        next[i] = recalcEndForRow(i, startISO, monthsVal);
+      }
+      return next;
+    });
+  };
+
+  const handleZoomIn = () => {
+    setZoom((z) => Math.min(z + 0.1, 1.5));
+  };
+
+  const handleZoomOut = () => {
+    setZoom((z) => Math.max(z - 0.1, 0.7));
   };
 
   return (
@@ -221,7 +277,7 @@ const ContractNewPage: React.FC = () => {
 
   .contract-toolbar {
     max-width: 900px;
-    margin: 0 auto 12px;
+    margin: 0 auto 8px;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -242,6 +298,32 @@ const ContractNewPage: React.FC = () => {
     background: #6f4bf2;
     color: #ffffff;
     font-weight: 600;
+  }
+
+  /* 확대/축소 컨트롤 (상단 가운데) */
+  .contract-zoom-controls {
+    max-width: 900px;
+    margin: 0 auto 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+
+  .contract-zoom-controls button {
+    padding: 4px 10px;
+    font-size: 12px;
+    border-radius: 999px;
+    border: 1px solid #d1d5db;
+    background: #ffffff;
+    cursor: pointer;
+  }
+
+  .contract-zoom-controls span {
+    font-size: 12px;
+    color: #4b5563;
+    min-width: 40px;
+    text-align: center;
   }
 
   .contract-paper {
@@ -271,6 +353,7 @@ const ContractNewPage: React.FC = () => {
     max-width: 820px;
     /* 원본 PNG 1765 x 2600 기준 비율 */
     aspect-ratio: 1765 / 2600;
+    transform-origin: top center;
   }
 
   /* 배경 PNG (background-image 대신 img로 인쇄 호환용) */
@@ -551,6 +634,10 @@ const ContractNewPage: React.FC = () => {
       display: none !important;
     }
 
+    .contract-zoom-controls {
+      display: none !important;
+    }
+
     .field {
       border: none;
     }
@@ -566,9 +653,20 @@ const ContractNewPage: React.FC = () => {
         </button>
       </div>
 
+      {/* 확대/축소 버튼 – 상단 가운데 */}
+      <div className="contract-zoom-controls">
+        <button type="button" onClick={handleZoomOut}>
+          -
+        </button>
+        <span>{Math.round(zoom * 100)}%</span>
+        <button type="button" onClick={handleZoomIn}>
+          +
+        </button>
+      </div>
+
       <div className="contract-paper">
         <div className="contract-sheet-wrapper">
-          <div className="contract-sheet">
+          <div className="contract-sheet" style={{ transform: `scale(${zoom})` }}>
             <img src={TEMPLATE_URL} className="contract-bg" alt="" />
 
             {/* 광고주 정보 */}
@@ -654,9 +752,9 @@ const ContractNewPage: React.FC = () => {
               </button>
             </div>
 
-            {/* 광고기간: 최장 기간 하나만 표시, 수정 가능 */}
+            {/* 광고기간: 최장 기간 하나만 표시, 수정 가능 + 비고 종료일 연동 */}
             <div className="field field-period">
-              <input className="field-input" defaultValue={adMonths ? String(adMonths) : ""} />
+              <input className="field-input" value={periodInput} onChange={(e) => handlePeriodChange(e.target.value)} />
             </div>
 
             {/* 제작비 */}
@@ -850,52 +948,52 @@ const ContractNewPage: React.FC = () => {
               />
             </div>
 
-            {/* 계약 단지명 (상품별 단지 리스트) */}
+            {/* 계약 단지명 (상품별 단지 리스트) – 자동입력 + 수정 가능 */}
             <div className="field field-apt1">
               <textarea
                 className="field-textarea"
-                readOnly
-                defaultValue={aptLines[0]}
+                value={aptLines[0]}
+                onChange={(e) => handleAptChange(0, e.target.value)}
                 style={{ fontSize: aptFontSizes[0] }}
               />
             </div>
             <div className="field field-apt2">
               <textarea
                 className="field-textarea"
-                readOnly
-                defaultValue={aptLines[1]}
+                value={aptLines[1]}
+                onChange={(e) => handleAptChange(1, e.target.value)}
                 style={{ fontSize: aptFontSizes[1] }}
               />
             </div>
             <div className="field field-apt3">
               <textarea
                 className="field-textarea"
-                readOnly
-                defaultValue={aptLines[2]}
+                value={aptLines[2]}
+                onChange={(e) => handleAptChange(2, e.target.value)}
                 style={{ fontSize: aptFontSizes[2] }}
               />
             </div>
             <div className="field field-apt4">
               <textarea
                 className="field-textarea"
-                readOnly
-                defaultValue={aptLines[3]}
+                value={aptLines[3]}
+                onChange={(e) => handleAptChange(3, e.target.value)}
                 style={{ fontSize: aptFontSizes[3] }}
               />
             </div>
             <div className="field field-apt5">
               <textarea
                 className="field-textarea"
-                readOnly
-                defaultValue={aptLines[4]}
+                value={aptLines[4]}
+                onChange={(e) => handleAptChange(4, e.target.value)}
                 style={{ fontSize: aptFontSizes[4] }}
               />
             </div>
             <div className="field field-apt6">
               <textarea
                 className="field-textarea"
-                readOnly
-                defaultValue={aptLines[5]}
+                value={aptLines[5]}
+                onChange={(e) => handleAptChange(5, e.target.value)}
                 style={{ fontSize: aptFontSizes[5] }}
               />
             </div>
