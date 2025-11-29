@@ -183,14 +183,16 @@ export default function QuoteModal({
     const rows = (items ?? []).map((it) => {
       const productKey = it.productKeyHint || classifyProductForPolicy(it.mediaName);
       const rule = productKey ? DEFAULT_POLICY[productKey] : undefined;
+
       const periodRate = findRate(rule?.period, it.months);
-      const precompRate = productKey === "ELEVATOR TV" ? findRate(rule?.precomp, it.months) : 0;
+      const precompRate =
+        productKey === "ELEVATOR TV" || productKey === "ELEVATOR TV_NOPD" ? findRate(rule?.precomp, it.months) : 0;
 
       const baseMonthly = it.baseMonthly ?? 0;
       const baseTotal = baseMonthly * it.months;
       const monthlyAfter = Math.round(baseMonthly * (1 - precompRate) * (1 - periodRate));
       const lineTotal = monthlyAfter * it.months;
-      const combinedRate = 1 - (1 - precompRate) * (1 - periodRate); // 복합 할인율
+      const combinedRate = 1 - (1 - precompRate) * (1 - periodRate);
 
       return {
         it,
@@ -239,8 +241,10 @@ export default function QuoteModal({
       items: (items ?? []).map((it) => {
         const productKey = it.productKeyHint || classifyProductForPolicy(it.mediaName);
         const rule = productKey ? DEFAULT_POLICY[productKey] : undefined;
+
         const periodRate = findRate(rule?.period, it.months);
-        const precompRate = productKey === "ELEVATOR TV" ? findRate(rule?.precomp, it.months) : 0;
+        const precompRate =
+          productKey === "ELEVATOR TV" || productKey === "ELEVATOR TV_NOPD" ? findRate(rule?.precomp, it.months) : 0;
 
         const baseMonthly = it.baseMonthly ?? 0;
         const monthlyAfter = Math.round(baseMonthly * (1 - precompRate) * (1 - periodRate));
@@ -254,7 +258,6 @@ export default function QuoteModal({
           item_total_won: lineTotal,
           total_won: lineTotal,
 
-          // ✅ B 플랜: 카운터 4종을 스냅샷에 포함 (없으면 0으로)
           households: it.households ?? 0,
           residents: it.residents ?? 0,
           monthlyImpressions: it.monthlyImpressions ?? 0,
