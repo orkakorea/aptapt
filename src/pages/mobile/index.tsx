@@ -473,12 +473,28 @@ export default function MapMobilePageV2() {
           ? (detail as any).installLocation
           : undefined;
 
-      const district =
+      // 🔹 자치구(district) 우선순위: detail.district → cart.c.district → 주소에서 추출
+      let district: string =
         typeof (detail as any).district === "string"
           ? (detail as any).district.trim()
           : typeof (c as any).district === "string"
             ? (c as any).district.trim()
             : "";
+
+      if (!district) {
+        const addressSource =
+          typeof (detail as any).address === "string"
+            ? (detail as any).address
+            : typeof (c as any).address === "string"
+              ? (c as any).address
+              : "";
+        if (addressSource) {
+          const m = addressSource.match(/(강남구|서초구|송파구|양천구)/);
+          if (m) {
+            district = m[1];
+          }
+        }
+      }
 
       const households = Number.isFinite(householdsRaw) ? householdsRaw : undefined;
       const residents = Number.isFinite(residentsRaw) ? residentsRaw : undefined;
