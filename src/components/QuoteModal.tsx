@@ -352,11 +352,11 @@ export default function QuoteModal({
     if (!contractPrefill) return;
     if (typeof window === "undefined") return;
 
-    // ✅ 1) 새 창 열기 전에 contractPrefill을 localStorage에 저장
+    // ✅ 1) 새 창 열기 전, contractPrefill을 localStorage에 저장
     try {
       window.localStorage.setItem("orka:contractPrefill", JSON.stringify(contractPrefill));
     } catch {
-      // 저장 실패해도 앱이 죽지는 않게 그냥 무시
+      // 저장 실패해도 앱이 죽지 않게 그냥 무시
     }
 
     // ✅ 2) 새 창 / 새 탭에서 계약서 페이지 열기
