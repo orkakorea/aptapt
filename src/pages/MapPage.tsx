@@ -163,16 +163,7 @@ type KMarker = any & { __key?: string; __basePos?: any; __row?: PlaceRow };
 // ✅ monthly_fee(뷰 컬럼)까지 함께 읽도록 수정
 const monthlyFeeOf = (row: PlaceRow): number =>
   toNumLoose(
-    getField(row, [
-      "월광고료",
-      "월 광고료",
-      "월 광고비",
-      "월비용",
-      "월요금",
-      "monthly_fee",
-      "month_fee",
-      "monthlyFee",
-    ]),
+    getField(row, ["월광고료", "월 광고료", "월 광고비", "월비용", "월요금", "monthly_fee", "month_fee", "monthlyFee"]),
   ) ?? 0;
 
 const groupKeyFromRow = (row: PlaceRow) => `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(7)}`;
@@ -272,6 +263,9 @@ export default function MapPage() {
       installLocation: d.install_location ?? d.installLocation ?? prev.installLocation,
       monthlyFee: d.monthly_fee ?? prev.monthlyFee,
       monthlyFeeY1: d.monthly_fee_y1 ?? prev.monthlyFeeY1,
+      city: d.city ?? prev.city,
+      district: d.district ?? prev.district,
+
       lat: d.lat ?? prev.lat,
       lng: d.lng ?? prev.lng,
       imageUrl: d.image_url ?? prev.imageUrl,
