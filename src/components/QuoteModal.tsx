@@ -7,6 +7,9 @@ import type { DiscountPolicy, RangeRule } from "@/core/pricing";
 import { useSubscriptionFlags } from "@/hooks/useSubscriptionFlags";
 import { supabase } from "@/integrations/supabase/client";
 
+/** HashRouter 사용 여부 (App.tsx와 동일) */
+const USE_HASH = String(import.meta.env.VITE_USE_HASH_ROUTER ?? "true") === "true";
+
 /** =========================
  *  외부에서 사용할 라인아이템 타입
  *  ========================= */
@@ -101,6 +104,18 @@ function buildWatermarkDataURL(text: string) {
 }
 
 /** =========================
+ *  CSV 유틸
+ *  ========================= */
+function csvEscape(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) return "";
+  const v = String(value);
+  if (/[",\n]/.test(v)) {
+    return `"${v.replace(/"/g, '""')}"`;
+  }
+  return v;
+}
+
+/** =========================
  *  컴포넌트 Props
  *  ========================= */
 type QuoteModalProps = {
@@ -113,18 +128,6 @@ type QuoteModalProps = {
   title?: string;
   subtitle?: string;
 };
-
-/** =========================
- *  CSV 유틸
- *  ========================= */
-function csvEscape(value: string | number | null | undefined): string {
-  if (value === null || value === undefined) return "";
-  const v = String(value);
-  if (/[",\n]/.test(v)) {
-    return `"${v.replace(/"/g, '""')}"`;
-  }
-  return v;
-}
 
 /** =========================
  *  기본 내보내기: QuoteModal
@@ -279,7 +282,6 @@ export default function QuoteModal({
           item_total_won: lineTotal,
           total_won: lineTotal,
 
-          // ✅ B 플랜: 카운터 4종을 스냅샷에 포함 (없으면 0으로)
           households: it.households ?? 0,
           residents: it.residents ?? 0,
           monthlyImpressions: it.monthlyImpressions ?? 0,
@@ -306,26 +308,18 @@ export default function QuoteModal({
     const first = items[0];
     const itemCount = items.length;
 
-    // 상품명 옵션 B: "TOWNBORD_S 외 2건"
     const rawFirstName = first.mediaName?.trim() ?? "";
     const productNameOptionB = rawFirstName && itemCount > 1 ? `${rawFirstName} 외 ${itemCount - 1}건` : rawFirstName;
 
-    // 광고기간(개월)들 → 최장 기간 하나만
     const monthsList = items
       .map((i) => i.months)
       .filter((m) => typeof m === "number" && Number.isFinite(m) && m > 0) as number[];
     const adMonths = monthsList.length ? Math.max(...monthsList) : undefined;
 
-    // 기준금액 = 각 라인의 baseTotal 합계
     const baseAmount = computed.baseAmountSum;
-
-    // 계약금액 = 할인 적용 후 합계 (subtotal)
     const contractAmount = computed.subtotal;
-
-    // 모니터 수량 합계
     const monitorCount = computed.totals.monitors;
 
-    // 각 상품별 단지 리스트 → "상품명: 단지1, 단지2..." 형태
     const productMap = new Map<string, string[]>();
     for (const it of items) {
       const key = (it.mediaName || "상품 미정").trim();
@@ -341,7 +335,6 @@ export default function QuoteModal({
       contractAptLines.push(line);
     });
 
-    // 최대 6줄까지만 사용 (계약서 템플릿 구조에 맞춤)
     const limitedLines = contractAptLines.slice(0, 6);
 
     return {
@@ -354,17 +347,17 @@ export default function QuoteModal({
     };
   }, [items, computed.baseAmountSum, computed.subtotal, computed.totals.monitors]);
 
-  /** 타이틀 클릭 → 계약서 작성 페이지를 새 창에서 열기 */
+  /** 타이틀 클릭 / 계약서 버튼 → 계약서 작성 페이지를 새 창에서 열기 (HashRouter 대응) */
   const handleClickTitle = () => {
     if (!contractPrefill) return;
+    if (typeof window === "undefined") return;
 
-    // 같은 도메인의 /contracts/new 를 새 탭(새 창)으로 오픈
-    if (typeof window !== "undefined") {
-      const url = `${window.location.origin}/contracts/new`;
-      const win = window.open(url, "_blank", "noopener,noreferrer");
-      if (win) {
-        win.opener = null; // 보안상 기존 창 참조 끊기
-      }
+    const base = window.location.origin;
+    const url = USE_HASH ? `${base}/#/contracts/new` : `${base}/contracts/new`;
+
+    const win = window.open(url, "_blank", "noopener,noreferrer");
+    if (win) {
+      win.opener = null;
     }
   };
 
@@ -391,7 +384,6 @@ export default function QuoteModal({
         // ignore
       }
     } finally {
-      // 구독/플랜 관련 로컬 상태 초기화 신호 (필요 시)
       window.dispatchEvent(new CustomEvent("orca:plan", { detail: { plan: "free" } }));
     }
   };
@@ -439,7 +431,6 @@ export default function QuoteModal({
       lines.push(cells.map(csvEscape).join(","));
     }
 
-    // 합계/부가세/최종광고료 요약 행
     lines.push("");
     lines.push(
       ["", "", "", "", "", "", "", "", "", "소계(총광고료 합계)", "", fmtWon(computed.subtotal)]
@@ -451,12 +442,12 @@ export default function QuoteModal({
       ["", "", "", "", "", "", "", "", "", "최종광고료(VAT 포함)", "", fmtWon(computed.total)].map(csvEscape).join(","),
     );
 
-    const csvContent = "\uFEFF" + lines.join("\r\n"); // UTF-8 BOM
+    const csvContent = "\uFEFF" + lines.join("\r\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
 
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const today = new Date().toISOString().slice(0, 10);
     a.href = url;
     a.download = `아파트엘리베이터_견적_${today}.csv`;
     document.body.appendChild(a);
@@ -577,7 +568,7 @@ export default function QuoteModal({
                       ) : (
                         computed.rows.map(({ it, combinedRate, baseMonthly, baseTotal, lineTotal }) => (
                           <tr key={it.id} className="border-t border-[#F3F4F6]">
-                            <Td className="text-left font-medium text黑">{it.name}</Td>
+                            <Td className="text-left font-medium text-black">{it.name}</Td>
                             <Td center>{safe(it.mediaName)}</Td>
                             <Td center>{safe(it.installLocation)}</Td>
                             <Td center>{fmtNum(it.households, "세대")}</Td>
@@ -640,9 +631,7 @@ export default function QuoteModal({
               {/* CTA: 비구독자 / 구독자 분기 */}
               <div className="px-6 pb-6">
                 {isSubscriber ? (
-                  // ✅ 구독회원: 엑셀 + 계약서 작성하기
                   <div className="flex flex-col sm:flex-row gap-3">
-                    {/* 견적 내보내기 → 엑셀(CSV) 다운로드 */}
                     <button
                       type="button"
                       onClick={handleExportQuote}
@@ -651,7 +640,6 @@ export default function QuoteModal({
                       견적 내보내기(엑셀)
                     </button>
 
-                    {/* 계약서 작성하기 */}
                     <button
                       type="button"
                       onClick={handleClickTitle}
@@ -662,7 +650,6 @@ export default function QuoteModal({
                     </button>
                   </div>
                 ) : (
-                  // ❌ 비로그인/비구독: 구좌 문의하기 버튼 1개
                   <button
                     type="button"
                     onClick={() => {
