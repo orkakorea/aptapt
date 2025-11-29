@@ -5,6 +5,8 @@ import InquiryModal from "./InquiryModal";
 import { supabase } from "@/integrations/supabase/client";
 /* ✅ 추가: 타이틀 오른쪽 패널 줌 버튼 */
 import PanelZoomButtons from "./PanelZoomButtons";
+import { DEFAULT_POLICY } from "@/core/pricing";
+import type { DiscountPolicy, RangeRule } from "@/core/pricing";
 
 /** ===== 타입 ===== */
 export type SelectedApt = {
@@ -90,62 +92,7 @@ function resolveProductFile(productName?: string, installLocation?: string): str
 }
 
 /** ===== 할인 정책 ===== */
-type RangeRule = { min: number; max: number; rate: number };
-type ProductRules = { precomp?: RangeRule[]; period: RangeRule[] };
-type DiscountPolicy = Record<string, ProductRules>;
-const DEFAULT_POLICY: DiscountPolicy = {
-  "ELEVATOR TV": {
-    precomp: [
-      { min: 1, max: 2, rate: 0.03 },
-      { min: 3, max: 12, rate: 0.05 },
-    ],
-    period: [
-      { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.15 },
-      { min: 12, max: 12, rate: 0.2 },
-    ],
-  },
-  TOWNBORD_S: {
-    period: [
-      { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.15 },
-      { min: 12, max: 12, rate: 0.2 },
-    ],
-  },
-  TOWNBORD_L: {
-    period: [
-      { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.2 },
-      { min: 12, max: 12, rate: 0.3 },
-    ],
-  },
-  "MEDIA MEET": {
-    period: [
-      { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.2 },
-      { min: 12, max: 12, rate: 0.3 },
-    ],
-  },
-  "SPACE LIVING": {
-    period: [
-      { min: 1, max: 2, rate: 0 },
-      { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.2 },
-      { min: 12, max: 12, rate: 0.3 },
-    ],
-  },
-  "HI-POST": {
-    period: [
-      { min: 1, max: 5, rate: 0 },
-      { min: 6, max: 11, rate: 0.05 },
-      { min: 12, max: 12, rate: 0.1 },
-    ],
-  },
-};
+
 function findRate(rules: RangeRule[] | undefined, months: number): number {
   if (!rules || !Number.isFinite(months)) return 0;
   return rules.find((r) => months >= r.min && months <= r.max)?.rate ?? 0;
