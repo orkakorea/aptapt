@@ -1600,6 +1600,86 @@ export default function MapPage() {
   }, []);
   const zoomIn = useCallback(() => changeZoom(-1), [changeZoom]);
   const zoomOut = useCallback(() => changeZoom(1), [changeZoom]);
+  /* ---------- ✅ 태블릿/터치 기기용 핀치 줌 ---------- */
+  useEffect(() => {
+    const el = mapRef.current;
+    const map = mapObjRef.current;
+
+    // 지도 DOM 또는 맵 객체가 아직 없으면 아무 것도 하지 않음
+    if (!el || !map) return;
+
+    // 터치(손가락) 기반 포인터에서만 동작하도록 보호
+    const mm = window.matchMedia?.("(pointer: coarse)");
+    const isCoarsePointer = mm ? mm.matches : "ontouchstart" in window;
+    if (!isCoarsePointer) return;
+
+    let pinchActive = false;
+    let startDist = 0;
+
+    const getDistance = (t1: Touch, t2: Touch) => {
+      const dx = t1.clientX - t2.clientX;
+      const dy = t1.clientY - t2.clientY;
+      return Math.sqrt(dx * dx + dy * dy);
+    };
+
+    const onTouchStart = (e: any) => {
+      const touches: TouchList = e.touches;
+      if (touches.length === 2) {
+        pinchActive = true;
+        startDist = getDistance(touches[0], touches[1]);
+      } else if (touches.length < 2) {
+        // 손가락이 2개 미만이면 핀치 상태 해제
+        pinchActive = false;
+        startDist = 0;
+      }
+    };
+
+    const onTouchMove = (e: any) => {
+      if (!pinchActive) return;
+      const touches: TouchList = e.touches;
+      if (touches.length !== 2) return;
+
+      const newDist = getDistance(touches[0], touches[1]);
+      if (!startDist) {
+        startDist = newDist;
+        return;
+      }
+
+      const scale = newDist / startDist;
+      const THRESHOLD = 0.12; // 12% 이상 변화했을 때만 한 단계 줌
+
+      if (scale > 1 + THRESHOLD) {
+        // 두 손가락이 멀어짐 → 확대
+        e.preventDefault();
+        changeZoom(-1); // 기존 버튼과 동일: -1 → zoom in
+        startDist = newDist;
+      } else if (scale < 1 - THRESHOLD) {
+        // 두 손가락이 가까워짐 → 축소
+        e.preventDefault();
+        changeZoom(1); // 기존 버튼과 동일: +1 → zoom out
+        startDist = newDist;
+      }
+    };
+
+    const onTouchEnd = (_e: any) => {
+      // 손가락이 떨어지면 핀치 상태 리셋
+      pinchActive = false;
+      startDist = 0;
+    };
+
+    // move에서 preventDefault를 쓰려고 passive: false 필요
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd);
+    el.addEventListener("touchcancel", onTouchEnd);
+
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, [changeZoom]);
 
   const MapChromeAny = MapChrome as any;
 
