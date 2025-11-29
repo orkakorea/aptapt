@@ -1,7 +1,6 @@
 // src/components/QuoteModal.tsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useNavigate } from "react-router-dom";
 import InquiryModal from "./InquiryModal";
 import { DEFAULT_POLICY } from "@/core/pricing";
 import type { DiscountPolicy, RangeRule } from "@/core/pricing";
@@ -144,7 +143,6 @@ export default function QuoteModal({
   if (typeof document === "undefined") return null;
   if (!open) return null;
 
-  const navigate = useNavigate();
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [inquiryOpen, setInquiryOpen] = useState(false); // (현재는 내부 InquiryModal 미사용)
   const { isSubscriber } = useSubscriptionFlags();
@@ -356,14 +354,18 @@ export default function QuoteModal({
     };
   }, [items, computed.baseAmountSum, computed.subtotal, computed.totals.monitors]);
 
-  /** 타이틀 클릭 → 계약서 작성 페이지로 이동 */
+  /** 타이틀 클릭 → 계약서 작성 페이지를 새 창에서 열기 */
   const handleClickTitle = () => {
     if (!contractPrefill) return;
-    navigate("/contracts/new", {
-      state: {
-        contractPrefill,
-      },
-    });
+
+    // 같은 도메인의 /contracts/new 를 새 탭(새 창)으로 오픈
+    if (typeof window !== "undefined") {
+      const url = `${window.location.origin}/contracts/new`;
+      const win = window.open(url, "_blank", "noopener,noreferrer");
+      if (win) {
+        win.opener = null; // 보안상 기존 창 참조 끊기
+      }
+    }
   };
 
   /** 로그인 모달 열기 이벤트 발사 */
