@@ -1602,14 +1602,12 @@ export default function MapPage() {
   const zoomIn = useCallback(() => changeZoom(-1), [changeZoom]);
   const zoomOut = useCallback(() => changeZoom(1), [changeZoom]);
 
-  /* ---------- ✅ 태블릿/터치 기기용 핀치 줌 ---------- */
+  /* ---------- ✅ 태블릿/터치 기기용 핀치 줌 + 드래그 이동 ---------- */
   useEffect(() => {
     const el = mapRef.current;
-
-    // 지도 DOM 이 아직 없으면 아무 것도 하지 않음
     if (!el) return;
 
-    // 터치(손가락) 기반 포인터에서만 동작하도록 보호
+    // 터치 기반 디바이스인지 판별
     const mm = window.matchMedia?.("(pointer: coarse)");
     const hasCoarsePointer = !!mm && mm.matches;
     const hasTouchEvent = "ontouchstart" in window || (navigator as any).maxTouchPoints > 0;
@@ -1618,7 +1616,10 @@ export default function MapPage() {
     if (!isTouchLike) return;
 
     let pinchActive = false;
+    let panActive = false;
     let startDist = 0;
+    let lastX = 0;
+    let lastY = 0;
 
     const getDistance = (t1: Touch, t2: Touch) => {
       const dx = t1.clientX - t2.clientX;
@@ -1628,50 +1629,101 @@ export default function MapPage() {
 
     const onTouchStart = (e: any) => {
       const touches: TouchList = e.touches;
+
       if (touches.length === 2) {
+        // ✌️ 핀치 시작
         pinchActive = true;
+        panActive = false;
         startDist = getDistance(touches[0], touches[1]);
-      } else if (touches.length < 2) {
-        // 손가락이 2개 미만이면 핀치 상태 해제
+      } else if (touches.length === 1) {
+        // 👆 한 손가락 드래그 시작
+        panActive = true;
         pinchActive = false;
+        startDist = 0;
+        lastX = touches[0].clientX;
+        lastY = touches[0].clientY;
+      } else {
+        pinchActive = false;
+        panActive = false;
         startDist = 0;
       }
     };
 
     const onTouchMove = (e: any) => {
-      if (!pinchActive) return;
       const touches: TouchList = e.touches;
-      if (touches.length !== 2) return;
+      const map = mapObjRef.current;
+      if (!map) return;
 
-      const newDist = getDistance(touches[0], touches[1]);
-      if (!startDist) {
-        startDist = newDist;
+      // ✌️ 핀치 줌 처리
+      if (touches.length === 2 && pinchActive) {
+        const newDist = getDistance(touches[0], touches[1]);
+        if (!startDist) {
+          startDist = newDist;
+          return;
+        }
+        const scale = newDist / startDist;
+        const THRESHOLD = 0.12; // 12% 이상 변화했을 때만 한 단계 줌
+
+        if (scale > 1 + THRESHOLD) {
+          // 확대
+          e.preventDefault();
+          changeZoom(-1); // 버튼과 동일: -1 → zoom in
+          startDist = newDist;
+        } else if (scale < 1 - THRESHOLD) {
+          // 축소
+          e.preventDefault();
+          changeZoom(1); // +1 → zoom out
+          startDist = newDist;
+        }
         return;
       }
 
-      const scale = newDist / startDist;
-      const THRESHOLD = 0.12; // 12% 이상 변화했을 때만 한 단계 줌
+      // 👆 한 손가락 드래그로 지도 이동
+      if (touches.length === 1 && panActive) {
+        const t = touches[0];
+        const dx = t.clientX - lastX;
+        const dy = t.clientY - lastY;
 
-      if (scale > 1 + THRESHOLD) {
-        // 두 손가락이 멀어짐 → 확대
-        e.preventDefault();
-        changeZoom(-1); // 기존 버튼과 동일: -1 → zoom in
-        startDist = newDist;
-      } else if (scale < 1 - THRESHOLD) {
-        // 두 손가락이 가까워짐 → 축소
-        e.preventDefault();
-        changeZoom(1); // 기존 버튼과 동일: +1 → zoom out
-        startDist = newDist;
+        // 너무 미세한 움직임은 무시
+        if (Math.abs(dx) < 1 && Math.abs(dy) < 1) {
+          lastX = t.clientX;
+          lastY = t.clientY;
+          return;
+        }
+
+        e.preventDefault(); // 페이지 스크롤/줌 방지
+
+        try {
+          // 손가락 이동 방향과 반대로 지도 내용을 움직여야 자연스러움
+          map.panBy(-dx, -dy);
+        } catch {
+          // 안전장치
+        }
+
+        lastX = t.clientX;
+        lastY = t.clientY;
       }
     };
 
-    const onTouchEnd = (_e: any) => {
-      // 손가락이 떨어지면 핀치 상태 리셋
-      pinchActive = false;
-      startDist = 0;
+    const onTouchEnd = (e: any) => {
+      const touches: TouchList = e.touches;
+
+      if (touches.length === 1) {
+        // 핀치 끝나고 손가락 하나만 남은 경우 → 다시 드래그 모드
+        panActive = true;
+        pinchActive = false;
+        startDist = 0;
+        lastX = touches[0].clientX;
+        lastY = touches[0].clientY;
+      } else if (touches.length === 0) {
+        // 모든 손가락이 떨어짐 → 초기화
+        pinchActive = false;
+        panActive = false;
+        startDist = 0;
+      }
     };
 
-    // move에서 preventDefault를 쓰려고 passive: false 필요
+    // move에서 preventDefault를 쓰기 때문에 passive: false
     el.addEventListener("touchstart", onTouchStart, { passive: true });
     el.addEventListener("touchmove", onTouchMove, { passive: false });
     el.addEventListener("touchend", onTouchEnd);
