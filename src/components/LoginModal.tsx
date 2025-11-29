@@ -43,6 +43,19 @@ const LoginModal: React.FC = () => {
   const [isAdmin, setIsAdmin] = useState(false);
   const [isSubscriber, setIsSubscriber] = useState(false);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handler = () => {
+      setOpen(true);
+    };
+
+    window.addEventListener("orca:open-login", handler);
+    return () => {
+      window.removeEventListener("orca:open-login", handler);
+    };
+  }, []);
+
   // 세션 변화 감지 → 표시 정보/관리자 여부/구독 여부 동기화
   useEffect(() => {
     let mounted = true;
@@ -258,7 +271,7 @@ const LoginModal: React.FC = () => {
       {/* 포털 모달 */}
       {open &&
         createPortal(
-          <div className="fixed inset-0 z-[1000] flex items-center justify-center" aria-modal="true" role="dialog">
+          <div className="fixed inset-0 z-[11000] flex items-center justify-center" aria-modal="true" role="dialog">
             {/* Dim */}
             <div className="absolute inset-0 bg-black/40" onClick={() => setOpen(false)} />
             {/* Panel */}
