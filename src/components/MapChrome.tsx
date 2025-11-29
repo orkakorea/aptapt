@@ -1052,6 +1052,14 @@ type CartItemCardProps = {
   onTitleClick: () => void;
 };
 function CartItemCard({ item, onChangeMonths, onRemove, onTitleClick }: CartItemCardProps) {
+  // 🔍 카트 아이템 로그
+  console.log("[CartItem]", {
+    name: item.name,
+    productName: item.productName,
+    district: item.district,
+    productKey: item.productKey,
+    months: item.months,
+  });
   const rule = item.productKey ? DEFAULT_POLICY[item.productKey] : undefined;
   const periodRate = findRate(rule?.period, item.months);
   const preRate = item.productKey === "ELEVATOR TV" ? findRate(rule?.precomp, item.months) : 0;
