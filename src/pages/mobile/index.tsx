@@ -61,7 +61,7 @@ function classifyProductForPolicy(
     return "TOWNBORD_S";
   }
 
-  // ELEVATOR TV : 강남/서초/송파는 기간할인 없는 별도 정책 사용
+  // ELEVATOR TV : 강남/서초/송파는 기간할인 없는 정책 사용
   if (pn.includes("elevatortv") || pn.includes("엘리베이터tv") || pn.includes("elevator")) {
     if (d === "강남구" || d === "서초구" || d === "송파구") {
       return "ELEVATOR TV_NOPD";
@@ -69,7 +69,6 @@ function classifyProductForPolicy(
     return "ELEVATOR TV";
   }
 
-  // 기타 상품
   if (pn.includes("mediameet") || pn.includes("media-meet") || pn.includes("미디어")) return "MEDIA MEET";
   if (pn.includes("spaceliving") || pn.includes("스페이스") || pn.includes("living")) return "SPACE LIVING";
   if (pn.includes("hipost") || pn.includes("hi-post") || pn.includes("하이포스트")) return "HI-POST";
@@ -80,7 +79,6 @@ function classifyProductForPolicy(
     return "TOWNBORD_S";
   }
 
-  // 나머지는 기존 규칙 사용
   return undefined;
 }
 
@@ -219,6 +217,13 @@ export default function MapMobilePageV2() {
 
   const addAptToCartQuick = useCallback((apt: SelectedApt) => {
     const monthsDefault = Math.max(1, Number(lastMonthsRef.current || 1));
+
+    const productKey = classifyProductForPolicy(
+      apt.productName,
+      (apt as any).installLocation ?? (apt as any).install_location,
+      (apt as any).district ?? null,
+    );
+
     const next: CartItem = {
       rowKey: apt.rowKey,
       aptName: apt.name,
@@ -226,7 +231,9 @@ export default function MapMobilePageV2() {
       months: monthsDefault,
       baseMonthly: apt.monthlyFee ?? 0,
       monthlyFeeY1: apt.monthlyFeeY1 ?? undefined,
+      productKey, // ✅ 정책키 저장
     };
+
     setCart((prev) => [next, ...prev.filter((c) => c.rowKey !== next.rowKey)]);
   }, []);
 
@@ -281,6 +288,13 @@ export default function MapMobilePageV2() {
       } else {
         // 미담김 → 담기
         const monthsDefault = Math.max(1, Number(lastMonthsRef.current || 1));
+
+        const productKey = classifyProductForPolicy(
+          apt.productName,
+          (apt as any).installLocation ?? (apt as any).install_location,
+          (apt as any).district ?? null,
+        );
+
         const next: CartItem = {
           rowKey,
           aptName: apt.name,
@@ -288,7 +302,9 @@ export default function MapMobilePageV2() {
           months: monthsDefault,
           baseMonthly: apt.monthlyFee ?? 0,
           monthlyFeeY1: apt.monthlyFeeY1 ?? undefined,
+          productKey, // ✅ 정책키 저장
         };
+
         setCart((prev) => [next, ...prev.filter((c) => c.rowKey !== next.rowKey)]);
       }
     },
@@ -386,6 +402,13 @@ export default function MapMobilePageV2() {
   const addSelectedToCart = useCallback(() => {
     if (!selected) return;
     const monthsDefault = Math.max(1, Number(lastMonthsRef.current || 1));
+
+    const productKey = classifyProductForPolicy(
+      selected.productName,
+      (selected as any).installLocation ?? (selected as any).install_location,
+      (selected as any).district ?? null,
+    );
+
     const next: CartItem = {
       rowKey: selected.rowKey,
       aptName: selected.name,
@@ -393,7 +416,9 @@ export default function MapMobilePageV2() {
       months: monthsDefault,
       baseMonthly: selected.monthlyFee ?? 0,
       monthlyFeeY1: selected.monthlyFeeY1 ?? undefined,
+      productKey, // ✅ 정책키 저장
     };
+
     setCart((prev) => [next, ...prev.filter((c) => c.rowKey !== next.rowKey)]);
   }, [selected]);
 
@@ -458,11 +483,14 @@ export default function MapMobilePageV2() {
           ? (detail as any).district.trim()
           : undefined;
 
-      // ✅ PC MapChrome과 동일: 상품명 + 설치위치 + 구(강남/서초/송파) 기반 정책 키
-      const policyKey = classifyProductForPolicy(name, installLocation, district ?? null) ?? normPolicyKey(name);
-      const rules: any = (DEFAULT_POLICY as any)[policyKey as any];
+      // ✅ 정책 키: 카트에 저장된 productKey 우선, 없으면 상품/설치위치/구 기반 재분류
+      const policyKey = c.productKey ?? classifyProductForPolicy(name, installLocation, district ?? null);
 
-      // ✅ 기간 할인율 / 사전보상 할인율 (개월 수 기준)
+      const rules = policyKey ? (DEFAULT_POLICY as any)[policyKey] : undefined;
+
+      // ✅ 기간 할인율 / 사전보상 할인율
+      //  - ELEVATOR TV 만 precomp(사전보상) 할인 사용
+      //  - ELEVATOR TV_NOPD 는 사전보상 X, 기간할인도 정책에서 비워두면 0%
       const discPeriodRate = rateFromRanges(rules?.period, months);
       const discPrecompRate = policyKey === "ELEVATOR TV" ? rateFromRanges(rules?.precomp, months) : 0;
 
