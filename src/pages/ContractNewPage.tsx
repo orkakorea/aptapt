@@ -37,21 +37,6 @@ function addWeeksInclusive(startISO: string, months: number): string {
   return `${yy}-${mm}-${dd}`;
 }
 
-// ✅ 견적서 모달에서 새 창으로 열렸을 때 localStorage에서 contractPrefill 읽기
-function loadContractPrefillFromStorage(): any | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem("orka:contractPrefill");
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    // 한 번 사용 후에는 지워도 OK
-    window.localStorage.removeItem("orka:contractPrefill");
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
 const norm = (s: string) => s.replace(/\s+/g, "").toLowerCase();
 const isElevatorProduct = (prod?: string) => {
   if (!prod) return false;
@@ -70,13 +55,24 @@ const ContractNewPage: React.FC = () => {
   const todayISO = new Date().toISOString().slice(0, 10);
 
   // ============================
-  // 견적서(QuoteModal)에서 넘어온 값 읽기
+  // 견적서(QuoteModal)에서 넘어온 값 읽기 (location.state or localStorage)
   // ============================
-
-  // 1순위: 같은 탭 내에서 navigate로 넘어온 state
-  const contractPrefillFromState = (location?.state && location.state.contractPrefill) || null;
-  // 2순위: 새 창에서 localStorage로 넘어온 값
-  const contractPrefill = contractPrefillFromState || loadContractPrefillFromStorage() || {};
+  const [contractPrefill] = useState<any>(() => {
+    // 1순위: 새 창으로 열릴 때 localStorage 사용
+    if (typeof window !== "undefined") {
+      try {
+        const stored = window.localStorage.getItem("orka:contractPrefill");
+        if (stored) {
+          window.localStorage.removeItem("orka:contractPrefill");
+          return JSON.parse(stored) || {};
+        }
+      } catch {
+        // ignore
+      }
+    }
+    // 2순위: 기존처럼 navigate state 사용
+    return (location?.state && location.state.contractPrefill) || {};
+  });
 
   // 원본 상품명 (예: "ELEVATOR TV 외 11건")
   const rawProductName: string = contractPrefill.productName ?? "";
@@ -96,7 +92,7 @@ const ContractNewPage: React.FC = () => {
     typeof contractPrefill.monitorCount === "number" && Number.isFinite(contractPrefill.monitorCount)
       ? contractPrefill.monitorCount
       : undefined;
-  const adMonths: number | undefined =
+  const initialAdMonths: number | undefined =
     typeof contractPrefill.adMonths === "number" && Number.isFinite(contractPrefill.adMonths)
       ? contractPrefill.adMonths
       : undefined;
@@ -121,13 +117,8 @@ const ContractNewPage: React.FC = () => {
   while (remarkProducts.length < 6) remarkProducts.push("");
   while (remarkApts.length < 6) remarkApts.push("");
 
-  const aptLines: string[] = remarkApts;
-
-  // ✅ 아파트명 수정 가능하도록 state로 관리
-  const [aptTexts, setAptTexts] = useState<string[]>(aptLines);
-
+  const [aptLines, setAptLines] = useState<string[]>(remarkApts);
   const [companyName, setCompanyName] = useState("");
-
   const hasRowProduct = (index: number) => {
     const txt = remarkProducts[index];
     return !!(txt && txt.trim().length > 0);
@@ -150,6 +141,10 @@ const ContractNewPage: React.FC = () => {
   // 제작비
   const [prodFeeValue, setProdFeeValue] = useState<number>(0);
 
+  // 광고기간(개월): 수정 가능 + 종료일 재계산에 사용
+  const [adMonths, setAdMonths] = useState<number | undefined>(initialAdMonths);
+  const [periodInput, setPeriodInput] = useState<string>(initialAdMonths ? String(initialAdMonths) : "");
+
   // 총계약금액(VAT별도) = 계약금액 + 제작비
   const vatExcludedTotal = (contractAmountValue || 0) + (prodFeeValue || 0);
   const vatIncludedTotal = vatExcludedTotal > 0 ? Math.round(vatExcludedTotal * 1.1) : 0;
@@ -169,21 +164,18 @@ const ContractNewPage: React.FC = () => {
     if (len > 40) return 10;
     return 11;
   };
-  const aptFontSizes = aptTexts.map((t) => getAptFontSize(t));
+  const aptFontSizes = aptLines.map((t) => getAptFontSize(t));
 
   // 송출 시작/종료일 상태 (각 6줄)
   const [startDates, setStartDates] = useState<string[]>(Array(6).fill(""));
   const [endDates, setEndDates] = useState<string[]>(Array(6).fill(""));
 
-  // ✅ 광고기간(개월) – 수정 가능, 종료일 재계산에 사용
-  const [periodOverride, setPeriodOverride] = useState<number | undefined>(adMonths);
-
-  // 1~4번 요구사항용: 첫 번째 송출개시 일괄 적용 여부
+  // 첫 번째 송출개시 일괄 적용 여부
   const [applyFirstStartToAll, setApplyFirstStartToAll] = useState<boolean>(true); // 기본 체크 ON
 
+  // 종료일 재계산 (상품별로 ELEVATOR TV는 주단위, 그 외는 월단위)
   const recalcEndForRow = (rowIndex: number, startISO: string, monthsOverride?: number): string => {
-    // ✅ 우선순위: 직접 넘겨준 monthsOverride > 사용자가 수정한 periodOverride > 견적서에서 온 adMonths
-    const months = monthsOverride ?? periodOverride ?? adMonths;
+    const months = monthsOverride ?? adMonths;
     if (!startISO || !months || months <= 0) return "";
     const rowProd = remarkProducts[rowIndex];
     const prodNameForRow = rowProd && rowProd.trim().length > 0 ? rowProd : productName;
@@ -192,17 +184,20 @@ const ContractNewPage: React.FC = () => {
   };
 
   const handleStartChange = (index: number, value: string) => {
-    // 3/4번: 체크박스가 체크되어 있고, 첫 번째 행을 수정한 경우 → 아래 행들 일괄 적용
+    // 상품명이 없는 행은 날짜를 저장/표시하지 않음
+    if (!hasRowProduct(index)) return;
+
+    // 체크박스가 켜져 있고, 첫 번째 행을 수정 → 아래 행 일괄 적용
     if (applyFirstStartToAll && index === 0) {
       const newStarts = [...startDates];
       const newEnds = [...endDates];
 
       newStarts[0] = value;
-      newEnds[0] = value ? recalcEndForRow(0, value) : "";
+      newEnds[0] = value && adMonths ? recalcEndForRow(0, value) : "";
 
-      if (value) {
+      if (value && adMonths && adMonths > 0) {
         for (let i = 1; i < 6; i++) {
-          if (!hasRowProduct(i)) continue; // 상품명이 있을 때만
+          if (!hasRowProduct(i)) continue;
           newStarts[i] = value;
           newEnds[i] = recalcEndForRow(i, value);
         }
@@ -220,13 +215,13 @@ const ContractNewPage: React.FC = () => {
       return;
     }
 
-    // 체크해제거나 1행이 아닌 경우 → 개별 행만 처리
+    // 체크 해제거나 1행이 아닌 경우 → 개별 행만 처리
     const newStarts = [...startDates];
     newStarts[index] = value;
     setStartDates(newStarts);
 
     const newEnds = [...endDates];
-    if (!value) {
+    if (!value || !adMonths || adMonths <= 0) {
       newEnds[index] = "";
     } else {
       newEnds[index] = recalcEndForRow(index, value);
@@ -235,9 +230,47 @@ const ContractNewPage: React.FC = () => {
   };
 
   const handleEndChange = (index: number, value: string) => {
+    // 상품명이 없는 행은 무시
+    if (!hasRowProduct(index)) return;
     const newEnds = [...endDates];
     newEnds[index] = value;
     setEndDates(newEnds);
+  };
+
+  // 광고기간(개월) 변경 시: adMonths 갱신 + 종료일 전체 재계산
+  const handlePeriodChange = (value: string) => {
+    setPeriodInput(value);
+
+    const numeric = Number(value);
+    const months = Number.isFinite(numeric) && numeric > 0 ? numeric : undefined;
+    setAdMonths(months);
+
+    if (!months) {
+      // 기간이 없으면 종료일 리셋
+      setEndDates(Array(6).fill(""));
+      return;
+    }
+
+    setEndDates((prev) => {
+      const next = [...prev];
+      for (let i = 0; i < 6; i++) {
+        const startISO = startDates[i];
+        if (!hasRowProduct(i) || !startISO) {
+          next[i] = "";
+          continue;
+        }
+        next[i] = recalcEndForRow(i, startISO, months);
+      }
+      return next;
+    });
+  };
+
+  const handleAptChange = (index: number, value: string) => {
+    setAptLines((prev) => {
+      const next = [...prev];
+      next[index] = value;
+      return next;
+    });
   };
 
   return (
@@ -390,7 +423,7 @@ const ContractNewPage: React.FC = () => {
 
   /* 광고주 정보 + 상단 계약 정보 */
   
-    /* === 계약금액 리셋 버튼 필드 === */
+  /* === 계약금액 리셋 버튼 필드 === */
   .field-contractAmtReset {
     left: 88.3853%;   /* 1560 / 1765 * 100 */
     top: 25.3077%;    /* 658 / 2600 * 100 */
@@ -413,7 +446,7 @@ const ContractNewPage: React.FC = () => {
     padding: 0;
   }
 
-    /* === 정렬 규칙 === */
+  /* === 정렬 규칙 === */
 
   /* 1. 광고주 정보 영역: 가운데 정렬 */
   .field-company .field-input,
@@ -541,7 +574,7 @@ const ContractNewPage: React.FC = () => {
   .field-cb7 { left: 43.3994%; top: 87.7692%; width: 1.6997%; height: 1.1538%; }
   .field-cb8 { left: 43.3994%; top: 95.1538%; width: 1.6997%; height: 1.1538%; }
 
-  /* 인쇄 설정: PDF 저장 시 필드 배경 투명 */
+  /* 인쇄 설정: PDF 저장 시 필드 배경 투명 + 폰트 조금 축소 */
   @media print {
     @page {
       size: A4 portrait;
@@ -561,6 +594,8 @@ const ContractNewPage: React.FC = () => {
       margin: 0 auto;
       box-shadow: none;
       padding: 4mm 6mm 6mm;
+      font-size: 9px;
+      line-height: 1.2;
     }
 
     .contract-sheet,
@@ -574,6 +609,7 @@ const ContractNewPage: React.FC = () => {
     .field-textarea,
     .field-checkbox {
       background: transparent !important;
+      font-size: 9px;
     }
 
     .contract-toolbar {
@@ -683,40 +719,9 @@ const ContractNewPage: React.FC = () => {
               </button>
             </div>
 
-            {/* 광고기간: 최장 기간 하나만 표시, 수정 가능 + 비고 종료일 재계산 */}
+            {/* 광고기간: 최장 기간 하나만 표시, 수정 가능 + 종료일 자동 반영 */}
             <div className="field field-period">
-              <input
-                className="field-input"
-                value={periodOverride !== undefined ? String(periodOverride) : ""}
-                onChange={(e) => {
-                  const raw = e.target.value.replace(/[^0-9]/g, "");
-                  const num = raw ? Number(raw) : NaN;
-                  const next = Number.isFinite(num) && num > 0 ? num : undefined;
-
-                  // 기간 state 갱신
-                  setPeriodOverride(next);
-
-                  // 기간이 비워지면 종료일 전부 비우기
-                  if (!next) {
-                    setEndDates(Array(6).fill(""));
-                    return;
-                  }
-
-                  // 이미 입력된 송출개시(startDates)를 기준으로 종료일 전부 재계산
-                  setEndDates((prev) => {
-                    const updated = [...prev];
-                    for (let i = 0; i < 6; i++) {
-                      const startISO = startDates[i];
-                      if (!startISO) {
-                        updated[i] = "";
-                        continue;
-                      }
-                      updated[i] = recalcEndForRow(i, startISO, next);
-                    }
-                    return updated;
-                  });
-                }}
-              />
+              <input className="field-input" value={periodInput} onChange={(e) => handlePeriodChange(e.target.value)} />
             </div>
 
             {/* 제작비 */}
@@ -810,7 +815,7 @@ const ContractNewPage: React.FC = () => {
               <div className="field-item-multiline">{remarkProducts[5]}</div>
             </div>
 
-            {/* 송출 개시 (각 행별) – 항상 date 형식 */}
+            {/* 송출 개시 (각 행별, 상품명 있을 때만 사용, date 형식) */}
             <div className="field field-start1">
               <input
                 className="field-input"
@@ -860,7 +865,7 @@ const ContractNewPage: React.FC = () => {
               />
             </div>
 
-            {/* 송출 종료 (자동 계산 + 수정 가능, 행별 상품명 기준) – 항상 date 형식 */}
+            {/* 송출 종료 (자동 계산 + 수정 가능, 행별 상품명 기준) */}
             <div className="field field-end1">
               <input
                 className="field-input"
@@ -910,77 +915,53 @@ const ContractNewPage: React.FC = () => {
               />
             </div>
 
-            {/* 계약 단지명 (상품별 단지 리스트) – 수정 가능 */}
+            {/* 계약 단지명 (상품별 단지 리스트 → 수정 가능) */}
             <div className="field field-apt1">
               <textarea
                 className="field-textarea"
-                value={aptTexts[0] ?? ""}
-                onChange={(e) => {
-                  const next = [...aptTexts];
-                  next[0] = e.target.value;
-                  setAptTexts(next);
-                }}
-                style={{ fontSize: aptFontSizes[0] ?? 11 }}
+                value={aptLines[0] || ""}
+                onChange={(e) => handleAptChange(0, e.target.value)}
+                style={{ fontSize: aptFontSizes[0] }}
               />
             </div>
             <div className="field field-apt2">
               <textarea
                 className="field-textarea"
-                value={aptTexts[1] ?? ""}
-                onChange={(e) => {
-                  const next = [...aptTexts];
-                  next[1] = e.target.value;
-                  setAptTexts(next);
-                }}
-                style={{ fontSize: aptFontSizes[1] ?? 11 }}
+                value={aptLines[1] || ""}
+                onChange={(e) => handleAptChange(1, e.target.value)}
+                style={{ fontSize: aptFontSizes[1] }}
               />
             </div>
             <div className="field field-apt3">
               <textarea
                 className="field-textarea"
-                value={aptTexts[2] ?? ""}
-                onChange={(e) => {
-                  const next = [...aptTexts];
-                  next[2] = e.target.value;
-                  setAptTexts(next);
-                }}
-                style={{ fontSize: aptFontSizes[2] ?? 11 }}
+                value={aptLines[2] || ""}
+                onChange={(e) => handleAptChange(2, e.target.value)}
+                style={{ fontSize: aptFontSizes[2] }}
               />
             </div>
             <div className="field field-apt4">
               <textarea
                 className="field-textarea"
-                value={aptTexts[3] ?? ""}
-                onChange={(e) => {
-                  const next = [...aptTexts];
-                  next[3] = e.target.value;
-                  setAptTexts(next);
-                }}
-                style={{ fontSize: aptFontSizes[3] ?? 11 }}
+                value={aptLines[3] || ""}
+                onChange={(e) => handleAptChange(3, e.target.value)}
+                style={{ fontSize: aptFontSizes[3] }}
               />
             </div>
             <div className="field field-apt5">
               <textarea
                 className="field-textarea"
-                value={aptTexts[4] ?? ""}
-                onChange={(e) => {
-                  const next = [...aptTexts];
-                  next[4] = e.target.value;
-                  setAptTexts(next);
-                }}
-                style={{ fontSize: aptFontSizes[4] ?? 11 }}
+                value={aptLines[4] || ""}
+                onChange={(e) => handleAptChange(4, e.target.value)}
+                style={{ fontSize: aptFontSizes[4] }}
               />
             </div>
             <div className="field field-apt6">
               <textarea
                 className="field-textarea"
-                value={aptTexts[5] ?? ""}
-                onChange={(e) => {
-                  const next = [...aptTexts];
-                  next[5] = e.target.value;
-                  setAptTexts(next);
-                }}
-                style={{ fontSize: aptFontSizes[5] ?? 11 }}
+                value={aptLines[5] || ""}
+                onChange={(e) => handleAptChange(5, e.target.value)}
+                style={{ fontSize: aptFontSizes[5] }}
               />
             </div>
 
