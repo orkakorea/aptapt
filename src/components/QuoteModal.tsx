@@ -107,10 +107,23 @@ type QuoteModalProps = {
   items: QuoteLineItem[];
   vatRate?: number;
   onClose?: () => void;
+  // onSubmitInquiry는 남겨두되, 이제 엑셀 다운로드에는 사용하지 않음
   onSubmitInquiry?: (payload: { items: QuoteLineItem[]; subtotal: number; vat: number; total: number }) => void;
   title?: string;
   subtitle?: string;
 };
+
+/** =========================
+ *  CSV 유틸
+ *  ========================= */
+function csvEscape(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) return "";
+  const v = String(value);
+  if (/[",\n]/.test(v)) {
+    return `"${v.replace(/"/g, '""')}"`;
+  }
+  return v;
+}
 
 /** =========================
  *  기본 내보내기: QuoteModal
@@ -324,16 +337,76 @@ export default function QuoteModal({
     });
   };
 
-  /** 견적 내보내기 핸들러 (기존 onSubmitInquiry 기능) */
+  /** 견적 내보내기 핸들러: CSV(엑셀) 다운로드 */
   const handleExportQuote = () => {
-    onSubmitInquiry?.({
-      items,
-      subtotal: computed.subtotal,
-      vat: computed.vat,
-      total: computed.total,
-    });
-    // 필요 시 문의 모달까지 여는 플로우로 확장 가능:
-    // setInquiryOpen(true);
+    // 아이템이 없으면 그냥 리턴
+    if (!items || items.length === 0) return;
+
+    // 헤더 (테이블 컬럼과 동일 순서)
+    const headers = [
+      "단지명",
+      "상품명",
+      "설치위치",
+      "세대수",
+      "거주인원",
+      "모니터 수량",
+      "월 송출 횟수",
+      "월광고료(FMK=4주)",
+      "광고기간(개월)",
+      "기준금액",
+      "할인율",
+      "총광고료",
+    ];
+
+    const lines: string[] = [];
+    lines.push(headers.map(csvEscape).join(","));
+
+    // 각 라인 → CSV 행
+    for (const row of computed.rows) {
+      const { it, combinedRate, baseMonthly, baseTotal, lineTotal } = row;
+
+      const cells = [
+        it.name ?? "",
+        safe(it.mediaName),
+        safe(it.installLocation),
+        fmtNum(it.households, "세대"),
+        fmtNum(it.residents, "명"),
+        fmtNum(it.monitors, "대"),
+        fmtNum(it.monthlyImpressions, "회"),
+        fmtWon(baseMonthly),
+        fmtNum(it.months, "개월"),
+        fmtWon(baseTotal),
+        fmtDiscountRate(combinedRate),
+        fmtWon(lineTotal),
+      ];
+
+      lines.push(cells.map(csvEscape).join(","));
+    }
+
+    // 합계/부가세/최종광고료 요약 행 추가
+    lines.push(""); // 빈 줄
+    lines.push(
+      ["", "", "", "", "", "", "", "", "", "소계(총광고료 합계)", "", fmtWon(computed.subtotal)]
+        .map(csvEscape)
+        .join(","),
+    );
+    lines.push(["", "", "", "", "", "", "", "", "", "부가세", "", fmtWon(computed.vat)].map(csvEscape).join(","));
+    lines.push(
+      ["", "", "", "", "", "", "", "", "", "최종광고료(VAT 포함)", "", fmtWon(computed.total)].map(csvEscape).join(","),
+    );
+
+    const csvContent = lines.join("\r\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    a.href = url;
+    a.download = `아파트엘리베이터_견적_${today}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   return createPortal(
@@ -486,15 +559,16 @@ export default function QuoteModal({
                 </div>
               </div>
 
-              {/* CTA: 견적 내보내기 + 계약서 작성하기 */}
+              {/* CTA: 견적 내보내기(엑셀) + 계약서 작성하기 */}
               <div className="px-6 pb-6">
                 <div className="flex flex-col sm:flex-row gap-3">
-                  {/* 견적 내보내기 (기존 onSubmitInquiry 기능) */}
+                  {/* 견적 내보내기 → 엑셀(CSV) 다운로드 */}
                   <button
+                    type="button"
                     onClick={handleExportQuote}
                     className="w-full sm:flex-1 h-12 rounded-xl bg-[#6C2DFF] text-white font-semibold hover:opacity-95 whitespace-nowrap"
                   >
-                    견적 내보내기
+                    견적 내보내기(엑셀)
                   </button>
 
                   {/* 계약서 작성하기 */}
