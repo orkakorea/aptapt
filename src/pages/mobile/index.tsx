@@ -459,32 +459,91 @@ export default function MapMobilePageV2() {
   const computedCart: ComputedItem[] = useMemo(() => {
     return cart.map((c) => {
       const name = c.productName ?? "기본상품";
-      const base = c.baseMonthly ?? 0;
       const months = c.months || 0;
+
+      // 🔹 최신 상세에서 카운터/지역 정보 보강
+      const detail = detailByRowKeyRef.current.get(c.rowKey) || {};
+      const householdsRaw = Number((detail as any).households ?? NaN);
+      const residentsRaw = Number((detail as any).residents ?? NaN);
+      const monthlyImpressionsRaw = Number((detail as any).monthlyImpressions ?? NaN);
+      const monitorsRaw = Number((detail as any).monitors ?? NaN);
+
+      const installLocation =
+        typeof (detail as any).installLocation === "string" && (detail as any).installLocation.trim() !== ""
+          ? (detail as any).installLocation
+          : undefined;
+
+      const district =
+        typeof (detail as any).district === "string"
+          ? (detail as any).district.trim()
+          : typeof (c as any).district === "string"
+            ? (c as any).district.trim()
+            : "";
+
+      const households = Number.isFinite(householdsRaw) ? householdsRaw : undefined;
+      const residents = Number.isFinite(residentsRaw) ? residentsRaw : undefined;
+      const monthlyImpressions = Number.isFinite(monthlyImpressionsRaw) ? monthlyImpressionsRaw : undefined;
+      const monitors = Number.isFinite(monitorsRaw) && monitorsRaw > 0 ? monitorsRaw : undefined;
 
       // ✅ 정책 키: 카트에 저장된 productKey 우선, 없으면 기존 normPolicyKey 사용
       const key = (c.productKey as keyof DiscountPolicy | undefined) ?? (normPolicyKey(name) as keyof DiscountPolicy);
       const rules: any = key ? (DEFAULT_POLICY as any)[key] : undefined;
 
-      // ✅ 기간 할인율 / 사전보상 할인율 (PC MapChrome과 동일하게 '개월 수' 기준)
-      const discPeriodRate = rateFromRanges(rules?.period, months);
-      const discPrecompRate = key === "ELEVATOR TV" ? rateFromRanges(rules?.precomp, months) : 0;
+      const nameNorm = norm(name);
+      const isElevator =
+        key === "ELEVATOR TV" ||
+        key === "ELEVATOR TV_NOPD" ||
+        nameNorm.includes("elevatortv") ||
+        nameNorm.includes("엘리베이터tv") ||
+        nameNorm.includes("elevator");
 
-      // ✅ 최종 월광고료 & 총광고료 (사전보상 × 기간 복합할인)
-      const monthly = Math.round(base * (1 - discPrecompRate) * (1 - discPeriodRate));
+      let base = c.baseMonthly ?? 0;
+      let discPeriodRate = 0;
+      let discPrecompRate = 0;
+      let monthly = 0;
+
+      if (isElevator) {
+        // =========================
+        // ✅ ELEVATOR TV 전용 규칙 (모바일)
+        //  1) 모니터 1대당 단가 × 모니터 수 = 월광고료(기준)
+        //  2) 사전 보상 할인 없음
+        //  3) 강남/서초/송파 기간할인 없음
+        //     (양천/기타 구는 기간할인 정책 적용)
+        // =========================
+        const monitorCount = monitors ?? 0;
+
+        // 지역별 1대당 단가
+        let unitPrice = 10000;
+        if (district === "강남구" || district === "서초구") {
+          unitPrice = 15000;
+        } else if (district === "송파구" || district === "양천구") {
+          unitPrice = 12000;
+        }
+
+        // 모니터 수가 없으면 가격 0 처리 (데이터 보완 필요 케이스)
+        base = monitorCount > 0 ? unitPrice * monitorCount : 0;
+
+        // 사전보상 할인 제거
+        discPrecompRate = 0;
+
+        // 기간 할인: 강남/서초/송파는 미적용, 그 외에는 정책 표 기준
+        const noPeriodDiscount = district === "강남구" || district === "서초구" || district === "송파구";
+        discPeriodRate = noPeriodDiscount ? 0 : rateFromRanges(rules?.period, months);
+
+        monthly = Math.round(base * (1 - discPeriodRate));
+      } else {
+        // =========================
+        // 기타 상품: 기존 로직 그대로 유지
+        // =========================
+        const base0 = c.baseMonthly ?? 0;
+        base = base0;
+        discPeriodRate = rateFromRanges(rules?.period, months);
+        discPrecompRate = key === "ELEVATOR TV" ? rateFromRanges(rules?.precomp, months) : 0;
+        monthly = Math.round(base0 * (1 - discPrecompRate) * (1 - discPeriodRate));
+      }
+
       const discountCombined = 1 - (1 - discPrecompRate) * (1 - discPeriodRate);
       const total = monthly * months;
-
-      // 🔹 최신 상세에서 카운터 보강 (기존 로직 그대로 유지)
-      const detail = detailByRowKeyRef.current.get(c.rowKey) || {};
-      const households = Number((detail as any).households ?? NaN);
-      const residents = Number((detail as any).residents ?? NaN);
-      const monthlyImpressions = Number((detail as any).monthlyImpressions ?? NaN);
-      const monitors = Number((detail as any).monitors ?? NaN);
-      const installLocation =
-        typeof (detail as any).installLocation === "string" && (detail as any).installLocation.trim() !== ""
-          ? (detail as any).installLocation
-          : undefined;
 
       return {
         ...c,
@@ -496,10 +555,10 @@ export default function MapMobilePageV2() {
         discPeriodRate,
         discPrecompRate,
         installLocation,
-        households: Number.isFinite(households) ? households : undefined,
-        residents: Number.isFinite(residents) ? residents : undefined,
-        monthlyImpressions: Number.isFinite(monthlyImpressions) ? monthlyImpressions : undefined,
-        monitors: Number.isFinite(monitors) ? monitors : undefined,
+        households,
+        residents,
+        monthlyImpressions,
+        monitors,
       };
     });
   }, [cart]);
@@ -872,8 +931,8 @@ export default function MapMobilePageV2() {
                 setInqPrefill({
                   apt_id: null,
                   apt_name: first?.aptName ?? null,
-                  product_code: first?.productName ? normPolicyKey(first.productName) : null,
-                  product_name: first?.productName ?? null,
+                  product_code: first.productName ? normPolicyKey(first.productName) : null,
+                  product_name: first.productName ?? null,
                   cart_snapshot: buildCartSnapshot(computedCart, totalCost),
                 });
 
