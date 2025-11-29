@@ -144,6 +144,21 @@ function classifyProductForPolicy(
   return undefined;
 }
 
+/** ✅ district 보강 유틸: district 값이 비어 있으면 주소에서 강남/서초/송파 추출 */
+function pickDistrict(district: string | null | undefined, address?: string): string | undefined {
+  const base = (district || "").trim();
+  if (base) return base;
+
+  const src = (address || "").trim();
+  if (!src) return undefined;
+
+  if (src.includes("강남구")) return "강남구";
+  if (src.includes("서초구")) return "서초구";
+  if (src.includes("송파구")) return "송파구";
+
+  return undefined;
+}
+
 /** ===== Cart 타입 ===== */
 type CartItem = {
   id: string;
@@ -258,7 +273,12 @@ export default function MapChrome({
           name: hint.name ?? next.name,
           productName: hint.productName ?? next.productName,
           productKey:
-            next.productKey ?? classifyProductForPolicy(hint.productName, hint.installLocation, hint.district),
+            next.productKey ??
+            classifyProductForPolicy(
+              hint.productName,
+              hint.installLocation,
+              pickDistrict(hint.district ?? null, hint.address),
+            ),
           baseMonthly: Number.isFinite(hint.monthlyFee!) ? hint.monthlyFee : next.baseMonthly,
           lat: hint.lat ?? next.lat,
           lng: hint.lng ?? next.lng,
@@ -267,17 +287,19 @@ export default function MapChrome({
           residents: hint.residents ?? next.residents,
           monitors: hint.monitors ?? next.monitors,
           monthlyImpressions: hint.monthlyImpressions ?? next.monthlyImpressions,
-          district: hint.district ?? next.district,
+          district: pickDistrict(hint.district ?? null, hint.address) ?? next.district,
         };
       }
       const place = parseRowKey(rowKey);
-      // ⚠️ district 까지 있어야 "보강 완료"로 보고 RPC를 생략
+
+      // ✅ district 까지 채워져 있어야 더 이상 RPC를 안 부름
       if (next.baseMonthly && next.productName && next.installLocation && next.district) {
         next.hydrated = true;
         const copy = prev.slice();
         copy[idx] = next;
         return copy;
       }
+
       if (!place.placeId) {
         const copy = prev.slice();
         copy[idx] = next;
@@ -299,10 +321,15 @@ export default function MapChrome({
           if (j < 0) return cur;
           const curItem = cur[j];
 
+          const districtFromRpc = pickDistrict(
+            hint?.district ?? curItem.district ?? (d as any)?.district ?? null,
+            (d as any)?.address ?? (d as any)["주소"],
+          );
+
           const policyKeyFromRpc = classifyProductForPolicy(
             hint?.productName ?? curItem.productName ?? d.product_name,
             curItem.installLocation ?? hint?.installLocation ?? d.install_location ?? d.installLocation,
-            hint?.district ?? curItem.district ?? d?.district,
+            districtFromRpc,
           );
 
           const updated: CartItem = {
@@ -332,7 +359,7 @@ export default function MapChrome({
             monitors: curItem.monitors ?? hint?.monitors ?? d.monitors ?? undefined,
             monthlyImpressions:
               curItem.monthlyImpressions ?? hint?.monthlyImpressions ?? d.monthly_impressions ?? undefined,
-            district: curItem.district ?? hint?.district ?? d?.district,
+            district: districtFromRpc,
 
             hydrated: true,
           };
@@ -397,7 +424,11 @@ export default function MapChrome({
                 .replace(/\s+/g, "")
                 .toLowerCase(),
             ].join("||");
-          const productKey = classifyProductForPolicy(snap?.productName, snap?.installLocation, snap?.district);
+          const productKey = classifyProductForPolicy(
+            snap?.productName,
+            snap?.installLocation,
+            pickDistrict(snap?.district ?? null, snap?.address),
+          );
           const defaultMonths = prev.length > 0 ? prev[0].months : 1;
 
           const newItem: CartItem = {
@@ -416,8 +447,10 @@ export default function MapChrome({
             residents: snap?.residents,
             monitors: snap?.monitors,
             monthlyImpressions: snap?.monthlyImpressions,
-            district: snap?.district,
-            hydrated: Boolean(snap?.monthlyFee && snap?.productName),
+            district: pickDistrict(snap?.district ?? null, snap?.address),
+            hydrated: Boolean(
+              snap?.monthlyFee && snap?.productName && pickDistrict(snap?.district ?? null, snap?.address),
+            ),
           };
 
           if (snap?.name) {
@@ -462,8 +495,15 @@ export default function MapChrome({
   const computedY1 = useMemo(() => {
     if (typeof selected?.monthlyFeeY1 === "number" && Number.isFinite(selected.monthlyFeeY1))
       return selected.monthlyFeeY1;
+
     const base = selected?.monthlyFee;
-    const key = classifyProductForPolicy(selected?.productName, selected?.installLocation, selected?.district);
+
+    const key = classifyProductForPolicy(
+      selected?.productName,
+      selected?.installLocation,
+      pickDistrict(selected?.district ?? null, selected?.address),
+    );
+
     if (!base || !key) return undefined;
     const periodRate = findRate(DEFAULT_POLICY[key].period, 12);
     const preRate = key === "ELEVATOR TV" ? findRate(DEFAULT_POLICY[key].precomp, 12) : 0;
@@ -534,7 +574,11 @@ export default function MapChrome({
   const addSelectedToCart = () => {
     if (!selected) return;
     const id = makeIdFromSelected(selected); // 이제 기본적으로 rowKey 사용
-    const productKey = classifyProductForPolicy(selected.productName, selected.installLocation, selected.district);
+    const productKey = classifyProductForPolicy(
+      selected.productName,
+      selected.installLocation,
+      pickDistrict(selected.district ?? null, selected.address),
+    );
 
     setCart((prev) => {
       // rowKey가 있으면 rowKey 기준, 없으면 예전 id 기준으로 동일 항목 판단
@@ -543,7 +587,7 @@ export default function MapChrome({
       const exists = prev.find((x) => (selected.rowKey ? x.rowKey === selected.rowKey : x.id === id));
       if (exists) {
         return prev.map((x) =>
-          (selected.rowKey ? x.rowKey === selected.rowKey : x.id === id)
+          match(x)
             ? {
                 ...x,
                 rowKey: selected.rowKey ?? x.rowKey,
@@ -559,7 +603,7 @@ export default function MapChrome({
                 residents: selected.residents ?? x.residents,
                 monitors: selected.monitors ?? x.monitors,
                 monthlyImpressions: selected.monthlyImpressions ?? x.monthlyImpressions,
-                district: selected.district ?? x.district,
+                district: pickDistrict(selected.district ?? null, selected.address) ?? x.district,
 
                 hydrated: true,
               }
@@ -585,7 +629,7 @@ export default function MapChrome({
         residents: selected.residents,
         monitors: selected.monitors,
         monthlyImpressions: selected.monthlyImpressions,
-        district: selected.district,
+        district: pickDistrict(selected.district ?? null, selected.address),
 
         hydrated: true,
       };
