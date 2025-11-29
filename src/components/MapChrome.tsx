@@ -271,7 +271,8 @@ export default function MapChrome({
         };
       }
       const place = parseRowKey(rowKey);
-      if (next.baseMonthly && next.productName && next.installLocation) {
+      // ⚠️ district 까지 있어야 "보강 완료"로 보고 RPC를 생략
+      if (next.baseMonthly && next.productName && next.installLocation && next.district) {
         next.hydrated = true;
         const copy = prev.slice();
         copy[idx] = next;
