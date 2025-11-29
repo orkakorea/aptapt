@@ -25,6 +25,8 @@ export type SelectedApt = {
   monthlyFee?: number;
   monthlyFeeY1?: number;
   imageUrl?: string;
+  city?: string;
+  district?: string;
   lat: number;
   lng: number;
 };
@@ -97,9 +99,16 @@ function findRate(rules: RangeRule[] | undefined, months: number): number {
   if (!rules || !Number.isFinite(months)) return 0;
   return rules.find((r) => months >= r.min && months <= r.max)?.rate ?? 0;
 }
-function classifyProductForPolicy(productName?: string, installLocation?: string): keyof DiscountPolicy | undefined {
+
+function classifyProductForPolicy(
+  productName?: string,
+  installLocation?: string,
+  district?: string | null,
+): keyof DiscountPolicy | undefined {
   const pn = norm(productName);
   const loc = norm(installLocation);
+  const d = (district ?? "").trim();
+
   if (!pn) return undefined;
   if (
     pn.includes("townbord_l") ||
@@ -115,7 +124,15 @@ function classifyProductForPolicy(productName?: string, installLocation?: string
     /\btownboard[-_\s]?s\b/.test(pn)
   )
     return "TOWNBORD_S";
-  if (pn.includes("elevatortv") || pn.includes("엘리베이터tv") || pn.includes("elevator")) return "ELEVATOR TV";
+
+  // ELEVATOR TV: 강남/서초/송파는 기간할인 없는 정책 사용
+  if (pn.includes("elevatortv") || pn.includes("엘리베이터tv") || pn.includes("elevator")) {
+    if (d === "강남구" || d === "서초구" || d === "송파구") {
+      return "ELEVATOR TV_NOPD";
+    }
+    return "ELEVATOR TV";
+  }
+
   if (pn.includes("mediameet") || pn.includes("media-meet") || pn.includes("미디어")) return "MEDIA MEET";
   if (pn.includes("spaceliving") || pn.includes("스페이스") || pn.includes("living")) return "SPACE LIVING";
   if (pn.includes("hipost") || pn.includes("hi-post") || pn.includes("하이포스트")) return "HI-POST";
@@ -143,6 +160,7 @@ type CartItem = {
   residents?: number;
   monitors?: number;
   monthlyImpressions?: number;
+  district?: string;
 
   /** 내부 상태: 정보 미충분 → fetch 보강 필요 */
   hydrated?: boolean;
@@ -239,7 +257,8 @@ export default function MapChrome({
           ...next,
           name: hint.name ?? next.name,
           productName: hint.productName ?? next.productName,
-          productKey: next.productKey ?? classifyProductForPolicy(hint.productName, hint.installLocation),
+          productKey:
+            next.productKey ?? classifyProductForPolicy(hint.productName, hint.installLocation, hint.district),
           baseMonthly: Number.isFinite(hint.monthlyFee!) ? hint.monthlyFee : next.baseMonthly,
           lat: hint.lat ?? next.lat,
           lng: hint.lng ?? next.lng,
@@ -248,6 +267,7 @@ export default function MapChrome({
           residents: hint.residents ?? next.residents,
           monitors: hint.monitors ?? next.monitors,
           monthlyImpressions: hint.monthlyImpressions ?? next.monthlyImpressions,
+          district: hint.district ?? next.district,
         };
       }
       const place = parseRowKey(rowKey);
@@ -277,13 +297,18 @@ export default function MapChrome({
           const j = cur.findIndex((x) => x.rowKey === rowKey);
           if (j < 0) return cur;
           const curItem = cur[j];
+
+          const policyKeyFromRpc = classifyProductForPolicy(
+            hint?.productName ?? curItem.productName ?? d.product_name,
+            curItem.installLocation ?? hint?.installLocation ?? d.install_location ?? d.installLocation,
+            hint?.district ?? curItem.district ?? d?.district,
+          );
+
           const updated: CartItem = {
             ...curItem,
             name: (hint?.name ?? curItem.name) || d.name || curItem.name,
             productName: hint?.productName ?? curItem.productName ?? d.product_name ?? curItem.productName,
-            productKey:
-              curItem.productKey ??
-              classifyProductForPolicy(hint?.productName ?? d.product_name, d.install_location ?? d.installLocation),
+            productKey: policyKeyFromRpc ?? curItem.productKey,
             baseMonthly:
               Number.isFinite(curItem.baseMonthly as number) && (curItem.baseMonthly as number) > 0
                 ? curItem.baseMonthly
@@ -306,6 +331,7 @@ export default function MapChrome({
             monitors: curItem.monitors ?? hint?.monitors ?? d.monitors ?? undefined,
             monthlyImpressions:
               curItem.monthlyImpressions ?? hint?.monthlyImpressions ?? d.monthly_impressions ?? undefined,
+            district: curItem.district ?? hint?.district ?? d?.district,
 
             hydrated: true,
           };
@@ -370,7 +396,7 @@ export default function MapChrome({
                 .replace(/\s+/g, "")
                 .toLowerCase(),
             ].join("||");
-          const productKey = classifyProductForPolicy(snap?.productName, snap?.installLocation);
+          const productKey = classifyProductForPolicy(snap?.productName, snap?.installLocation, snap?.district);
           const defaultMonths = prev.length > 0 ? prev[0].months : 1;
 
           const newItem: CartItem = {
@@ -389,6 +415,7 @@ export default function MapChrome({
             residents: snap?.residents,
             monitors: snap?.monitors,
             monthlyImpressions: snap?.monthlyImpressions,
+            district: snap?.district,
             hydrated: Boolean(snap?.monthlyFee && snap?.productName),
           };
 
@@ -435,7 +462,7 @@ export default function MapChrome({
     if (typeof selected?.monthlyFeeY1 === "number" && Number.isFinite(selected.monthlyFeeY1))
       return selected.monthlyFeeY1;
     const base = selected?.monthlyFee;
-    const key = classifyProductForPolicy(selected?.productName, selected?.installLocation);
+    const key = classifyProductForPolicy(selected?.productName, selected?.installLocation, selected?.district);
     if (!base || !key) return undefined;
     const periodRate = findRate(DEFAULT_POLICY[key].period, 12);
     const preRate = key === "ELEVATOR TV" ? findRate(DEFAULT_POLICY[key].precomp, 12) : 0;
@@ -506,7 +533,7 @@ export default function MapChrome({
   const addSelectedToCart = () => {
     if (!selected) return;
     const id = makeIdFromSelected(selected); // 이제 기본적으로 rowKey 사용
-    const productKey = classifyProductForPolicy(selected.productName, selected.installLocation);
+    const productKey = classifyProductForPolicy(selected.productName, selected.installLocation, selected.district);
 
     setCart((prev) => {
       // rowKey가 있으면 rowKey 기준, 없으면 예전 id 기준으로 동일 항목 판단
@@ -531,6 +558,7 @@ export default function MapChrome({
                 residents: selected.residents ?? x.residents,
                 monitors: selected.monitors ?? x.monitors,
                 monthlyImpressions: selected.monthlyImpressions ?? x.monthlyImpressions,
+                district: selected.district ?? x.district,
 
                 hydrated: true,
               }
@@ -556,6 +584,7 @@ export default function MapChrome({
         residents: selected.residents,
         monitors: selected.monitors,
         monthlyImpressions: selected.monthlyImpressions,
+        district: selected.district,
 
         hydrated: true,
       };
@@ -652,6 +681,7 @@ export default function MapChrome({
           monthlyFee: c.baseMonthly,
           lat: c.lat,
           lng: c.lng,
+          district: c.district,
         } as any, // SelectedApt 형태로 최소 필드만 맞춰서 힌트로 사용
       ),
     );
