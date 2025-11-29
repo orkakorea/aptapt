@@ -1737,7 +1737,8 @@ export default function MapPage() {
       el.removeEventListener("touchend", onTouchEnd);
       el.removeEventListener("touchcancel", onTouchEnd);
     };
-  }, [changeZoom]);
+  }, 
+  [changeZoom]);
 
   const MapChromeAny = MapChrome as any;
 
