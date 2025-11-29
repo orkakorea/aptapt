@@ -1684,11 +1684,8 @@ export default function MapPage() {
         const dx = t.clientX - lastX;
         const dy = t.clientY - lastY;
 
-        // 이동 민감도(배율): 숫자를 1.3 ~ 2.0 사이로 조절해도 됨
-        const PAN_SCALE = 1.6;
-
-        // 너무 미세한 움직임은 무시 (데드존을 살짝 줄였음)
-        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
+        // 너무 미세한 움직임은 무시
+        if (Math.abs(dx) < 1 && Math.abs(dy) < 1) {
           lastX = t.clientX;
           lastY = t.clientY;
           return;
@@ -1697,8 +1694,8 @@ export default function MapPage() {
         e.preventDefault(); // 페이지 스크롤/줌 방지
 
         try {
-          // 손가락 이동 방향의 반대로 내용을 더 크게 움직이도록 배율 적용
-          map.panBy(-dx * PAN_SCALE, -dy * PAN_SCALE);
+          // 손가락 이동 방향과 반대로 지도 내용을 움직여야 자연스러움
+          map.panBy(-dx, -dy);
         } catch {
           // 안전장치
         }
@@ -1706,6 +1703,7 @@ export default function MapPage() {
         lastX = t.clientX;
         lastY = t.clientY;
       }
+    };
 
     const onTouchEnd = (e: any) => {
       const touches: TouchList = e.touches;
@@ -1737,8 +1735,7 @@ export default function MapPage() {
       el.removeEventListener("touchend", onTouchEnd);
       el.removeEventListener("touchcancel", onTouchEnd);
     };
-  }, 
-  [changeZoom]);
+  }, [changeZoom]);
 
   const MapChromeAny = MapChrome as any;
 
