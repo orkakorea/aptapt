@@ -36,6 +36,20 @@ function addWeeksInclusive(startISO: string, months: number): string {
   const dd = String(date.getDate() + 0).padStart(2, "0");
   return `${yy}-${mm}-${dd}`;
 }
+// ✅ 새 창으로 열렸을 때 localStorage에서 contractPrefill 읽어오는 헬퍼
+function loadContractPrefillFromStorage(): any | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem("orka:contractPrefill");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    // 한 번 읽었으면 재사용 방지용으로 지워도 됨
+    window.localStorage.removeItem("orka:contractPrefill");
+    return parsed;
+  } catch {
+    return null;
+  }
+}
 
 const norm = (s: string) => s.replace(/\s+/g, "").toLowerCase();
 const isElevatorProduct = (prod?: string) => {
@@ -57,7 +71,11 @@ const ContractNewPage: React.FC = () => {
   // ============================
   // 견적서(QuoteModal)에서 넘어온 값 읽기
   // ============================
-  const contractPrefill = (location?.state && location.state.contractPrefill) || {};
+  // 1순위: 같은 탭 내에서 navigate로 넘어온 state
+  const contractPrefillFromState = (location?.state && location.state.contractPrefill) || null;
+
+  // 2순위: 새 창에서 localStorage로 넘어온 값
+  const contractPrefill = contractPrefillFromState || loadContractPrefillFromStorage() || {};
 
   // 원본 상품명 (예: "ELEVATOR TV 외 11건")
   const rawProductName: string = contractPrefill.productName ?? "";
