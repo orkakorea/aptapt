@@ -6,6 +6,7 @@ import InquiryModal from "./InquiryModal";
 import { DEFAULT_POLICY } from "@/core/pricing";
 import type { DiscountPolicy, RangeRule } from "@/core/pricing";
 import { useSubscriptionFlags } from "@/hooks/useSubscriptionFlags";
+import { supabase } from "@/integrations/supabase/client";
 
 /** =========================
  *  외부에서 사용할 라인아이템 타입
@@ -147,6 +148,32 @@ export default function QuoteModal({
   const panelRef = useRef<HTMLDivElement | null>(null);
   const [inquiryOpen, setInquiryOpen] = useState(false); // (현재는 내부 InquiryModal 미사용)
   const { isSubscriber } = useSubscriptionFlags();
+  const [hasSession, setHasSession] = useState(false);
+
+  // 로그인 세션 여부 동기화
+  useEffect(() => {
+    let mounted = true;
+
+    const syncSession = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!mounted) return;
+      setHasSession(!!session);
+    };
+
+    void syncSession();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return;
+      setHasSession(!!session);
+    });
+
+    return () => {
+      mounted = false;
+      sub?.subscription?.unsubscribe?.();
+    };
+  }, []);
 
   // 워터마크 스타일 (대각선, 작고 빽빽)
   const watermarkStyle = useMemo<React.CSSProperties>(() => {
@@ -183,16 +210,14 @@ export default function QuoteModal({
     const rows = (items ?? []).map((it) => {
       const productKey = it.productKeyHint || classifyProductForPolicy(it.mediaName);
       const rule = productKey ? DEFAULT_POLICY[productKey] : undefined;
-
       const periodRate = findRate(rule?.period, it.months);
-      const precompRate =
-        productKey === "ELEVATOR TV" || productKey === "ELEVATOR TV_NOPD" ? findRate(rule?.precomp, it.months) : 0;
+      const precompRate = productKey === "ELEVATOR TV" ? findRate(rule?.precomp, it.months) : 0;
 
       const baseMonthly = it.baseMonthly ?? 0;
       const baseTotal = baseMonthly * it.months;
       const monthlyAfter = Math.round(baseMonthly * (1 - precompRate) * (1 - periodRate));
       const lineTotal = monthlyAfter * it.months;
-      const combinedRate = 1 - (1 - precompRate) * (1 - periodRate);
+      const combinedRate = 1 - (1 - precompRate) * (1 - periodRate); // 복합 할인율
 
       return {
         it,
@@ -241,10 +266,8 @@ export default function QuoteModal({
       items: (items ?? []).map((it) => {
         const productKey = it.productKeyHint || classifyProductForPolicy(it.mediaName);
         const rule = productKey ? DEFAULT_POLICY[productKey] : undefined;
-
         const periodRate = findRate(rule?.period, it.months);
-        const precompRate =
-          productKey === "ELEVATOR TV" || productKey === "ELEVATOR TV_NOPD" ? findRate(rule?.precomp, it.months) : 0;
+        const precompRate = productKey === "ELEVATOR TV" ? findRate(rule?.precomp, it.months) : 0;
 
         const baseMonthly = it.baseMonthly ?? 0;
         const monthlyAfter = Math.round(baseMonthly * (1 - precompRate) * (1 - periodRate));
@@ -258,6 +281,7 @@ export default function QuoteModal({
           item_total_won: lineTotal,
           total_won: lineTotal,
 
+          // ✅ B 플랜: 카운터 4종을 스냅샷에 포함 (없으면 0으로)
           households: it.households ?? 0,
           residents: it.residents ?? 0,
           monthlyImpressions: it.monthlyImpressions ?? 0,
@@ -346,6 +370,28 @@ export default function QuoteModal({
   const handleOpenLogin = () => {
     if (typeof window === "undefined") return;
     window.dispatchEvent(new Event("orca:open-login"));
+  };
+
+  /** 로그아웃 처리 */
+  const handleLogout = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        await supabase.auth.signOut({ scope: "local" });
+      }
+    } catch {
+      try {
+        const key = Object.keys(localStorage).find(
+          (k) => k.includes("auth-token") && k.includes("qislrfbqilfqzkvkuknn"),
+        );
+        if (key) localStorage.removeItem(key);
+      } catch {
+        // ignore
+      }
+    } finally {
+      // 구독/플랜 관련 로컬 상태 초기화 신호 (필요 시)
+      window.dispatchEvent(new CustomEvent("orca:plan", { detail: { plan: "free" } }));
+    }
   };
 
   /** 견적 내보내기 핸들러: CSV(엑셀) 다운로드 (UTF-8 BOM 포함) */
@@ -447,15 +493,26 @@ export default function QuoteModal({
                   <div className="text-sm text-[#6B7280] mt-1">{subtitle}</div>
                 </div>
 
-                {/* 오른쪽: 로그인 + 닫기 버튼 */}
+                {/* 오른쪽: 로그인/로그아웃 + 닫기 버튼 */}
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleOpenLogin}
-                    className="h-9 px-3 rounded-md border border-[#6C2DFF] text-xs text-[#6C2DFF] hover:bg-[#F4F0FB] whitespace-nowrap"
-                  >
-                    로그인
-                  </button>
+                  {hasSession ? (
+                    <button
+                      type="button"
+                      onClick={handleLogout}
+                      className="h-9 px-3 rounded-md border border-[#6C2DFF] text-xs text-[#6C2DFF] hover:bg-[#F4F0FB] whitespace-nowrap"
+                    >
+                      로그아웃
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleOpenLogin}
+                      className="h-9 px-3 rounded-md border border-[#6C2DFF] text-xs text-[#6C2DFF] hover:bg-[#F4F0FB] whitespace-nowrap"
+                    >
+                      로그인
+                    </button>
+                  )}
+
                   <button
                     onClick={onClose}
                     className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB]"
@@ -518,7 +575,7 @@ export default function QuoteModal({
                       ) : (
                         computed.rows.map(({ it, combinedRate, baseMonthly, baseTotal, lineTotal }) => (
                           <tr key={it.id} className="border-t border-[#F3F4F6]">
-                            <Td className="text-left font-medium text-black">{it.name}</Td>
+                            <Td className="text-left font-medium text黑">{it.name}</Td>
                             <Td center>{safe(it.mediaName)}</Td>
                             <Td center>{safe(it.installLocation)}</Td>
                             <Td center>{fmtNum(it.households, "세대")}</Td>
