@@ -80,9 +80,17 @@ function classifyProductForPolicy(
   return undefined;
 }
 
-/** 모바일 전용 카트 아이템: core CartItem + 할인정책 키 */
+/** 모바일 전용 카트 아이템: core CartItem + 할인정책 키 + 상세 정보 스냅샷 */
 type MobileCartItem = CartItem & {
   productKey?: keyof DiscountPolicy;
+
+  district?: string | null;
+  address?: string | null;
+  installLocation?: string | null;
+  households?: number | null;
+  residents?: number | null;
+  monthlyImpressions?: number | null;
+  monitors?: number | null;
 };
 
 export default function MapMobilePageV2() {
@@ -220,11 +228,17 @@ export default function MapMobilePageV2() {
 
   const addAptToCartQuick = useCallback((apt: SelectedApt) => {
     const monthsDefault = Math.max(1, Number(lastMonthsRef.current || 1));
+
+    const rawDistrict = typeof (apt as any).district === "string" ? (apt as any).district.trim() : "";
+    const addr = typeof (apt as any).address === "string" ? (apt as any).address : "";
+    const district = rawDistrict || (addr ? (addr.match(/(강남구|서초구|송파구|양천구)/)?.[1] ?? "") : "");
+
     const productKey = classifyProductForPolicy(
       apt.productName,
       (apt as any).installLocation ?? (apt as any).install_location ?? null,
-      (apt as any).district ?? null,
+      district || null,
     );
+
     const next: MobileCartItem = {
       rowKey: apt.rowKey,
       aptName: apt.name,
@@ -233,7 +247,15 @@ export default function MapMobilePageV2() {
       baseMonthly: apt.monthlyFee ?? 0,
       monthlyFeeY1: apt.monthlyFeeY1 ?? undefined,
       productKey,
+      district: district || null,
+      address: addr || null,
+      installLocation: (apt as any).installLocation ?? (apt as any).install_location ?? null,
+      households: (apt as any).households ?? null,
+      residents: (apt as any).residents ?? null,
+      monthlyImpressions: (apt as any).monthlyImpressions ?? null,
+      monitors: (apt as any).monitors ?? null,
     };
+
     setCart((prev) => [next, ...prev.filter((c) => c.rowKey !== next.rowKey)]);
   }, []);
 
@@ -288,11 +310,17 @@ export default function MapMobilePageV2() {
       } else {
         // 미담김 → 담기
         const monthsDefault = Math.max(1, Number(lastMonthsRef.current || 1));
+
+        const rawDistrict = typeof (apt as any).district === "string" ? (apt as any).district.trim() : "";
+        const addr = typeof (apt as any).address === "string" ? (apt as any).address : "";
+        const district = rawDistrict || (addr ? (addr.match(/(강남구|서초구|송파구|양천구)/)?.[1] ?? "") : "");
+
         const productKey = classifyProductForPolicy(
           apt.productName,
           (apt as any).installLocation ?? (apt as any).install_location ?? null,
-          (apt as any).district ?? null,
+          district || null,
         );
+
         const next: MobileCartItem = {
           rowKey,
           aptName: apt.name,
@@ -301,7 +329,15 @@ export default function MapMobilePageV2() {
           baseMonthly: apt.monthlyFee ?? 0,
           monthlyFeeY1: apt.monthlyFeeY1 ?? undefined,
           productKey,
+          district: district || null,
+          address: addr || null,
+          installLocation: (apt as any).installLocation ?? (apt as any).install_location ?? null,
+          households: (apt as any).households ?? null,
+          residents: (apt as any).residents ?? null,
+          monthlyImpressions: (apt as any).monthlyImpressions ?? null,
+          monitors: (apt as any).monitors ?? null,
         };
+
         setCart((prev) => [next, ...prev.filter((c) => c.rowKey !== next.rowKey)]);
       }
     },
@@ -399,11 +435,17 @@ export default function MapMobilePageV2() {
   const addSelectedToCart = useCallback(() => {
     if (!selected) return;
     const monthsDefault = Math.max(1, Number(lastMonthsRef.current || 1));
+
+    const rawDistrict = typeof (selected as any).district === "string" ? (selected as any).district.trim() : "";
+    const addr = typeof (selected as any).address === "string" ? (selected as any).address : "";
+    const district = rawDistrict || (addr ? (addr.match(/(강남구|서초구|송파구|양천구)/)?.[1] ?? "") : "");
+
     const productKey = classifyProductForPolicy(
       selected.productName,
       (selected as any).installLocation ?? (selected as any).install_location ?? null,
-      (selected as any).district ?? null,
+      district || null,
     );
+
     const next: MobileCartItem = {
       rowKey: selected.rowKey,
       aptName: selected.name,
@@ -412,7 +454,15 @@ export default function MapMobilePageV2() {
       baseMonthly: selected.monthlyFee ?? 0,
       monthlyFeeY1: selected.monthlyFeeY1 ?? undefined,
       productKey,
+      district: district || null,
+      address: addr || null,
+      installLocation: (selected as any).installLocation ?? (selected as any).install_location ?? null,
+      households: (selected as any).households ?? null,
+      residents: (selected as any).residents ?? null,
+      monthlyImpressions: (selected as any).monthlyImpressions ?? null,
+      monitors: (selected as any).monitors ?? null,
     };
+
     setCart((prev) => [next, ...prev.filter((c) => c.rowKey !== next.rowKey)]);
   }, [selected]);
 
@@ -448,7 +498,7 @@ export default function MapMobilePageV2() {
     discPeriodRate?: number;
     discPrecompRate?: number;
 
-    // 🔹 설치위치 + 견적상세/요약용 카운터들(최신 상세에서 보강)
+    // 🔹 설치위치 + 견적상세/요약용 카운터들
     installLocation?: string;
     households?: number;
     residents?: number;
@@ -461,38 +511,34 @@ export default function MapMobilePageV2() {
       const name = c.productName ?? "기본상품";
       const months = c.months || 0;
 
-      // 🔹 최신 상세에서 카운터/지역 정보 보강
       const detail = detailByRowKeyRef.current.get(c.rowKey) || {};
-      const householdsRaw = Number((detail as any).households ?? NaN);
-      const residentsRaw = Number((detail as any).residents ?? NaN);
-      const monthlyImpressionsRaw = Number((detail as any).monthlyImpressions ?? NaN);
-      const monitorsRaw = Number((detail as any).monitors ?? NaN);
+
+      const householdsRaw = Number((c as any).households ?? (detail as any).households ?? NaN);
+      const residentsRaw = Number((c as any).residents ?? (detail as any).residents ?? NaN);
+      const monthlyImpressionsRaw = Number((c as any).monthlyImpressions ?? (detail as any).monthlyImpressions ?? NaN);
+      const monitorsRaw = Number((c as any).monitors ?? (detail as any).monitors ?? NaN);
 
       const installLocation =
-        typeof (detail as any).installLocation === "string" && (detail as any).installLocation.trim() !== ""
-          ? (detail as any).installLocation
-          : undefined;
+        typeof (c as any).installLocation === "string" && (c as any).installLocation.trim() !== ""
+          ? (c as any).installLocation
+          : typeof (detail as any).installLocation === "string" && (detail as any).installLocation.trim() !== ""
+            ? (detail as any).installLocation
+            : undefined;
 
-      // 🔹 자치구(district) 우선순위: detail.district → cart.c.district → 주소에서 추출
       let district: string =
-        typeof (detail as any).district === "string"
-          ? (detail as any).district.trim()
-          : typeof (c as any).district === "string"
-            ? (c as any).district.trim()
+        typeof (c as any).district === "string" && (c as any).district.trim() !== ""
+          ? (c as any).district.trim()
+          : typeof (detail as any).district === "string" && (detail as any).district.trim() !== ""
+            ? (detail as any).district.trim()
             : "";
 
       if (!district) {
         const addressSource =
-          typeof (detail as any).address === "string"
-            ? (detail as any).address
-            : typeof (c as any).address === "string"
-              ? (c as any).address
-              : "";
+          (typeof (c as any).address === "string" && (c as any).address) ||
+          (typeof (detail as any).address === "string" ? (detail as any).address : "");
         if (addressSource) {
           const m = addressSource.match(/(강남구|서초구|송파구|양천구)/);
-          if (m) {
-            district = m[1];
-          }
+          if (m) district = m[1];
         }
       }
 
@@ -501,7 +547,6 @@ export default function MapMobilePageV2() {
       const monthlyImpressions = Number.isFinite(monthlyImpressionsRaw) ? monthlyImpressionsRaw : undefined;
       const monitors = Number.isFinite(monitorsRaw) && monitorsRaw > 0 ? monitorsRaw : undefined;
 
-      // ✅ 정책 키: 카트에 저장된 productKey 우선, 없으면 기존 normPolicyKey 사용
       const key = (c.productKey as keyof DiscountPolicy | undefined) ?? (normPolicyKey(name) as keyof DiscountPolicy);
       const rules: any = key ? (DEFAULT_POLICY as any)[key] : undefined;
 
@@ -520,15 +565,13 @@ export default function MapMobilePageV2() {
 
       if (isElevator) {
         // =========================
-        // ✅ ELEVATOR TV 전용 규칙 (모바일)
+        // ✅ ELEVATOR TV 전용 규칙
         //  1) 모니터 1대당 단가 × 모니터 수 = 월광고료(기준)
         //  2) 사전 보상 할인 없음
         //  3) 강남/서초/송파 기간할인 없음
-        //     (양천/기타 구는 기간할인 정책 적용)
         // =========================
         const monitorCount = monitors ?? 0;
 
-        // 지역별 1대당 단가
         let unitPrice = 10000;
         if (district === "강남구" || district === "서초구") {
           unitPrice = 15000;
@@ -536,21 +579,14 @@ export default function MapMobilePageV2() {
           unitPrice = 12000;
         }
 
-        // 모니터 수가 없으면 가격 0 처리 (데이터 보완 필요 케이스)
         base = monitorCount > 0 ? unitPrice * monitorCount : 0;
 
-        // 사전보상 할인 제거
         discPrecompRate = 0;
-
-        // 기간 할인: 강남/서초/송파는 미적용, 그 외에는 정책 표 기준
         const noPeriodDiscount = district === "강남구" || district === "서초구" || district === "송파구";
         discPeriodRate = noPeriodDiscount ? 0 : rateFromRanges(rules?.period, months);
 
         monthly = Math.round(base * (1 - discPeriodRate));
       } else {
-        // =========================
-        // 기타 상품: 기존 로직 그대로 유지
-        // =========================
         const base0 = c.baseMonthly ?? 0;
         base = base0;
         discPeriodRate = rateFromRanges(rules?.period, months);
@@ -816,7 +852,7 @@ export default function MapMobilePageV2() {
               </span>
             )}
             {cart.length > 0 && cart.length <= 99 && (
-              <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-[#FF3B30] text-[10px] font-bold flex items-center justify-center">
+              <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-[#FF3B30] text-[10px] font-bold flex items센터 justify-center">
                 {cart.length}
               </span>
             )}
