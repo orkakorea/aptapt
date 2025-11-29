@@ -932,7 +932,7 @@ export default function MapPage() {
     const maps = kakao?.maps;
     const map = mapObjRef.current;
     const clusterer = clustererRef.current;
-    if (!maps || !map || !clusterer) return;
+       if (!maps || !map || !clusterer) return;
 
     const bounds = map.getBounds();
     if (!bounds) return;
@@ -1377,7 +1377,7 @@ export default function MapPage() {
     btn.style.height = "22px";
     btn.style.borderRadius = "999px";
     btn.style.background = "#FFFFFF";
-    btn.style.border = "2px solid #FFD400";
+    btn.style.border = "2px solid "#FFD400";
     btn.style.boxShadow = "0 2px 6px rgba(0,0,0,0.15)";
     btn.style.display = "flex";
     btn.style.alignItems = "center";
@@ -1600,18 +1600,20 @@ export default function MapPage() {
   }, []);
   const zoomIn = useCallback(() => changeZoom(-1), [changeZoom]);
   const zoomOut = useCallback(() => changeZoom(1), [changeZoom]);
+
   /* ---------- ✅ 태블릿/터치 기기용 핀치 줌 ---------- */
   useEffect(() => {
     const el = mapRef.current;
     const map = mapObjRef.current;
 
-    // 지도 DOM 또는 맵 객체가 아직 없으면 아무 것도 하지 않음
     if (!el || !map) return;
 
-    // 터치(손가락) 기반 포인터에서만 동작하도록 보호
-    const mm = window.matchMedia?.("(pointer: coarse)");
-    const isCoarsePointer = mm ? mm.matches : "ontouchstart" in window;
-    if (!isCoarsePointer) return;
+    // 📌 터치 기반 환경: ontouchstart 또는 pointer: coarse
+    const isTouchLike =
+      ("ontouchstart" in window) ||
+      (window.matchMedia?.("(pointer: coarse)")?.matches ?? false);
+
+    if (!isTouchLike) return;
 
     let pinchActive = false;
     let startDist = 0;
@@ -1628,7 +1630,6 @@ export default function MapPage() {
         pinchActive = true;
         startDist = getDistance(touches[0], touches[1]);
       } else if (touches.length < 2) {
-        // 손가락이 2개 미만이면 핀치 상태 해제
         pinchActive = false;
         startDist = 0;
       }
@@ -1646,28 +1647,26 @@ export default function MapPage() {
       }
 
       const scale = newDist / startDist;
-      const THRESHOLD = 0.12; // 12% 이상 변화했을 때만 한 단계 줌
+      const THRESHOLD = 0.12;
 
       if (scale > 1 + THRESHOLD) {
-        // 두 손가락이 멀어짐 → 확대
+        // 확대
         e.preventDefault();
-        changeZoom(-1); // 기존 버튼과 동일: -1 → zoom in
+        changeZoom(-1);
         startDist = newDist;
       } else if (scale < 1 - THRESHOLD) {
-        // 두 손가락이 가까워짐 → 축소
+        // 축소
         e.preventDefault();
-        changeZoom(1); // 기존 버튼과 동일: +1 → zoom out
+        changeZoom(1);
         startDist = newDist;
       }
     };
 
     const onTouchEnd = (_e: any) => {
-      // 손가락이 떨어지면 핀치 상태 리셋
       pinchActive = false;
       startDist = 0;
     };
 
-    // move에서 preventDefault를 쓰려고 passive: false 필요
     el.addEventListener("touchstart", onTouchStart, { passive: true });
     el.addEventListener("touchmove", onTouchMove, { passive: false });
     el.addEventListener("touchend", onTouchEnd);
