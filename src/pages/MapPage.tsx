@@ -639,6 +639,10 @@ export default function MapPage() {
     const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
     const imageUrl = getField(row, ["imageUrl", "image_url", "이미지", "썸네일", "thumbnail"]) || undefined;
 
+    // ✅ 시/구 정보도 스냅샷에 포함
+    const city = (row as any).city ?? getField(row, ["city"]);
+    const district = (row as any).district ?? getField(row, ["district"]);
+
     return {
       rowKey,
       rowId: rowIdOf(row) != null ? String(rowIdOf(row)) : undefined,
@@ -657,6 +661,8 @@ export default function MapPage() {
       imageUrl,
       lat,
       lng,
+      city,
+      district,
       selectedInCart: selectedRowKeySetRef.current.has(rowKey),
     };
   }, []);
@@ -774,6 +780,9 @@ export default function MapPage() {
         const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
         const imageUrl = getField(row, ["imageUrl", "image_url", "이미지", "썸네일", "thumbnail"]) || undefined;
 
+        const city = (row as any).city ?? getField(row, ["city"]);
+        const district = (row as any).district ?? getField(row, ["district"]);
+
         const sel: SelectedAptX = {
           rowKey,
           rowId: rowIdOf(row) != null ? String(rowIdOf(row)) : undefined,
@@ -792,6 +801,8 @@ export default function MapPage() {
           imageUrl,
           lat,
           lng,
+          city,
+          district,
           selectedInCart: selectedRowKeySetRef.current.has(rowKey),
         };
         setSelected(sel);
@@ -839,6 +850,8 @@ export default function MapPage() {
           imageUrl: d.image_url ?? undefined,
           lat,
           lng,
+          city: d.city ?? undefined,
+          district: d.district ?? undefined,
           selectedInCart: selectedRowKeySetRef.current.has(rowKey),
         };
         setSelected(sel);
@@ -1028,6 +1041,9 @@ export default function MapPage() {
           const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
           const imageUrl = getField(row, ["imageUrl", "image_url", "이미지", "썸네일", "thumbnail"]) || undefined;
 
+          const city = (row as any).city ?? getField(row, ["city"]);
+          const district = (row as any).district ?? getField(row, ["district"]);
+
           const sel: SelectedAptX = {
             rowKey,
             rowId: rowIdOf(row) != null ? String(rowIdOf(row)) : undefined,
@@ -1046,6 +1062,8 @@ export default function MapPage() {
             imageUrl,
             lat,
             lng,
+            city,
+            district,
             selectedInCart: selectedRowKeySetRef.current.has(rowKey),
           };
           setSelected(sel);
@@ -1221,6 +1239,9 @@ export default function MapPage() {
           const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
           const imageUrl = getField(row, ["imageUrl", "image_url", "이미지", "썸네일", "thumbnail"]) || undefined;
 
+          const city = (row as any).city ?? getField(row, ["city"]);
+          const district = (row as any).district ?? getField(row, ["district"]);
+
           const sel: SelectedAptX = {
             rowKey,
             rowId: rowIdOf(row) != null ? String(rowIdOf(row)) : undefined,
@@ -1239,6 +1260,8 @@ export default function MapPage() {
             imageUrl,
             lat,
             lng,
+            city,
+            district,
             selectedInCart: selectedRowKeySetRef.current.has(rowKey),
           };
           setSelected(sel);
