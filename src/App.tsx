@@ -3,6 +3,7 @@ import { BrowserRouter, HashRouter, Routes, Route, Navigate, useLocation } from 
 import { Suspense, lazy, PropsWithChildren, useState } from "react";
 import NavBar from "@/components/layout/NavBar";
 import MobileRedirectGuard from "@/components/routing/MobileRedirectGuard";
+import ContractNewPage from "./pages/ContractNewPage";
 
 const HomePage = lazy(() => import("./pages/HomePage"));
 const MobileHomePage = lazy(() => import("./pages/mobile/home")); // ✅ 모바일 전용 홈
@@ -13,7 +14,6 @@ const SupaDebugPage = lazy(() => import("./pages/SupaDebug"));
 const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
 const DashboardPage = lazy(() => import("./pages/admin/DashboardPage"));
 const MapMobilePageV2 = lazy(() => import("./pages/mobile")); // -> src/pages/mobile/index.tsx
-const ContractNewPage = lazy(() => import("./pages/ContractNewPage"));
 
 // ✅ 프로덕션 관리자 노출 플래그
 const ENABLE_ADMIN = String(import.meta.env.VITE_FEATURE_ADMIN ?? "false") === "true";
