@@ -5,7 +5,7 @@ import MapChrome, { SelectedApt } from "../components/MapChrome";
 import { LocateFixed, Zap, Plus, Minus } from "lucide-react";
 
 type KakaoNS = typeof window & { kakao: any };
-const FALLBACK_KAKAO_KEY = "a53075efe7a2256480b8650cec67ebae";
+const FALLBACK_KAKAO_KEY = "a53075efe7a2256480cec67ebae";
 
 /* =========================================================================
    ① 마커 이미지 유틸
@@ -160,8 +160,20 @@ type PlaceRow = {
 };
 type KMarker = any & { __key?: string; __basePos?: any; __row?: PlaceRow };
 
+// ✅ monthly_fee(뷰 컬럼)까지 함께 읽도록 수정
 const monthlyFeeOf = (row: PlaceRow): number =>
-  toNumLoose(getField(row, ["월광고료", "월 광고료", "월 광고비", "월비용", "월요금", "month_fee", "monthlyFee"])) ?? 0;
+  toNumLoose(
+    getField(row, [
+      "월광고료",
+      "월 광고료",
+      "월 광고비",
+      "월비용",
+      "월요금",
+      "monthly_fee",
+      "month_fee",
+      "monthlyFee",
+    ]),
+  ) ?? 0;
 
 const groupKeyFromRow = (row: PlaceRow) => `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(7)}`;
 
@@ -409,7 +421,7 @@ export default function MapPage() {
           textAlign: "center",
           borderRadius: "999px",
           background: "rgba(108, 45, 255, 0.18)",
-          border: "1px solid rgba(108, 45, 255, 0.35)",
+          border: "1px solid rgba(108, 45, 255, 0.35)`,
           color: "#6C2DFF",
           fontWeight: "700",
           fontSize: "13px",
@@ -598,11 +610,22 @@ export default function MapPage() {
     const monitors = toNumLoose(
       getField(row, ["모니터수량", "모니터 수량", "모니터대수", "엘리베이터TV수", "monitors"]),
     );
+
+    // ✅ monthly_impressions / monthly_fee_y1 / cost_per_play 컬럼도 함께 읽기
     const monthlyImpressions = toNumLoose(
-      getField(row, ["월송출횟수", "월 송출횟수", "월 송출 횟수", "월송출", "노출수(월)", "monthlyImpressions"]),
+      getField(row, [
+        "월송출횟수",
+        "월 송출횟수",
+        "월 송출 횟수",
+        "월송출",
+        "노출수(월)",
+        "monthly_impressions",
+        "monthlyImpressions",
+      ]),
     );
 
     const monthlyFee = monthlyFeeOf(row);
+
     const monthlyFeeY1 = toNumLoose(
       getField(row, [
         "1년 계약 시 월 광고료",
@@ -610,10 +633,15 @@ export default function MapPage() {
         "연간월광고료",
         "할인 월 광고료",
         "연간_월광고료",
+        "monthly_fee_y1",
         "monthlyFeeY1",
       ]),
     );
-    const costPerPlay = toNumLoose(getField(row, ["1회당 송출비용", "송출 1회당 비용", "costPerPlay"]));
+
+    const costPerPlay = toNumLoose(
+      getField(row, ["1회당 송출비용", "송출 1회당 비용", "cost_per_play", "costPerPlay"]),
+    );
+
     const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
     const imageUrl = getField(row, ["imageUrl", "image_url", "이미지", "썸네일", "thumbnail"]) || undefined;
 
@@ -696,6 +724,7 @@ export default function MapPage() {
     },
     [addToCartByRowKey, removeFromCartByRowKey],
   );
+
   /* ---------- 카트 아파트 클릭 → 2탭 상세 선택 ---------- */
   const handleCartItemSelectByRowKey = useCallback(
     async (rowKey: string) => {
@@ -723,7 +752,15 @@ export default function MapPage() {
           getField(row, ["모니터수량", "모니터 수량", "모니터대수", "엘리베이터TV수", "monitors"]),
         );
         const monthlyImpressions = toNumLoose(
-          getField(row, ["월송출횟수", "월 송출횟수", "월 송출 횟수", "월송출", "노출수(월)", "monthlyImpressions"]),
+          getField(row, [
+            "월송출횟수",
+            "월 송출횟수",
+            "월 송출 횟수",
+            "월송출",
+            "노출수(월)",
+            "monthly_impressions",
+            "monthlyImpressions",
+          ]),
         );
         const monthlyFee = monthlyFeeOf(row);
         const monthlyFeeY1 = toNumLoose(
@@ -733,10 +770,13 @@ export default function MapPage() {
             "연간월광고료",
             "할인 월 광고료",
             "연간_월광고료",
+            "monthly_fee_y1",
             "monthlyFeeY1",
           ]),
         );
-        const costPerPlay = toNumLoose(getField(row, ["1회당 송출비용", "송출 1회당 비용", "costPerPlay"]));
+        const costPerPlay = toNumLoose(
+          getField(row, ["1회당 송출비용", "송출 1회당 비용", "cost_per_play", "costPerPlay"]),
+        );
         const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
         const imageUrl = getField(row, ["imageUrl", "image_url", "이미지", "썸네일", "thumbnail"]) || undefined;
 
@@ -966,11 +1006,17 @@ export default function MapPage() {
             getField(row, ["모니터수량", "모니터 수량", "모니터대수", "엘리베이터TV수", "monitors"]),
           );
           const monthlyImpressions = toNumLoose(
-            getField(row, ["월송출횟수", "월 송출횟수", "월 송출 횟수", "월송출", "노출수(월)", "monthlyImpressions"]),
+            getField(row, [
+              "월송출횟수",
+              "월 송출횟수",
+              "월 송출 횟수",
+              "월송출",
+              "노출수(월)",
+              "monthly_impressions",
+              "monthlyImpressions",
+            ]),
           );
-          const monthlyFee = toNumLoose(
-            getField(row, ["월광고료", "월 광고료", "월 광고비", "월비용", "월요금", "month_fee", "monthlyFee"]),
-          );
+          const monthlyFee = monthlyFeeOf(row);
           const monthlyFeeY1 = toNumLoose(
             getField(row, [
               "1년 계약 시 월 광고료",
@@ -978,10 +1024,13 @@ export default function MapPage() {
               "연간월광고료",
               "할인 월 광고료",
               "연간_월광고료",
+              "monthly_fee_y1",
               "monthlyFeeY1",
             ]),
           );
-          const costPerPlay = toNumLoose(getField(row, ["1회당 송출비용", "송출 1회당 비용", "costPerPlay"]));
+          const costPerPlay = toNumLoose(
+            getField(row, ["1회당 송출비용", "송출 1회당 비용", "cost_per_play", "costPerPlay"]),
+          );
           const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
           const imageUrl = getField(row, ["imageUrl", "image_url", "이미지", "썸네일", "thumbnail"]) || undefined;
 
@@ -1113,7 +1162,9 @@ export default function MapPage() {
         if (row.lat == null || row.lng == null) return;
         const key = `${Number(row.lat).toFixed(7)},${Number(row.lng).toFixed(7)}|${
           rowIdOf(row) != null ? String(rowIdOf(row)) : ""
-        }|${String(getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "")}|${String(getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "")}`;
+        }|${String(
+          getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "",
+        )}|${String(getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "")}`;
         if (markerCacheRef.current.has(key)) return;
 
         const lat = Number(row.lat),
@@ -1148,11 +1199,17 @@ export default function MapPage() {
             getField(row, ["모니터수량", "모니터 수량", "모니터대수", "엘리베이터TV수", "monitors"]),
           );
           const monthlyImpressions = toNumLoose(
-            getField(row, ["월송출횟수", "월 송출횟수", "월 송출 횟수", "월송출", "노출수(월)", "monthlyImpressions"]),
+            getField(row, [
+              "월송출횟수",
+              "월 송출횟수",
+              "월 송출 횟수",
+              "월송출",
+              "노출수(월)",
+              "monthly_impressions",
+              "monthlyImpressions",
+            ]),
           );
-          const monthlyFee = toNumLoose(
-            getField(row, ["월광고료", "월 광고료", "월 광고비", "월비용", "월요금", "month_fee", "monthlyFee"]),
-          );
+          const monthlyFee = monthlyFeeOf(row);
           const monthlyFeeY1 = toNumLoose(
             getField(row, [
               "1년 계약 시 월 광고료",
@@ -1160,10 +1217,13 @@ export default function MapPage() {
               "연간월광고료",
               "할인 월 광고료",
               "연간_월광고료",
+              "monthly_fee_y1",
               "monthlyFeeY1",
             ]),
           );
-          const costPerPlay = toNumLoose(getField(row, ["1회당 송출비용", "송출 1회당 비용", "costPerPlay"]));
+          const costPerPlay = toNumLoose(
+            getField(row, ["1회당 송출비용", "송출 1회당 비용", "cost_per_play", "costPerPlay"]),
+          );
           const hours = getField(row, ["운영시간", "운영 시간", "hours"]) || "";
           const imageUrl = getField(row, ["imageUrl", "image_url", "이미지", "썸네일", "thumbnail"]) || undefined;
 
