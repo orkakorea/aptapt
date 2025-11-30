@@ -1687,7 +1687,7 @@ export default function MapPage() {
         const dyRaw = t.clientY - lastY;
 
         // ===== 튜닝용 상수 =====
-        const PAN_SCALE = 7.5; // ⬅️ 이전 2.5에서 3배로 증가 (체감 이동 속도 ↑)
+        const PAN_SCALE = 14.5; // ⬅️ 이전 2.5에서 3배로 증가 (체감 이동 속도 ↑)
         const DEAD_ZONE = 1.5; // 미세 떨림 무시 구간은 그대로
         const MAX_STEP = 25; // 한 번에 너무 멀리 안 튀게 살짝 줄여서 안정성 확보
 
