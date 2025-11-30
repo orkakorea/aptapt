@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { SelectedApt } from "@/core/types";
 import { fmtNum, fmtWon } from "@/core/utils";
+import { calcMonthlyWithPolicy } from "@/core/pricing";
 
 const COLOR_PRIMARY = "#6F4BF2";
 const COLOR_PRIMARY_LIGHT = "#EEE8FF";
@@ -124,18 +125,47 @@ export default function DetailPanel({
   const installLocForDisplay: string = (getField(selected as any, ["installLocation", "설치위치"]) as string) || "-";
   const displayedAddress: string = (getField(selected as any, ["address", "주소"]) as string) || "-";
 
-  // ✅ 강남/서초/송파 + ELEVATOR TV 여부
+  // ✅ 강남/서초/송파 + ELEVATOR TV 여부 (UI용)
   const isPremiumElevTV = isPremiumAxisElevatorTV(selected);
 
+  // 가격 계산용 원시 값들
+  const productNameRaw =
+    (getField(selected as any, ["productName", "product_name", "product", "상품명"]) as string) ||
+    selected.productName ||
+    "";
+
+  const addrRaw =
+    (getField(selected as any, ["address", "주소"]) as string) || (selected as any).address || (selected as any).주소;
+
+  const directDistrictRaw =
+    (getField(selected as any, ["district", "구", "districtLabel"]) as string) || (selected as any).district;
+
+  const districtForPolicy = (directDistrictRaw || extractDistrictFromAddress(addrRaw) || "").trim() || undefined;
+
+  // 월 광고료(정가) = Supabase에서 온 monthlyFee 그대로
   const baseMonthlyRaw = typeof selected.monthlyFee === "number" ? selected.monthlyFee : 0;
+
+  // 화면에 보여줄 "월 광고료" (기존 로직 유지: 프리미엄이면 최소 15,000 보장)
   const displayMonthly = isPremiumElevTV ? Math.max(baseMonthlyRaw, 15000) : baseMonthlyRaw;
 
-  const y1Monthly =
-    typeof selected.monthlyFeeY1 === "number" && selected.monthlyFeeY1 > 0
-      ? selected.monthlyFeeY1
-      : isPremiumElevTV
-        ? displayMonthly // 강남/서초/송파 + ELEVATOR TV → 1년 계약도 동일 금액
-        : Math.round(displayMonthly * 0.7);
+  // 1년 계약 시 월 광고료
+  let y1Monthly: number;
+  if (typeof selected.monthlyFeeY1 === "number" && selected.monthlyFeeY1 > 0) {
+    // 백엔드에서 별도 월가가 오면 그 값을 우선 사용
+    y1Monthly = selected.monthlyFeeY1;
+  } else {
+    // 그 외에는 PC와 동일하게 정책 기반으로 12개월 할인 계산
+    const { monthly } = calcMonthlyWithPolicy(
+      productNameRaw,
+      12, // 12개월
+      baseMonthlyRaw, // 기준 월가
+      undefined, // monthlyFeeY1 없음
+      1, // sameProductCountInCart (사전보상은 현재 비활성화라 1이면 충분)
+      undefined, // 기본 DEFAULT_POLICY 사용
+      districtForPolicy ?? addrRaw ?? undefined, // 강남/서초/송파 감지를 위해 구/주소 전달
+    );
+    y1Monthly = monthly;
+  }
 
   // 후보 1: selected.imageUrl (절대/루트면 그대로, 파일명이면 /products/)
   const candidateFromSelected =
