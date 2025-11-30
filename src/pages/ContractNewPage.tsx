@@ -37,6 +37,16 @@ function addWeeksInclusive(startISO: string, months: number): string {
   return `${yy}-${mm}-${dd}`;
 }
 
+/** YYYY-MM-DD → 화면 표기용 "연-월-일" */
+function formatDateDisplay(iso: string): string {
+  if (!iso) return "";
+  const parts = iso.split("-");
+  if (parts.length !== 3) return iso;
+  const [y, m, d] = parts;
+  if (!y || !m || !d) return iso;
+  return `${y}-${m}-${d}`;
+}
+
 const norm = (s: string) => s.replace(/\s+/g, "").toLowerCase();
 const isElevatorProduct = (prod?: string) => {
   if (!prod) return false;
@@ -166,9 +176,14 @@ const ContractNewPage: React.FC = () => {
   };
   const aptFontSizes = aptLines.map((t) => getAptFontSize(t));
 
-  // 송출 시작/종료일 상태 (각 6줄)
+  // 송출 시작/종료일 상태 (각 6줄, ISO: YYYY-MM-DD)
   const [startDates, setStartDates] = useState<string[]>(Array(6).fill(""));
   const [endDates, setEndDates] = useState<string[]>(Array(6).fill(""));
+
+  // 상단 결제정보 날짜들 (ISO)
+  const [billDate, setBillDate] = useState<string>(todayISO);
+  const [paidDate, setPaidDate] = useState<string>(todayISO);
+  const [contractDate, setContractDate] = useState<string>(todayISO);
 
   // 첫 번째 송출개시 일괄 적용 여부
   const [applyFirstStartToAll, setApplyFirstStartToAll] = useState<boolean>(true); // 기본 체크 ON
@@ -398,6 +413,36 @@ const ContractNewPage: React.FC = () => {
   .field-input[readonly],
   .field-textarea[readonly] {
     background: transparent;
+  }
+
+  /* ==== 날짜 오버레이 전용 래퍼 ==== */
+  .date-field-wrapper {
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* 화면에 보이는 날짜 텍스트 인풋 (연-월-일만 노출) */
+  .date-display-input {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+  }
+
+  .date-display-input[readonly] {
+    background: #FFF6BC;
+  }
+
+  /* 실제 달력을 여는 네이티브 date 인풋 (완전 투명, 클릭만 담당) */
+  .date-native-input {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    opacity: 0;
+    border: none;
+    outline: none;
+    background: transparent;
+    cursor: pointer;
   }
 
   /* 드롭다운(입력용) – 텍스트 잘리지 않게 약간 여유 */
@@ -780,19 +825,30 @@ const ContractNewPage: React.FC = () => {
               <input className="field-input" />
             </div>
 
+            {/* 계산서 발행일자 – 달력 선택 + 연-월-일 표기 */}
             <div className="field field-billDate">
-              <input
-                className="field-input"
-                type="date"
-                defaultValue={todayISO} // ← 계산서 발행일: 오늘 날짜 디폴트
-              />
+              <div className="date-field-wrapper">
+                <input className="field-input date-display-input" readOnly value={formatDateDisplay(billDate)} />
+                <input
+                  className="date-native-input"
+                  type="date"
+                  value={billDate}
+                  onChange={(e) => setBillDate(e.target.value)}
+                />
+              </div>
             </div>
+
+            {/* 입금일자 – 달력 선택 + 연-월-일 표기 */}
             <div className="field field-paidDate">
-              <input
-                className="field-input"
-                type="date"
-                defaultValue={todayISO} // ← 입금일자: 오늘 날짜 디폴트
-              />
+              <div className="date-field-wrapper">
+                <input className="field-input date-display-input" readOnly value={formatDateDisplay(paidDate)} />
+                <input
+                  className="date-native-input"
+                  type="date"
+                  value={paidDate}
+                  onChange={(e) => setPaidDate(e.target.value)}
+                />
+              </div>
             </div>
 
             {/* 비고 – 상품명 (최대 2줄) */}
@@ -815,116 +871,188 @@ const ContractNewPage: React.FC = () => {
               <div className="field-item-multiline">{remarkProducts[5]}</div>
             </div>
 
-            {/* 송출 개시 (각 행별, 상품명 있을 때만 date 형식 + 값 표시) */}
+            {/* 송출 개시 (각 행별, 상품명 있을 때만 달력 + 연-월-일 표기) */}
             <div className="field field-start1">
-              <input
-                className="field-input"
-                type={hasRowProduct(0) ? "date" : "text"}
-                value={hasRowProduct(0) ? startDates[0] : ""}
-                readOnly={!hasRowProduct(0)}
-                onChange={hasRowProduct(0) ? (e) => handleStartChange(0, e.target.value) : undefined}
-              />
+              {hasRowProduct(0) ? (
+                <div className="date-field-wrapper">
+                  <input className="field-input date-display-input" readOnly value={formatDateDisplay(startDates[0])} />
+                  <input
+                    className="date-native-input"
+                    type="date"
+                    value={startDates[0]}
+                    onChange={(e) => handleStartChange(0, e.target.value)}
+                  />
+                </div>
+              ) : (
+                <input className="field-input" readOnly value="" />
+              )}
             </div>
             <div className="field field-start2">
-              <input
-                className="field-input"
-                type={hasRowProduct(1) ? "date" : "text"}
-                value={hasRowProduct(1) ? startDates[1] : ""}
-                readOnly={!hasRowProduct(1)}
-                onChange={hasRowProduct(1) ? (e) => handleStartChange(1, e.target.value) : undefined}
-              />
+              {hasRowProduct(1) ? (
+                <div className="date-field-wrapper">
+                  <input className="field-input date-display-input" readOnly value={formatDateDisplay(startDates[1])} />
+                  <input
+                    className="date-native-input"
+                    type="date"
+                    value={startDates[1]}
+                    onChange={(e) => handleStartChange(1, e.target.value)}
+                  />
+                </div>
+              ) : (
+                <input className="field-input" readOnly value="" />
+              )}
             </div>
             <div className="field field-start3">
-              <input
-                className="field-input"
-                type={hasRowProduct(2) ? "date" : "text"}
-                value={hasRowProduct(2) ? startDates[2] : ""}
-                readOnly={!hasRowProduct(2)}
-                onChange={hasRowProduct(2) ? (e) => handleStartChange(2, e.target.value) : undefined}
-              />
+              {hasRowProduct(2) ? (
+                <div className="date-field-wrapper">
+                  <input className="field-input date-display-input" readOnly value={formatDateDisplay(startDates[2])} />
+                  <input
+                    className="date-native-input"
+                    type="date"
+                    value={startDates[2]}
+                    onChange={(e) => handleStartChange(2, e.target.value)}
+                  />
+                </div>
+              ) : (
+                <input className="field-input" readOnly value="" />
+              )}
             </div>
             <div className="field field-start4">
-              <input
-                className="field-input"
-                type={hasRowProduct(3) ? "date" : "text"}
-                value={hasRowProduct(3) ? startDates[3] : ""}
-                readOnly={!hasRowProduct(3)}
-                onChange={hasRowProduct(3) ? (e) => handleStartChange(3, e.target.value) : undefined}
-              />
+              {hasRowProduct(3) ? (
+                <div className="date-field-wrapper">
+                  <input className="field-input date-display-input" readOnly value={formatDateDisplay(startDates[3])} />
+                  <input
+                    className="date-native-input"
+                    type="date"
+                    value={startDates[3]}
+                    onChange={(e) => handleStartChange(3, e.target.value)}
+                  />
+                </div>
+              ) : (
+                <input className="field-input" readOnly value="" />
+              )}
             </div>
             <div className="field field-start5">
-              <input
-                className="field-input"
-                type={hasRowProduct(4) ? "date" : "text"}
-                value={hasRowProduct(4) ? startDates[4] : ""}
-                readOnly={!hasRowProduct(4)}
-                onChange={hasRowProduct(4) ? (e) => handleStartChange(4, e.target.value) : undefined}
-              />
+              {hasRowProduct(4) ? (
+                <div className="date-field-wrapper">
+                  <input className="field-input date-display-input" readOnly value={formatDateDisplay(startDates[4])} />
+                  <input
+                    className="date-native-input"
+                    type="date"
+                    value={startDates[4]}
+                    onChange={(e) => handleStartChange(4, e.target.value)}
+                  />
+                </div>
+              ) : (
+                <input className="field-input" readOnly value="" />
+              )}
             </div>
             <div className="field field-start6">
-              <input
-                className="field-input"
-                type={hasRowProduct(5) ? "date" : "text"}
-                value={hasRowProduct(5) ? startDates[5] : ""}
-                readOnly={!hasRowProduct(5)}
-                onChange={hasRowProduct(5) ? (e) => handleStartChange(5, e.target.value) : undefined}
-              />
+              {hasRowProduct(5) ? (
+                <div className="date-field-wrapper">
+                  <input className="field-input date-display-input" readOnly value={formatDateDisplay(startDates[5])} />
+                  <input
+                    className="date-native-input"
+                    type="date"
+                    value={startDates[5]}
+                    onChange={(e) => handleStartChange(5, e.target.value)}
+                  />
+                </div>
+              ) : (
+                <input className="field-input" readOnly value="" />
+              )}
             </div>
 
-            {/* 송출 종료 (자동 계산 + 수정 가능, 상품명 있을 때만 date 형식 + 값 표시) */}
+            {/* 송출 종료 (자동 계산 + 수정 가능, 상품명 있을 때만 달력 + 연-월-일 표기) */}
             <div className="field field-end1">
-              <input
-                className="field-input"
-                type={hasRowProduct(0) ? "date" : "text"}
-                value={hasRowProduct(0) ? endDates[0] : ""}
-                readOnly={!hasRowProduct(0)}
-                onChange={hasRowProduct(0) ? (e) => handleEndChange(0, e.target.value) : undefined}
-              />
+              {hasRowProduct(0) ? (
+                <div className="date-field-wrapper">
+                  <input className="field-input date-display-input" readOnly value={formatDateDisplay(endDates[0])} />
+                  <input
+                    className="date-native-input"
+                    type="date"
+                    value={endDates[0]}
+                    onChange={(e) => handleEndChange(0, e.target.value)}
+                  />
+                </div>
+              ) : (
+                <input className="field-input" readOnly value="" />
+              )}
             </div>
             <div className="field field-end2">
-              <input
-                className="field-input"
-                type={hasRowProduct(1) ? "date" : "text"}
-                value={hasRowProduct(1) ? endDates[1] : ""}
-                readOnly={!hasRowProduct(1)}
-                onChange={hasRowProduct(1) ? (e) => handleEndChange(1, e.target.value) : undefined}
-              />
+              {hasRowProduct(1) ? (
+                <div className="date-field-wrapper">
+                  <input className="field-input date-display-input" readOnly value={formatDateDisplay(endDates[1])} />
+                  <input
+                    className="date-native-input"
+                    type="date"
+                    value={endDates[1]}
+                    onChange={(e) => handleEndChange(1, e.target.value)}
+                  />
+                </div>
+              ) : (
+                <input className="field-input" readOnly value="" />
+              )}
             </div>
             <div className="field field-end3">
-              <input
-                className="field-input"
-                type={hasRowProduct(2) ? "date" : "text"}
-                value={hasRowProduct(2) ? endDates[2] : ""}
-                readOnly={!hasRowProduct(2)}
-                onChange={hasRowProduct(2) ? (e) => handleEndChange(2, e.target.value) : undefined}
-              />
+              {hasRowProduct(2) ? (
+                <div className="date-field-wrapper">
+                  <input className="field-input date-display-input" readOnly value={formatDateDisplay(endDates[2])} />
+                  <input
+                    className="date-native-input"
+                    type="date"
+                    value={endDates[2]}
+                    onChange={(e) => handleEndChange(2, e.target.value)}
+                  />
+                </div>
+              ) : (
+                <input className="field-input" readOnly value="" />
+              )}
             </div>
             <div className="field field-end4">
-              <input
-                className="field-input"
-                type={hasRowProduct(3) ? "date" : "text"}
-                value={hasRowProduct(3) ? endDates[3] : ""}
-                readOnly={!hasRowProduct(3)}
-                onChange={hasRowProduct(3) ? (e) => handleEndChange(3, e.target.value) : undefined}
-              />
+              {hasRowProduct(3) ? (
+                <div className="date-field-wrapper">
+                  <input className="field-input date-display-input" readOnly value={formatDateDisplay(endDates[3])} />
+                  <input
+                    className="date-native-input"
+                    type="date"
+                    value={endDates[3]}
+                    onChange={(e) => handleEndChange(3, e.target.value)}
+                  />
+                </div>
+              ) : (
+                <input className="field-input" readOnly value="" />
+              )}
             </div>
             <div className="field field-end5">
-              <input
-                className="field-input"
-                type={hasRowProduct(4) ? "date" : "text"}
-                value={hasRowProduct(4) ? endDates[4] : ""}
-                readOnly={!hasRowProduct(4)}
-                onChange={hasRowProduct(4) ? (e) => handleEndChange(4, e.target.value) : undefined}
-              />
+              {hasRowProduct(4) ? (
+                <div className="date-field-wrapper">
+                  <input className="field-input date-display-input" readOnly value={formatDateDisplay(endDates[4])} />
+                  <input
+                    className="date-native-input"
+                    type="date"
+                    value={endDates[4]}
+                    onChange={(e) => handleEndChange(4, e.target.value)}
+                  />
+                </div>
+              ) : (
+                <input className="field-input" readOnly value="" />
+              )}
             </div>
             <div className="field field-end6">
-              <input
-                className="field-input"
-                type={hasRowProduct(5) ? "date" : "text"}
-                value={hasRowProduct(5) ? endDates[5] : ""}
-                readOnly={!hasRowProduct(5)}
-                onChange={hasRowProduct(5) ? (e) => handleEndChange(5, e.target.value) : undefined}
-              />
+              {hasRowProduct(5) ? (
+                <div className="date-field-wrapper">
+                  <input className="field-input date-display-input" readOnly value={formatDateDisplay(endDates[5])} />
+                  <input
+                    className="date-native-input"
+                    type="date"
+                    value={endDates[5]}
+                    onChange={(e) => handleEndChange(5, e.target.value)}
+                  />
+                </div>
+              ) : (
+                <input className="field-input" readOnly value="" />
+              )}
             </div>
 
             {/* 계약 단지명 (상품별 단지 리스트 → 수정 가능) */}
@@ -984,9 +1112,20 @@ const ContractNewPage: React.FC = () => {
             <div className="field field-contact2">
               <input className="field-input" />
             </div>
+
+            {/* 계약일 – 달력 선택 + 연-월-일 표기 */}
             <div className="field field-contractDate">
-              <input className="field-input" type="date" defaultValue={todayISO} />
+              <div className="date-field-wrapper">
+                <input className="field-input date-display-input" readOnly value={formatDateDisplay(contractDate)} />
+                <input
+                  className="date-native-input"
+                  type="date"
+                  value={contractDate}
+                  onChange={(e) => setContractDate(e.target.value)}
+                />
+              </div>
             </div>
+
             <div className="field field-contractCustomer">
               <input className="field-input" readOnly value={companyName} />
             </div>
