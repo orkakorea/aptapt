@@ -1681,28 +1681,40 @@ export default function MapPage() {
       // 👆 한 손가락 드래그로 지도 이동
       if (touches.length === 1 && panActive) {
         const t = touches[0];
-        const dx = t.clientX - lastX;
-        const dy = t.clientY - lastY;
 
-        // 이동 민감도(배율): 숫자를 1.3 ~ 2.0 사이로 조절해도 됨
-        const PAN_SCALE = 20.0;
+        // 이전 좌표 기준으로 이번 이벤트에서의 실제 이동량
+        const dxRaw = t.clientX - lastX;
+        const dyRaw = t.clientY - lastY;
 
-        // 너무 미세한 움직임은 무시 (데드존을 살짝 줄였음)
-        if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
+        // ===== 튜닝용 상수 =====
+        const PAN_SCALE = 2.5; // 손가락 이동 대비 지도 이동 배율 (2.0~3.0 사이에서 취향껏 미세조정)
+        const DEAD_ZONE = 1.5; // 이 이하의 미세 움직임은 무시 (손가락 떠는 정도)
+        const MAX_STEP = 30; // 한 번의 이벤트에서 허용할 최대 이동량(px)
+
+        // 1) 데드존: 너무 미세한 움직임은 무시
+        if (Math.abs(dxRaw) < DEAD_ZONE && Math.abs(dyRaw) < DEAD_ZONE) {
           lastX = t.clientX;
           lastY = t.clientY;
           return;
         }
 
-        e.preventDefault(); // 페이지 스크롤/줌 방지
+        // 2) 상한선(clamp) 함수: 한 번에 너무 많이 튀지 않게 제한
+        const clamp = (v: number, max: number) => (v > max ? max : v < -max ? -max : v);
+
+        const dx = clamp(dxRaw, MAX_STEP);
+        const dy = clamp(dyRaw, MAX_STEP);
+
+        // 기본 스크롤/줌 방지
+        e.preventDefault();
 
         try {
-          // 손가락 이동 방향의 반대로 내용을 더 크게 움직이도록 배율 적용
+          // 손가락 이동 방향의 반대로 지도를 이동 (좌우/상하 반전 + 배율 적용)
           map.panBy(-dx * PAN_SCALE, -dy * PAN_SCALE);
         } catch {
-          // 안전장치
+          // map이 아직 준비 안 되었을 때 등 안전장치
         }
 
+        // 마지막 좌표 갱신
         lastX = t.clientX;
         lastY = t.clientY;
       }
