@@ -1687,9 +1687,9 @@ export default function MapPage() {
         const dyRaw = t.clientY - lastY;
 
         // ===== 튜닝용 상수 =====
-        const PAN_SCALE = 2.5; // 손가락 이동 대비 지도 이동 배율 (2.0~3.0 사이에서 취향껏 미세조정)
-        const DEAD_ZONE = 1.5; // 이 이하의 미세 움직임은 무시 (손가락 떠는 정도)
-        const MAX_STEP = 30; // 한 번의 이벤트에서 허용할 최대 이동량(px)
+        const PAN_SCALE = 7.5; // ⬅️ 이전 2.5에서 3배로 증가 (체감 이동 속도 ↑)
+        const DEAD_ZONE = 1.5; // 미세 떨림 무시 구간은 그대로
+        const MAX_STEP = 25; // 한 번에 너무 멀리 안 튀게 살짝 줄여서 안정성 확보
 
         // 1) 데드존: 너무 미세한 움직임은 무시
         if (Math.abs(dxRaw) < DEAD_ZONE && Math.abs(dyRaw) < DEAD_ZONE) {
