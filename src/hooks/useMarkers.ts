@@ -210,6 +210,17 @@ export default function useMarkers({
   const lastFetchBoundsRef = useRef<{ minLat: number; maxLat: number; minLng: number; maxLng: number } | null>(null);
   const idleDebounceRef = useRef<number | null>(null);
 
+  /* ===== 상품명 / 설치위치 필터 상태 (공용) ===== */
+  type MarkerFilterState = {
+    productNames: Set<string> | null; // null = 필터 없음(전부 허용)
+    installLocations: Set<string> | null; // null = 필터 없음(전부 허용)
+  };
+
+  const filterStateRef = useRef<MarkerFilterState>({
+    productNames: null,
+    installLocations: null,
+  });
+
   const imgs = useMemo(() => {
     if (!kakao?.maps) return null;
     const { maps } = kakao;
@@ -461,6 +472,50 @@ export default function useMarkers({
     }
   }
 
+  /* ===== 상품명/설치위치 필터를 전체 마커에 적용 ===== */
+  const applyFilterToAllMarkers = useCallback(() => {
+    if (!map) return;
+
+    const { productNames, installLocations } = filterStateRef.current;
+    const visibleMarkers: any[] = [];
+
+    // 어떤 마커가 보일지 1차 선택
+    poolRef.current.forEach((mk) => {
+      const row = mk.__row as PlaceRow | undefined;
+      if (!row) return;
+
+      const prod = (row.product_name as string) || "";
+      const loc = (row.install_location as string) || "";
+
+      if (productNames && productNames.size > 0 && !productNames.has(prod)) return;
+      if (installLocations && installLocations.size > 0 && !installLocations.has(loc)) return;
+
+      visibleMarkers.push(mk);
+    });
+
+    const clustererObj = clustererRef.current;
+
+    // 클러스터러가 있을 때: clear → 필터된 마커만 다시 add
+    if (clustererObj && typeof clustererObj.clear === "function" && typeof clustererObj.addMarkers === "function") {
+      try {
+        clustererObj.clear();
+        if (visibleMarkers.length) {
+          clustererObj.addMarkers(visibleMarkers);
+        }
+      } catch (e) {
+        console.warn("[useMarkers] applyFilterToAllMarkers(clusterer) error:", e);
+      }
+    } else {
+      // 클러스터러가 없으면 setMap(map / null)로 직접 토글
+      const visibleSet = new Set(visibleMarkers);
+      poolRef.current.forEach((mk) => {
+        try {
+          mk.setMap(visibleSet.has(mk) ? map : null);
+        } catch {}
+      });
+    }
+  }, [clustererRef, filterStateRef, map]);
+
   const applyRows = useCallback(
     async (rows: PlaceRow[]) => {
       if (!kakao?.maps || !map || !imgs) return;
@@ -601,6 +656,11 @@ export default function useMarkers({
       }
 
       rowKeyIndexRef.current = nextRowKeyIndex;
+
+      // ✅ 필터가 설정된 상태라면, 새로 추가된 마커까지 포함해서 다시 필터 적용
+      if (filterStateRef.current.productNames || filterStateRef.current.installLocations) {
+        applyFilterToAllMarkers();
+      }
     },
     [
       clustererRef,
@@ -613,6 +673,7 @@ export default function useMarkers({
       paintNormal,
       setMarkerState,
       quickAddEnabled, // 클릭 강조 규칙에 사용
+      applyFilterToAllMarkers,
     ],
   );
 
@@ -829,5 +890,33 @@ export default function useMarkers({
     [colorByRule, enrichWithDetail, kakao, map, paintNormal, toSelectedBase],
   );
 
-  return { refreshInBounds, selectByRowKey };
+  /* ===== 외부에서 상품명/설치위치 필터를 변경하는 API ===== */
+  const updateFilter = useCallback(
+    (opts: { productNames?: string[] | null; installLocations?: string[] | null }) => {
+      const next: MarkerFilterState = {
+        productNames: filterStateRef.current.productNames,
+        installLocations: filterStateRef.current.installLocations,
+      };
+
+      if (opts.productNames !== undefined) {
+        next.productNames =
+          opts.productNames === null
+            ? null
+            : new Set(opts.productNames.filter((v) => v != null && String(v).trim().length > 0));
+      }
+
+      if (opts.installLocations !== undefined) {
+        next.installLocations =
+          opts.installLocations === null
+            ? null
+            : new Set(opts.installLocations.filter((v) => v != null && String(v).trim().length > 0));
+      }
+
+      filterStateRef.current = next;
+      applyFilterToAllMarkers();
+    },
+    [applyFilterToAllMarkers],
+  );
+
+  return { refreshInBounds, selectByRowKey, updateFilter };
 }
