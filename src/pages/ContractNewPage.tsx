@@ -146,6 +146,11 @@ const ContractNewPage: React.FC = () => {
     return Number.isFinite(n) ? n : 0;
   };
 
+  // ✅ 수정 가능 필드 상태: 상품명 / 기준금액 / 수량
+  const [productNameInput, setProductNameInput] = useState<string>(productName);
+  const [baseAmountInput, setBaseAmountInput] = useState<string>(fmtNumberPlain(baseAmount));
+  const [qtyInput, setQtyInput] = useState<string>(fmtNumberPlain(monitorCount));
+
   // 2) 계약금액: 자동 입력 + 수정 가능한 필드
   const [contractAmountValue, setContractAmountValue] = useState<number>(initialContractAmount);
   // 제작비
@@ -714,8 +719,8 @@ const ContractNewPage: React.FC = () => {
             <div className="field field-productName">
               <input
                 className="field-input"
-                readOnly
-                defaultValue={productName}
+                value={productNameInput}
+                onChange={(e) => setProductNameInput(e.target.value)}
                 style={{ fontSize: 10 }} // 상품명 글씨 1 작게
               />
             </div>
@@ -737,11 +742,15 @@ const ContractNewPage: React.FC = () => {
             </div>
 
             <div className="field field-baseAmount">
-              <input className="field-input" readOnly value={fmtNumberPlain(baseAmount)} />
+              <input
+                className="field-input"
+                value={baseAmountInput}
+                onChange={(e) => setBaseAmountInput(e.target.value)}
+              />
             </div>
 
             <div className="field field-qty">
-              <input className="field-input" readOnly defaultValue={fmtNumberPlain(monitorCount)} />
+              <input className="field-input" value={qtyInput} onChange={(e) => setQtyInput(e.target.value)} />
             </div>
 
             {/* 2) 계약금액: 자동 입력 + 수정 가능 */}
