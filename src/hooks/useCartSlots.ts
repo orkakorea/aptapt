@@ -1,7 +1,6 @@
 // src/hooks/useCartSlots.ts
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import type { CartItem } from "@/core/types";
 
 const MAX_SLOT = 5;
 
@@ -9,7 +8,8 @@ export type CartSlot = {
   id: string;
   slotNo: number;
   title: string | null;
-  items: CartItem[];
+  /** CartItem[] 스냅샷이지만, 훅 레벨에서는 any[] 로 취급 */
+  items: any[];
   updatedAt: string | null;
 };
 
@@ -25,15 +25,15 @@ export type UseCartSlotsReturn = {
   /**
    * 슬롯 저장/덮어쓰기
    * - slotNo: 1~5
-   * - cartItems: 현재 카트 상태 전체
+   * - cartItems: 현재 카트 상태 전체 (CartItem[])
    * - options.title: 슬롯 이름(선택)
    */
-  saveSlot: (slotNo: number, cartItems: CartItem[], options?: { title?: string | null }) => Promise<void>;
+  saveSlot: (slotNo: number, cartItems: any[], options?: { title?: string | null }) => Promise<void>;
   /**
    * 메모리에 올라와 있는 슬롯에서 items만 꺼내오기
    * - 해당 번호가 없으면 null
    */
-  getSlotItems: (slotNo: number) => CartItem[] | null;
+  getSlotItems: (slotNo: number) => any[] | null;
 };
 
 /**
@@ -124,7 +124,7 @@ export function useCartSlots(): UseCartSlotsReturn {
           id: row.id as string,
           slotNo: row.slot_no as number,
           title: (row.title ?? null) as string | null,
-          items: (row.items ?? []) as CartItem[],
+          items: (row.items ?? []) as any[],
           updatedAt: (row.updated_at ?? null) as string | null,
         })) ?? [];
 
@@ -149,7 +149,7 @@ export function useCartSlots(): UseCartSlotsReturn {
 
   /** ---------- 3) 슬롯 저장/덮어쓰기 ---------- */
   const saveSlot = useCallback(
-    async (slotNo: number, cartItems: CartItem[], options?: { title?: string | null }) => {
+    async (slotNo: number, cartItems: any[], options?: { title?: string | null }) => {
       if (!userId) {
         setError("로그인한 사용자만 슬롯을 저장할 수 있습니다.");
         return;
@@ -191,7 +191,7 @@ export function useCartSlots(): UseCartSlotsReturn {
           id: data.id as string,
           slotNo: data.slot_no as number,
           title: (data.title ?? null) as string | null,
-          items: (data.items ?? []) as CartItem[],
+          items: (data.items ?? []) as any[],
           updatedAt: (data.updated_at ?? null) as string | null,
         };
 
@@ -206,17 +206,17 @@ export function useCartSlots(): UseCartSlotsReturn {
         setLoading(false);
       }
     },
-    [userId]
+    [userId],
   );
 
   /** ---------- 4) 메모리상의 슬롯에서 items만 꺼내기 ---------- */
   const getSlotItems = useCallback(
-    (slotNo: number): CartItem[] | null => {
+    (slotNo: number): any[] | null => {
       const slot = slots.find((s) => s.slotNo === slotNo);
       if (!slot) return null;
       return slot.items ?? [];
     },
-    [slots]
+    [slots],
   );
 
   /** ---------- 5) 반환 ---------- */
