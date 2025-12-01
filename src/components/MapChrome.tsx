@@ -8,9 +8,6 @@ import PanelZoomButtons from "./PanelZoomButtons";
 import { DEFAULT_POLICY } from "@/core/pricing";
 import type { DiscountPolicy, RangeRule } from "@/core/pricing";
 
-import useCartSlots from "@/hooks/useCartSlots";
-import CartSlotsBar from "./CartSlotsBar";
-
 /** ===== 타입 ===== */
 export type SelectedApt = {
   rowKey?: string;
@@ -232,15 +229,6 @@ export default function MapChrome({
   const [openPackageInquiry, setOpenPackageInquiry] = useState(false);
 
   const [statsMap, setStatsMap] = useState<Record<string, AptStats>>({});
-
-  /* ✅ 구독자 카트 슬롯(1~5) 상태 */
-  const {
-    slots: cartSlots,
-    loading: cartSlotsLoading,
-    saveSlot: saveCartSlot,
-    getSlotItems,
-    refresh: refreshCartSlots,
-  } = useCartSlots();
 
   // 최신 selected를 안전하게 참조하기 위한 ref
   const selectedRef = React.useRef<SelectedApt | null>(selected);
@@ -721,42 +709,6 @@ export default function MapChrome({
       focusByLatLng(item.lat, item.lng, { level: 4 });
     }
   };
-  /* ✅ 카트 슬롯(1~5) 제어 핸들러 */
-
-  // + 버튼: 현재 카트를 선택된 슬롯에 저장
-  const handleSaveSlot = (slotNo: number) => {
-    if (!cart.length) return;
-    saveCartSlot(slotNo, cart as any[]);
-  };
-
-  // 숫자 버튼: 저장된 슬롯이면 카트로 불러오기
-  const handleLoadSlot = (slotNo: number) => {
-    const items = getSlotItems(slotNo) as CartItem[] | null;
-    if (!items) return;
-
-    setCart((prev) => {
-      // 기존 카트에 있던 마커는 모두 기본 상태로
-      prev.forEach((it) => {
-        if (it.rowKey) setMarkerStateByRowKey?.(it.rowKey, "default");
-        else setMarkerState?.(it.name, "default");
-      });
-
-      // 불러온 카트의 마커는 선택 상태로
-      items.forEach((it) => {
-        if (it.rowKey) setMarkerStateByRowKey?.(it.rowKey, "selected");
-        else setMarkerState?.(it.name, "selected");
-      });
-
-      // 실제 상태는 슬롯에서 가져온 아이템으로 교체
-      return items;
-    });
-  };
-
-  // - 버튼: 해당 슬롯 비우기 (슬롯만 삭제, 현재 카트는 그대로)
-  const handleClearSlot = async (slotNo: number) => {
-    await supabase.from("saved_cart_slots").delete().eq("slot_no", slotNo);
-    await refreshCartSlots();
-  };
 
   /** ===== 견적 모달 열릴 때 미보강 아이템 보강 ===== */
   useEffect(() => {
@@ -858,26 +810,21 @@ export default function MapChrome({
     <>
       {/* 상단 바 */}
       <div className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-[#E5E7EB] z-[60]">
-        <div className="h-full flex items-center justify-between px-6 gap-4">
-          {/* 좌측: 응답하라 입주민이여 + 슬롯(01~05) */}
-          <div className="flex-1 min-w-0">
-            <CartSlotsBar
-              slots={cartSlots}
-              loading={cartSlotsLoading}
-              onSaveSlot={handleSaveSlot}
-              onLoadSlot={handleLoadSlot}
-              onClearSlot={handleClearSlot}
+        <div className="h-full flex items-center justify-between px-6">
+          {/* ✅ 타이틀 + 패널 줌 버튼(타이틀 오른쪽) */}
+          <div className="flex items-center">
+            <div className="text-xl font-bold text-black">응답하라 입주민이여</div>
+            {/* ✅ 여기서 패널-줌 이벤트를 직접 발생시킴 (좌/우 버튼) */}
+            <PanelZoomButtonsAny
+              className="ml-3"
+              onPrev={goPrevMode}
+              onNext={goNextMode}
+              onChange={(m: PanelZoomMode) => emitPanelZoom(m)}
+              onZoomChange={(m: PanelZoomMode) => emitPanelZoom(m)}
             />
           </div>
-
-          {/* 우측: 패널 줌 버튼 */}
-          <PanelZoomButtonsAny
-            className="ml-3 flex-shrink-0"
-            onPrev={goPrevMode}
-            onNext={goNextMode}
-            onChange={(m: PanelZoomMode) => emitPanelZoom(m)}
-            onZoomChange={(m: PanelZoomMode) => emitPanelZoom(m)}
-          />
+          {/* 우측 비워둠(기존 레이아웃 유지) */}
+          <div />
         </div>
       </div>
 
