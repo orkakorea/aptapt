@@ -1,7 +1,6 @@
 // src/hooks/useCartSlots.ts
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import type { CartItem } from "@/core/types";
 
 const MAX_SLOT = 5;
 
@@ -9,7 +8,7 @@ export type CartSlot = {
   id: string;
   slotNo: number;
   title: string | null;
-  items: CartItem[];
+  items: any[];
   updatedAt: string | null;
 };
 
@@ -33,7 +32,7 @@ export type UseCartSlotsReturn = {
    * 메모리에 올라와 있는 슬롯에서 items만 꺼내오기
    * - 해당 번호가 없으면 null
    */
-  getSlotItems: (slotNo: number) => CartItem[] | null;
+  getSlotItems: (slotNo: number) => any[] | null;
 };
 
 /**
@@ -206,7 +205,7 @@ export function useCartSlots(): UseCartSlotsReturn {
         setLoading(false);
       }
     },
-    [userId]
+    [userId],
   );
 
   /** ---------- 4) 메모리상의 슬롯에서 items만 꺼내기 ---------- */
@@ -216,7 +215,7 @@ export function useCartSlots(): UseCartSlotsReturn {
       if (!slot) return null;
       return slot.items ?? [];
     },
-    [slots]
+    [slots],
   );
 
   /** ---------- 5) 반환 ---------- */
