@@ -191,9 +191,16 @@ type AptStats = { households?: number; residents?: number; monthlyImpressions?: 
 /** ===== 내부 유틸(행키 파서 & 보강) ===== */
 function parseRowKey(rowKey?: string): { placeId?: string } {
   if (!rowKey) return {};
-  const m = /^id:([^|]+)$/i.exec(rowKey.trim());
-  if (m) return { placeId: m[1] };
-  return {};
+  const m = /^id:(.+)$/i.exec(rowKey.trim());
+  if (!m) return {};
+
+  let placeId = m[1];
+  try {
+    placeId = decodeURIComponent(placeId);
+  } catch {
+    // 인코딩 안 된 기존 rowKey가 섞여 있어도 그냥 통과
+  }
+  return { placeId };
 }
 
 /** ===== ✅ 패널-줌: MapPage와 연결되는 이벤트 디스패처 ===== */
