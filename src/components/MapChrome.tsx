@@ -299,7 +299,7 @@ export default function MapChrome({
   /** ===== 로그인 / 로그아웃 핸들러 ===== */
   const openLoginModal = () => {
     // LoginModal에서 listen 중인 이벤트 이름과 맞춰줌
-    window.dispatchEvent(new CustomEvent("orka:open-login", { detail: { source: "map" } }));
+    window.dispatchEvent(new CustomEvent("orca:open-login", { detail: { source: "map" } }));
   };
 
   const handleLogout = async () => {
@@ -751,17 +751,16 @@ export default function MapChrome({
     // ✅ 1) 2탭 상세에 이 단지를 선택해 달라고 MapPage에 알려줌
     if (item.rowKey) {
       onCartItemSelectByRowKey?.(item.rowKey);
+      // ✅ 2) 지도 이동(기존 기능 유지)
+      if (focusByRowKey) {
+        focusByRowKey(item.rowKey, { level: 4 });
+        return;
+      }
     }
 
-    // ✅ 2) 좌표가 있으면, 현재 지도에 마커가 없더라도 위도/경도로 직접 이동
+    // rowKey 없거나 focusByRowKey 미구현 시, 좌표 기반 포커스 (기존 fallback 유지)
     if (item.lat != null && item.lng != null && focusByLatLng) {
       focusByLatLng(item.lat, item.lng, { level: 4 });
-      return;
-    }
-
-    // ✅ 3) 좌표가 없거나 focusByLatLng 미구현 시, rowKey 기반 포커스(기존 동작)로 대체
-    if (item.rowKey && focusByRowKey) {
-      focusByRowKey(item.rowKey, { level: 4 });
     }
   };
 
@@ -776,7 +775,6 @@ export default function MapChrome({
   // 숫자 버튼: 저장된 슬롯이면 카트로 불러오기
   const handleLoadSlot = (slotNo: number) => {
     // getSlotItems의 실제 구현 타입과 무관하게 사용하기 위해 any로 한 번 우회
-    // (슬롯 데이터는 null | CartItem[] | Promise<CartItem[] | null> 중 하나일 수 있음)
     const maybe = (getSlotItems as any)(slotNo) as CartItem[] | Promise<CartItem[] | null> | null;
 
     const applyItems = (items: CartItem[] | null | undefined) => {
@@ -934,20 +932,18 @@ export default function MapChrome({
       {/* 상단 바 */}
       <div className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-[#E5E7EB] z-[60]">
         <div className="h-full flex items-center justify-between px-6 gap-4">
-          {/* 좌측: 슬롯 + 패널 줌 */}
+          {/* 좌측: 타이틀 + 패널 줌 + (로그인 시) 슬롯 */}
           <div className="flex items-center gap-4 min-w-0">
-            {/* 1) 구독회원 슬롯 / 액션 버튼을 헤더 왼쪽에 배치 */}
-            {isLoggedIn && (
-              <div className="flex items-center">
-                <CartSlotsBar
-                  slots={cartSlots}
-                  loading={cartSlotsLoading || cartSlotsSaving}
-                  onSaveSlot={handleSaveSlot}
-                  onLoadSlot={handleLoadSlot}
-                  onClearSlot={handleClearSlot}
-                />
-              </div>
-            )}
+            {/* 1) 타이틀 클릭 시 메인 사이트 이동 */}
+            <button
+              type="button"
+              onClick={() => {
+                window.location.href = "https://www.apt-orka.kr";
+              }}
+              className="text-xl font-bold text-black whitespace-nowrap hover:text-[#6C2DFF]"
+            >
+              응답하라 입주민이여
+            </button>
 
             {/* 2) 패널 확대/축소 버튼 */}
             <PanelZoomButtonsAny
@@ -957,6 +953,19 @@ export default function MapChrome({
               onChange={(m: PanelZoomMode) => emitPanelZoom(m)}
               onZoomChange={(m: PanelZoomMode) => emitPanelZoom(m)}
             />
+
+            {/* 3) 구독회원 로그인 시 슬롯 버튼 / 액션 버튼 노출 */}
+            {isLoggedIn && (
+              <div className="ml-2">
+                <CartSlotsBar
+                  slots={cartSlots}
+                  loading={cartSlotsLoading || cartSlotsSaving}
+                  onSaveSlot={handleSaveSlot}
+                  onLoadSlot={handleLoadSlot}
+                  onClearSlot={handleClearSlot}
+                />
+              </div>
+            )}
           </div>
 
           {/* 우측: 로그인 / 로그아웃 버튼 */}
