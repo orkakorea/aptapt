@@ -298,8 +298,8 @@ export default function MapChrome({
 
   /** ===== 로그인 / 로그아웃 핸들러 ===== */
   const openLoginModal = () => {
-    // 상위(App/NavBar 등)에서 이 이벤트를 받아 로그인 모달을 띄워주면 됨
-    window.dispatchEvent(new CustomEvent("orka:auth:openLogin", { detail: { source: "map" } }));
+    // LoginModal에서 listen 중인 이벤트 이름과 맞춰줌
+    window.dispatchEvent(new CustomEvent("orca:open-login", { detail: { source: "map" } }));
   };
 
   const handleLogout = async () => {
@@ -1186,8 +1186,9 @@ export default function MapChrome({
               {/* 즉시 토글 */}
               <button
                 className={`mt-1 h-12 w-full rounded-xl font-semibold transition-colors ${
-                  inCart ? "bg-[#E5E7EB] text-[#6B7280]" : "bg-[#6C2DFF] text.white"
+                  inCart ? "bg-[#E5E7EB]" : "bg-[#6C2DFF]"
                 }`}
+                style={{ color: inCart ? "#6B7280" : "#FFFFFF" }}
                 onClick={onClickAddOrCancel}
               >
                 {inCart ? "담기취소" : "아파트 담기"}
