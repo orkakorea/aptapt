@@ -176,14 +176,27 @@ const buildRowKeyFromRow = (row: PlaceRow) => {
     getField(row, ["상품명", "상품 명", "제품명", "광고상품명", "productName", "product_name"]) || "",
   );
   const installLocation = String(getField(row, ["설치위치", "설치 위치", "installLocation", "install_location"]) || "");
-  return idPart ? `id:${idPart}` : `xy:${lat.toFixed(7)},${lng.toFixed(7)}|p:${productName}|loc:${installLocation}`;
+
+  // ⚠ place_id 안에 ' | ' 같은 문자가 들어가므로
+  //   rowKey에는 URL 인코딩해서 넣고, 나중에 decodeURIComponent로 되돌린다.
+  return idPart
+    ? `id:${encodeURIComponent(idPart)}`
+    : `xy:${lat.toFixed(7)},${lng.toFixed(7)}|p:${productName}|loc:${installLocation}`;
 };
-// ✅ rowKey("id:1234" 형태)에서 place_id 추출
+
+// ✅ rowKey("id:...")에서 place_id 추출 (URL 디코딩 포함)
 const parsePlaceIdFromRowKey = (rowKey?: string): string | undefined => {
   if (!rowKey) return undefined;
-  const m = /^id:([^|]+)$/i.exec(rowKey.trim());
-  return m ? m[1] : undefined;
+  const m = /^id:(.+)$/i.exec(rowKey.trim());
+  if (!m) return undefined;
+  try {
+    return decodeURIComponent(m[1]);
+  } catch {
+    // 혹시 인코딩 안 된 기존 값이 섞여 있어도 그대로 반환
+    return m[1];
+  }
 };
+
 // ✅ rowKey("xy:37.1234567,127.1234567|...")에서 좌표 추출
 const parseLatLngFromRowKey = (rowKey?: string): { lat: number; lng: number } | null => {
   if (!rowKey) return null;
