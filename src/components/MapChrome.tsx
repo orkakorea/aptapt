@@ -243,6 +243,30 @@ export default function MapChrome({
     refresh: refreshCartSlots,
   } = useCartSlots();
 
+  /* ✅ 로그인 여부 */
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+
+    supabase.auth
+      .getUser()
+      .then((res) => {
+        if (!mounted) return;
+        setIsLoggedIn(!!res.data.user);
+      })
+      .catch(() => {});
+
+    const { data: listener } = (supabase as any).auth.onAuthStateChange((_event: any, session: any) => {
+      if (!mounted) return;
+      setIsLoggedIn(!!session?.user);
+    });
+
+    return () => {
+      mounted = false;
+      listener?.subscription?.unsubscribe?.();
+    };
+  }, []);
+
   // 최신 selected를 안전하게 참조하기 위한 ref
   const selectedRef = React.useRef<SelectedApt | null>(selected);
   useEffect(() => {
@@ -879,25 +903,53 @@ export default function MapChrome({
       {/* 상단 바 */}
       <div className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-[#E5E7EB] z-[60]">
         <div className="h-full flex items-center justify-between px-6 gap-4">
-          {/* 좌측: 응답하라 입주민이여 + 슬롯(01~05) */}
-          <div className="flex-1 min-w-0">
-            <CartSlotsBar
-              slots={cartSlots}
-              loading={cartSlotsLoading}
-              onSaveSlot={handleSaveSlot}
-              onLoadSlot={handleLoadSlot}
-              onClearSlot={handleClearSlot}
+          {/* 좌측: 타이틀 + 패널 줌 + (로그인 시) 슬롯 */}
+          <div className="flex items-center gap-4 min-w-0">
+            {/* 1) 타이틀 클릭 시 메인 사이트 이동 */}
+            <button
+              type="button"
+              onClick={() => {
+                window.location.href = "https://www.apt-orka.kr";
+              }}
+              className="text-xl font-bold text-black whitespace-nowrap hover:text-[#6C2DFF]"
+            >
+              응답하라 입주민이여
+            </button>
+
+            {/* 2) 패널 확대/축소 버튼 */}
+            <PanelZoomButtonsAny
+              className="ml-1"
+              onPrev={goPrevMode}
+              onNext={goNextMode}
+              onChange={(m: PanelZoomMode) => emitPanelZoom(m)}
+              onZoomChange={(m: PanelZoomMode) => emitPanelZoom(m)}
             />
+
+            {/* 4) 구독회원 로그인 시 슬롯 버튼 / + / - 노출 */}
+            {isLoggedIn && (
+              <div className="ml-4">
+                <CartSlotsBar
+                  slots={cartSlots}
+                  loading={cartSlotsLoading}
+                  onSaveSlot={handleSaveSlot}
+                  onLoadSlot={handleLoadSlot}
+                  onClearSlot={handleClearSlot}
+                />
+              </div>
+            )}
           </div>
 
-          {/* 우측: 패널 줌 버튼 */}
-          <PanelZoomButtonsAny
-            className="ml-3 flex-shrink-0"
-            onPrev={goPrevMode}
-            onNext={goNextMode}
-            onChange={(m: PanelZoomMode) => emitPanelZoom(m)}
-            onZoomChange={(m: PanelZoomMode) => emitPanelZoom(m)}
-          />
+          {/* 3) 맨 오른쪽 로그인 버튼 (항상 표시) */}
+          <button
+            type="button"
+            onClick={() => {
+              // 필요하면 /login 대신 실제 로그인 경로로 바꿔줘
+              window.location.href = "/login";
+            }}
+            className="h-9 px-4 rounded-md border border-[#6C2DFF] text-sm font-semibold text-[#6C2DFF] hover:bg-[#F4F0FB]"
+          >
+            로그인
+          </button>
         </div>
       </div>
 
