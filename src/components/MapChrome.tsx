@@ -240,7 +240,7 @@ export default function MapChrome({
     loading: cartSlotsLoading,
     saveSlot: saveCartSlot,
     getSlotItems,
-    clearSlot: clearCartSlot,
+    refresh: refreshCartSlots,
   } = useCartSlots();
 
   /* ✅ 로그인 여부 */
@@ -751,64 +751,73 @@ export default function MapChrome({
   /* ✅ 카트 슬롯(1~5) 제어 핸들러 */
 
   // + 버튼: 현재 카트를 선택된 슬롯에 저장
-  const handleSaveSlot = async (slotNo: number) => {
-    if (!cart.length) {
-      alert("현재 카트가 비어 있어 저장할 수 없습니다.");
-      return;
-    }
-    const title = `슬롯 ${String(slotNo).padStart(2, "0")}`;
-    await saveCartSlot(slotNo, cart as any[], title);
+  const handleSaveSlot = (slotNo: number) => {
+    if (!cart.length) return;
+    saveCartSlot(slotNo, cart as any[]);
   };
 
   // 숫자 버튼: 저장된 슬롯이면 카트로 불러오기
-  const handleLoadSlot = async (slotNo: number) => {
-    const items = (await getSlotItems(slotNo)) as CartItem[] | null;
-    if (!items || !items.length) {
-      alert("선택한 슬롯에 저장된 카트가 없습니다.");
-      return;
-    }
+  const handleLoadSlot = (slotNo: number) => {
+    // getSlotItems의 실제 구현 타입과 무관하게 사용하기 위해 any로 한 번 우회
+    const maybe = (getSlotItems as any)(slotNo) as CartItem[] | Promise<CartItem[] | null> | null;
 
-    // 1) 기존 카트에 있던 마커는 모두 기본 상태로
-    cart.forEach((it) => {
-      if (it.rowKey && setMarkerStateByRowKey) {
-        setMarkerStateByRowKey(it.rowKey, "default");
-      } else if (it.name && setMarkerState) {
-        setMarkerState(it.name, "default");
-      }
-    });
+    const applyItems = (items: CartItem[] | null | undefined) => {
+      if (!items || !items.length) return;
 
-    // 2) 불러온 카트로 교체
-    setCart(items.map((it) => ({ ...it })));
+      setCart((prev) => {
+        // 기존 카트에 있던 마커는 모두 기본 상태로
+        prev.forEach((it) => {
+          if (it.rowKey) setMarkerStateByRowKey?.(it.rowKey, "default");
+          else setMarkerState?.(it.name, "default");
+        });
 
-    // 3) 새 카트 기준으로 마커 selected 상태 반영
-    items.forEach((it) => {
-      if (it.rowKey && setMarkerStateByRowKey) {
-        setMarkerStateByRowKey(it.rowKey, "selected", true);
-      } else if (it.name && setMarkerState) {
-        setMarkerState(it.name, "selected");
-      }
-    });
+        // 불러온 카트의 마커는 선택 상태로
+        items.forEach((it) => {
+          if (it.rowKey) setMarkerStateByRowKey?.(it.rowKey, "selected");
+          else setMarkerState?.(it.name, "selected");
+        });
 
-    // 4) 통계 맵도 슬롯 데이터 기준으로 보강
-    setStatsMap((prevStats) => {
-      const next = { ...prevStats };
-      items.forEach((it) => {
-        const k = keyName(it.name || "");
-        if (!k) return;
-        next[k] = {
-          households: it.households ?? next[k]?.households,
-          residents: it.residents ?? next[k]?.residents,
-          monthlyImpressions: it.monthlyImpressions ?? next[k]?.monthlyImpressions,
-          monitors: it.monitors ?? next[k]?.monitors,
-        };
+        // 실제 상태는 슬롯에서 가져온 아이템으로 교체
+        return items.map((it) => ({ ...it }));
       });
-      return next;
-    });
+
+      // 통계 맵도 슬롯 데이터 기준으로 보강
+      setStatsMap((prevStats) => {
+        const next = { ...prevStats };
+        items.forEach((it) => {
+          const k = keyName(it.name || "");
+          if (!k) return;
+          next[k] = {
+            households: it.households ?? next[k]?.households,
+            residents: it.residents ?? next[k]?.residents,
+            monthlyImpressions: it.monthlyImpressions ?? next[k]?.monthlyImpressions,
+            monitors: it.monitors ?? next[k]?.monitors,
+          };
+        });
+        return next;
+      });
+    };
+
+    // Promise / 동기 둘 다 대응
+    if (maybe && typeof (maybe as any).then === "function") {
+      (maybe as Promise<CartItem[] | null>)
+        .then((items) => applyItems(items ?? null))
+        .catch((err) => {
+          console.error("[CartSlots] load error", err);
+        });
+    } else {
+      applyItems(maybe as CartItem[] | null);
+    }
   };
 
   // - 버튼: 해당 슬롯 비우기 (슬롯만 삭제, 현재 카트는 그대로)
   const handleClearSlot = async (slotNo: number) => {
-    await clearCartSlot(slotNo);
+    try {
+      await (supabase as any).from("saved_cart_slots").delete().eq("slot_no", slotNo);
+      await refreshCartSlots();
+    } catch (err) {
+      console.error("[CartSlots] clear error", err);
+    }
   };
 
   /** ===== 견적 모달 열릴 때 미보강 아이템 보강 ===== */
@@ -935,7 +944,7 @@ export default function MapChrome({
               onZoomChange={(m: PanelZoomMode) => emitPanelZoom(m)}
             />
 
-            {/* 4) 구독회원 로그인 시 슬롯 버튼 / + / - 노출 */}
+            {/* 4) 구독회원 로그인 시 슬롯 버튼 / 액션 버튼 노출 */}
             {isLoggedIn && (
               <div className="ml-4">
                 <CartSlotsBar
@@ -953,8 +962,8 @@ export default function MapChrome({
           <button
             type="button"
             onClick={() => {
-              // 필요하면 /login 대신 실제 로그인 경로로 바꿔줘
-              window.location.href = "/login";
+              // 이후 NavBar 등에서 'orka:auth:openLogin' 이벤트를 받아 로그인 모달을 열도록 연결 가능
+              window.dispatchEvent(new CustomEvent("orka:auth:openLogin"));
             }}
             className="h-9 px-4 rounded-md border border-[#6C2DFF] text-sm font-semibold text-[#6C2DFF] hover:bg-[#F4F0FB]"
           >
