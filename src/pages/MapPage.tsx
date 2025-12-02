@@ -184,6 +184,20 @@ const parsePlaceIdFromRowKey = (rowKey?: string): string | undefined => {
   const m = /^id:([^|]+)$/i.exec(rowKey.trim());
   return m ? m[1] : undefined;
 };
+// ✅ rowKey("xy:37.1234567,127.1234567|...")에서 좌표 추출
+const parseLatLngFromRowKey = (rowKey?: string): { lat: number; lng: number } | null => {
+  if (!rowKey) return null;
+
+  // 예: "xy:37.1234567,127.1234567|p:..."
+  const m = /^xy:([0-9.+-]+),([0-9.+-]+)/i.exec(rowKey.trim());
+  if (!m) return null;
+
+  const lat = Number(m[1]);
+  const lng = Number(m[2]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+  return { lat, lng };
+};
 
 /* =========================================================================
    ⑤ ‘정적 분리(항상 나란히)’ 레이아웃
@@ -880,19 +894,88 @@ export default function MapPage() {
       const maps = kakao?.maps;
       const map = mapObjRef.current;
       if (!maps || !map || !rowKey) return;
+
       const list = keyIndexRef.current[rowKey];
+
+      // 1) 현재 지도에 마커가 있는 경우: 기존 동작 유지
       if (list?.length) {
         const mk = list[0];
         const pos = mk.getPosition?.() || mk.__basePos;
         if (opts?.level != null) map.setLevel(opts.level);
         map.setCenter(pos);
+
         // 🚫 프로그램틱 클릭에서는 퀵담기 토글을 한 번 억제
         suppressQuickToggleOnceRef.current = true;
         maps.event.trigger(mk, "click");
         applyStaticSeparationAll();
+        return;
+      }
+
+      // 2) 현재 지도에 마커가 없는 경우: 좌표를 직접 찾아서 이동 + 마커 로드 후 클릭
+      let targetLat: number | undefined;
+      let targetLng: number | undefined;
+
+      // 2-1) rowKey에서 place_id 파싱 → RPC(get_public_place_detail)로 좌표 조회
+      const placeId = parsePlaceIdFromRowKey(rowKey);
+      if (placeId) {
+        try {
+          const d = await fetchDetailCached(placeId, rowKey);
+          if (d && typeof d.lat === "number" && typeof d.lng === "number") {
+            targetLat = d.lat;
+            targetLng = d.lng;
+          }
+        } catch (e: any) {
+          console.warn("[focusByRowKey] detail RPC error:", e?.message || e);
+        }
+      }
+
+      // 2-2) 여전히 좌표가 없으면 rowKey("xy:...")에서 직접 파싱
+      if (targetLat == null || targetLng == null) {
+        const xy = parseLatLngFromRowKey(rowKey);
+        if (xy) {
+          targetLat = xy.lat;
+          targetLng = xy.lng;
+        }
+      }
+
+      // 그래도 좌표를 못 구하면 포기
+      if (targetLat == null || targetLng == null) return;
+
+      const latlng = new maps.LatLng(targetLat, targetLng);
+
+      // 줌 레벨: 옵션이 있으면 그대로, 없으면 기본 4 레벨
+      if (opts?.level != null) map.setLevel(opts.level);
+      else map.setLevel(4);
+
+      // ▶ 지도 센터를 해당 좌표로 이동
+      map.setCenter(latlng);
+
+      // 3) 해당 위치 기준으로 마커 로드 후 가장 가까운 마커를 찾아 클릭
+      await loadMarkersInBounds();
+
+      let best: KMarker | null = null;
+      let bestDist = Infinity;
+
+      markerCacheRef.current.forEach((mk) => {
+        const p = mk.getPosition?.() || mk.__basePos;
+        if (!p) return;
+        const dLat = p.getLat() - targetLat!;
+        const dLng = p.getLng() - targetLng!;
+        const d2 = dLat * dLat + dLng * dLng;
+        if (d2 < bestDist) {
+          bestDist = d2;
+          best = mk;
+        }
+      });
+
+      if (best) {
+        // 프로그램틱 클릭이므로 퀵담기 자동 토글 1회 억제
+        suppressQuickToggleOnceRef.current = true;
+        maps.event.trigger(best, "click");
+        applyStaticSeparationAll();
       }
     },
-    [applyStaticSeparationAll],
+    [applyStaticSeparationAll, fetchDetailCached],
   );
 
   const focusByLatLng = useCallback(
