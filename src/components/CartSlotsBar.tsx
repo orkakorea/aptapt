@@ -81,10 +81,6 @@ const CartSlotsBar: React.FC<Props> = ({ slots, loading, onSaveSlot, onLoadSlot,
     <div className="flex items-center justify-between" style={{ padding: "8px 0", gap: "8px" }}>
       {/* 좌측: 타이틀 + 슬롯 번호들 + 컨트롤 버튼 */}
       <div className="flex items-center gap-2 min-w-0">
-        <span className="font-semibold truncate" style={{ fontSize: 18 }} title="응답하라 입주민이여">
-          응답하라 입주민이여
-        </span>
-
         {/* 슬롯 번호 01~05 */}
         <div className="flex items-center gap-1">
           {slotNumbers.map((n) => {
