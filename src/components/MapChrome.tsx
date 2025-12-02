@@ -240,7 +240,7 @@ export default function MapChrome({
     loading: cartSlotsLoading,
     saveSlot: saveCartSlot,
     getSlotItems,
-    refresh: refreshCartSlots,
+    clearSlot: clearCartSlot,
   } = useCartSlots();
 
   /* ✅ 로그인 여부 */
@@ -751,34 +751,45 @@ export default function MapChrome({
   /* ✅ 카트 슬롯(1~5) 제어 핸들러 */
 
   // + 버튼: 현재 카트를 선택된 슬롯에 저장
-  const handleSaveSlot = (slotNo: number) => {
-    if (!cart.length) return;
-    saveCartSlot(slotNo, cart as any[]);
+  const handleSaveSlot = async (slotNo: number) => {
+    if (!cart.length) {
+      alert("현재 카트가 비어 있어 저장할 수 없습니다.");
+      return;
+    }
+    const title = `슬롯 ${String(slotNo).padStart(2, "0")}`;
+    await saveCartSlot(slotNo, cart as any[], title);
   };
 
   // 숫자 버튼: 저장된 슬롯이면 카트로 불러오기
-  const handleLoadSlot = (slotNo: number) => {
-    const items = getSlotItems(slotNo) as CartItem[] | null;
-    if (!items) return;
+  const handleLoadSlot = async (slotNo: number) => {
+    const items = (await getSlotItems(slotNo)) as CartItem[] | null;
+    if (!items || !items.length) {
+      alert("선택한 슬롯에 저장된 카트가 없습니다.");
+      return;
+    }
 
-    setCart((prev) => {
-      // 기존 카트에 있던 마커는 모두 기본 상태로
-      prev.forEach((it) => {
-        if (it.rowKey) setMarkerStateByRowKey?.(it.rowKey, "default");
-        else setMarkerState?.(it.name, "default");
-      });
-
-      // 불러온 카트의 마커는 선택 상태로
-      items.forEach((it) => {
-        if (it.rowKey) setMarkerStateByRowKey?.(it.rowKey, "selected");
-        else setMarkerState?.(it.name, "selected");
-      });
-
-      // 실제 상태는 슬롯에서 가져온 아이템으로 교체
-      return items.map((it) => ({ ...it }));
+    // 1) 기존 카트에 있던 마커는 모두 기본 상태로
+    cart.forEach((it) => {
+      if (it.rowKey && setMarkerStateByRowKey) {
+        setMarkerStateByRowKey(it.rowKey, "default");
+      } else if (it.name && setMarkerState) {
+        setMarkerState(it.name, "default");
+      }
     });
 
-    // 통계 맵도 슬롯 데이터 기준으로 보강
+    // 2) 불러온 카트로 교체
+    setCart(items.map((it) => ({ ...it })));
+
+    // 3) 새 카트 기준으로 마커 selected 상태 반영
+    items.forEach((it) => {
+      if (it.rowKey && setMarkerStateByRowKey) {
+        setMarkerStateByRowKey(it.rowKey, "selected", true);
+      } else if (it.name && setMarkerState) {
+        setMarkerState(it.name, "selected");
+      }
+    });
+
+    // 4) 통계 맵도 슬롯 데이터 기준으로 보강
     setStatsMap((prevStats) => {
       const next = { ...prevStats };
       items.forEach((it) => {
@@ -797,8 +808,7 @@ export default function MapChrome({
 
   // - 버튼: 해당 슬롯 비우기 (슬롯만 삭제, 현재 카트는 그대로)
   const handleClearSlot = async (slotNo: number) => {
-    await supabase.from("saved_cart_slots").delete().eq("slot_no", slotNo);
-    await refreshCartSlots();
+    await clearCartSlot(slotNo);
   };
 
   /** ===== 견적 모달 열릴 때 미보강 아이템 보강 ===== */
