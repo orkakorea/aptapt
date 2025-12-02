@@ -620,14 +620,49 @@ export default function MapMobilePageV2() {
   /** 장바구니 → 특정 단지로 이동 */
   const goToRowKey = useCallback(
     (rk: string) => {
-      // ✅ 다음 onSelect 한 번만 "퀵담기 토글/자동오픈" 모두 억제하고 포커스만 하도록
+      if (!rk) return;
+
+      // ✅ 다음 onSelect 한 번만 "퀵담기 토글/자동오픈" 모두 억제
       suppressQuickToggleOnceRef.current = true;
+
+      // 1) rowKey 기준으로 캐시에 저장된 최신 상세 찾기
+      const detail = detailByRowKeyRef.current.get(rk);
+
+      if (detail && kakao && map) {
+        const lat = Number((detail as any).lat);
+        const lng = Number((detail as any).lng);
+
+        // 2) 좌표가 유효하면, 현재 지도 상태와 무관하게 해당 단지 위치로 이동
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          try {
+            const center = new kakao.maps.LatLng(lat, lng);
+            map.panTo(center);
+          } catch {}
+        }
+
+        // 3) 선택 상태도 해당 단지로 강제 동기화
+        setSelected((prev) => {
+          if (prev?.rowKey === rk) return prev;
+          return {
+            ...(prev || {}),
+            ...detail,
+            rowKey: rk,
+          } as SelectedApt;
+        });
+
+        setActiveTab("detail");
+        setSheetOpen(true);
+        recalcSheetMax();
+        return;
+      }
+
+      // ⚠️ 캐시/좌표가 없는 예외 상황에서는 기존 동작으로 fallback
       markers.selectByRowKey(rk);
       setActiveTab("detail");
       setSheetOpen(true);
       recalcSheetMax();
     },
-    [markers, recalcSheetMax],
+    [markers, kakao, map, recalcSheetMax],
   );
 
   // 바텀시트 스크롤 초기화 키
