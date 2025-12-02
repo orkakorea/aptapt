@@ -238,9 +238,10 @@ export default function MapChrome({
   const {
     slots: cartSlots,
     loading: cartSlotsLoading,
+    saving: cartSlotsSaving,
     saveSlot: saveCartSlot,
     getSlotItems,
-    refresh: refreshCartSlots,
+    clearSlot: clearCartSlot,
   } = useCartSlots();
 
   /* ✅ 로그인 여부 */
@@ -827,12 +828,7 @@ export default function MapChrome({
 
   // - 버튼: 해당 슬롯 비우기 (슬롯만 삭제, 현재 카트는 그대로)
   const handleClearSlot = async (slotNo: number) => {
-    try {
-      await (supabase as any).from("saved_cart_slots").delete().eq("slot_no", slotNo);
-      await refreshCartSlots();
-    } catch (err) {
-      console.error("[CartSlots] clear error", err);
-    }
+    await clearCartSlot(slotNo);
   };
 
   /** ===== 견적 모달 열릴 때 미보강 아이템 보강 ===== */
@@ -963,7 +959,7 @@ export default function MapChrome({
               <div className="ml-2">
                 <CartSlotsBar
                   slots={cartSlots}
-                  loading={cartSlotsLoading}
+                  loading={cartSlotsLoading || cartSlotsSaving}
                   onSaveSlot={handleSaveSlot}
                   onLoadSlot={handleLoadSlot}
                   onClearSlot={handleClearSlot}
@@ -1190,7 +1186,7 @@ export default function MapChrome({
               {/* 즉시 토글 */}
               <button
                 className={`mt-1 h-12 w-full rounded-xl font-semibold transition-colors ${
-                  inCart ? "bg-[#E5E7EB] text-[#6B7280]" : "bg-[#6C2DFF] text-white"
+                  inCart ? "bg-[#E5E7EB] text-[#6B7280]" : "bg-[#6C2DFF] text.white"
                 }`}
                 onClick={onClickAddOrCancel}
               >
@@ -1294,7 +1290,7 @@ function CartItemCard({ item, onChangeMonths, onRemove, onTitleClick }: CartItem
           <div className="text-xs text-[#6B7280] mt-0.5 truncate">{item.productName || "—"}</div>
         </div>
         <button
-          className="ml-3 inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB]"
+          className="ml-3 inline-flex h-7 w-7 items-center justify-center rounded-md border border-[#E5E7EB] bg.white hover:bg-[#F9FAFB]"
           onClick={() => onRemove(item.id)}
           aria-label="삭제"
         >
@@ -1307,7 +1303,7 @@ function CartItemCard({ item, onChangeMonths, onRemove, onTitleClick }: CartItem
       <div className="mt-3 flex items-center justify-between whitespace-nowrap">
         <span className="text-sm text-[#6B7280]">광고기간</span>
         <select
-          className="h-9 w-[120px] rounded-md border border-[#E5E7EB] bg-white px-2 text-sm"
+          className="h-9 w-[120px] rounded-md border border-[#E5E7EB] bg.white px-2 text-sm"
           value={item.months}
           onChange={(e) => onChangeMonths(item.id, Number(e.target.value))}
         >
