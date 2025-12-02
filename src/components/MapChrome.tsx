@@ -293,8 +293,23 @@ export default function MapChrome({
   // 선택 패널이 닫힐 때 detailWide가 의미 없으므로 normal로 자동 복귀(시각적 일관성)
   useEffect(() => {
     if (!selected && panelMode === "detailWide") emitPanelZoom("normal");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected]);
+  }, [selected, panelMode]);
+
+  /** ===== 로그인 / 로그아웃 핸들러 ===== */
+  const openLoginModal = () => {
+    // 상위(App/NavBar 등)에서 이 이벤트를 받아 로그인 모달을 띄워주면 됨
+    window.dispatchEvent(new CustomEvent("orka:auth:openLogin", { detail: { source: "map" } }));
+  };
+
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      setIsLoggedIn(false);
+      window.dispatchEvent(new CustomEvent("orka:auth:loggedOut", { detail: { source: "map" } }));
+    } catch (err) {
+      console.error("[MapChrome] logout error", err);
+    }
+  };
 
   /** ====== Supabase로 카트아이템 보강 ====== */
   async function hydrateCartItemByRowKey(rowKey: string, hint?: SelectedApt) {
@@ -844,7 +859,6 @@ export default function MapChrome({
         } as any, // SelectedApt 형태로 최소 필드만 맞춰서 힌트로 사용
       ),
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openQuote]);
 
   /** ===== 견적서 빌더 ===== */
@@ -944,9 +958,9 @@ export default function MapChrome({
               onZoomChange={(m: PanelZoomMode) => emitPanelZoom(m)}
             />
 
-            {/* 4) 구독회원 로그인 시 슬롯 버튼 / 액션 버튼 노출 */}
+            {/* 3) 구독회원 로그인 시 슬롯 버튼 / 액션 버튼 노출 */}
             {isLoggedIn && (
-              <div className="ml-4">
+              <div className="ml-2">
                 <CartSlotsBar
                   slots={cartSlots}
                   loading={cartSlotsLoading}
@@ -958,17 +972,27 @@ export default function MapChrome({
             )}
           </div>
 
-          {/* 3) 맨 오른쪽 로그인 버튼 (항상 표시) */}
-          <button
-            type="button"
-            onClick={() => {
-              // 이후 NavBar 등에서 'orka:auth:openLogin' 이벤트를 받아 로그인 모달을 열도록 연결 가능
-              window.dispatchEvent(new CustomEvent("orka:auth:openLogin"));
-            }}
-            className="h-9 px-4 rounded-md border border-[#6C2DFF] text-sm font-semibold text-[#6C2DFF] hover:bg-[#F4F0FB]"
-          >
-            로그인
-          </button>
+          {/* 우측: 로그인 / 로그아웃 버튼 */}
+          <div className="flex items-center gap-3">
+            {!isLoggedIn && (
+              <button
+                type="button"
+                onClick={openLoginModal}
+                className="h-9 px-4 rounded-md border border-[#6C2DFF] text-sm font-semibold text-[#6C2DFF] hover:bg-[#F4F0FB]"
+              >
+                로그인
+              </button>
+            )}
+            {isLoggedIn && (
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="h-9 px-4 rounded-md border border-[#6C2DFF] text-sm font-semibold text-[#6C2DFF] hover:bg-[#F4F0FB]"
+              >
+                로그아웃
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
