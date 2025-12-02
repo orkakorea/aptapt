@@ -28,17 +28,18 @@ type Props = {
 };
 
 /**
- * 상단 "응답하라 입주민이여 + / - + 01 02 03 04 05" 슬롯 바 UI
+ * 상단 "응답하라 입주민이여 01 02 03 04 05 [추가/삭제]" 슬롯 바 UI
  *
  * - 저장된 슬롯 번호: 보라색 버튼
  * - 저장 안 된 슬롯 번호: 회색 숫자 버튼(03 04 05처럼)
  *
- * 동작 기본 규칙(권장):
+ * 동작 규칙:
  * - 숫자 버튼 클릭:
+ *   - 내부 선택 상태를 slotNo로 유지 → 컨트롤 버튼의 대상
  *   - 저장된 슬롯이면 onLoadSlot(slotNo) 호출
- *   - (추가로) 내부 선택 상태를 slotNo로 유지 → + / - 버튼의 대상
- * - + 버튼: 현재 선택된 slotNo에 onSaveSlot(slotNo) 호출
- * - - 버튼: 현재 선택된 slotNo에 onClearSlot(slotNo) 호출 (넘겨준 경우만)
+ * - 컨트롤 버튼:
+ *   - 선택된 슬롯이 비어 있으면 "추가" 라벨 / onSaveSlot(activeSlotNo) 호출
+ *   - 선택된 슬롯이 저장되어 있으면 "삭제" 라벨 / onClearSlot(activeSlotNo) 호출
  */
 const CartSlotsBar: React.FC<Props> = ({ slots, loading, onSaveSlot, onLoadSlot, onClearSlot }) => {
   const [activeSlotNo, setActiveSlotNo] = useState<number>(1);
@@ -49,6 +50,11 @@ const CartSlotsBar: React.FC<Props> = ({ slots, loading, onSaveSlot, onLoadSlot,
   // 특정 번호에 슬롯이 있는지 여부
   const hasSlot = (n: number) => slots.some((s) => s.slotNo === n);
 
+  // 현재 선택된 슬롯이 저장된 슬롯인지 여부
+  const isActiveSaved = hasSlot(activeSlotNo);
+  // 컨트롤 버튼 라벨: 비어 있으면 "추가", 저장되어 있으면 "삭제"
+  const controlLabel = isActiveSaved ? "삭제" : "추가";
+
   const handleClickSlot = (n: number) => {
     setActiveSlotNo(n);
     if (hasSlot(n)) {
@@ -56,70 +62,28 @@ const CartSlotsBar: React.FC<Props> = ({ slots, loading, onSaveSlot, onLoadSlot,
     }
   };
 
-  const handleClickPlus = () => {
-    if (loading) return;
+  // 하나의 버튼으로 추가/삭제 컨트롤
+  const handleClickControl = () => {
     if (!activeSlotNo) return;
-    onSaveSlot(activeSlotNo);
-  };
-
-  const handleClickMinus = () => {
     if (loading) return;
-    if (!activeSlotNo || !onClearSlot) return;
-    onClearSlot(activeSlotNo);
+
+    if (hasSlot(activeSlotNo)) {
+      // 저장된 슬롯 → 삭제
+      if (!onClearSlot) return;
+      onClearSlot(activeSlotNo);
+    } else {
+      // 비어 있는 슬롯 → 추가(저장)
+      onSaveSlot(activeSlotNo);
+    }
   };
 
   return (
-    <div
-      className="flex items-center justify-between"
-      style={{ padding: "8px 0", gap: "8px" }}
-    >
-      {/* 좌측: 타이틀 + +/- + 슬롯 번호들 */}
+    <div className="flex items-center justify-between" style={{ padding: "8px 0", gap: "8px" }}>
+      {/* 좌측: 타이틀 + 슬롯 번호들 + 컨트롤 버튼 */}
       <div className="flex items-center gap-2 min-w-0">
-        <span
-          className="font-semibold truncate"
-          style={{ fontSize: 18 }}
-          title="응답하라 입주민이여"
-        >
+        <span className="font-semibold truncate" style={{ fontSize: 18 }} title="응답하라 입주민이여">
           응답하라 입주민이여
         </span>
-
-        {/* + 버튼 */}
-        <button
-          type="button"
-          onClick={handleClickPlus}
-          disabled={loading}
-          style={{
-            minWidth: 32,
-            height: 32,
-            borderRadius: 8,
-            border: "1px solid #E0E0E0",
-            backgroundColor: "#FFFFFF",
-            fontWeight: 600,
-            fontSize: 18,
-            lineHeight: 1,
-          }}
-        >
-          +
-        </button>
-
-        {/* - 버튼 */}
-        <button
-          type="button"
-          onClick={handleClickMinus}
-          disabled={loading || !onClearSlot}
-          style={{
-            minWidth: 32,
-            height: 32,
-            borderRadius: 8,
-            border: "1px solid #E0E0E0",
-            backgroundColor: "#FFFFFF",
-            fontWeight: 600,
-            fontSize: 18,
-            lineHeight: 1,
-          }}
-        >
-          −
-        </button>
 
         {/* 슬롯 번호 01~05 */}
         <div className="flex items-center gap-1">
@@ -157,6 +121,27 @@ const CartSlotsBar: React.FC<Props> = ({ slots, loading, onSaveSlot, onLoadSlot,
             );
           })}
         </div>
+
+        {/* 컨트롤 버튼: 선택된 슬롯 기준 "추가" / "삭제" */}
+        <button
+          type="button"
+          onClick={handleClickControl}
+          disabled={loading || (isActiveSaved && !onClearSlot)}
+          style={{
+            minWidth: 52,
+            height: 32,
+            borderRadius: 8,
+            border: "1px solid #E0E0E0",
+            backgroundColor: "#FFFFFF",
+            fontWeight: 600,
+            fontSize: 14,
+            lineHeight: 1,
+            padding: "0 10px",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {controlLabel}
+        </button>
       </div>
 
       {/* 우측: 로딩 상태 표시(선택) */}
