@@ -919,12 +919,18 @@ export default function MapChrome({
 
   return (
     <>
+  /* ✅ MapPage에서 전달된 폭 적용(없으면 360 기본) */
+  const CART_W = Math.max(280, Math.round(cartWidthPx ?? 360));
+  const DETAIL_W = Math.max(320, Math.round(detailWidthPx ?? 360));
+
+  return (
+    <>
       {/* 상단 바 */}
       <div className="fixed top-0 left-0 right-0 h-16 bg-white border-b border-[#E5E7EB] z-[60]">
         <div className="h-full flex items-center justify-between px-6 gap-4">
-          {/* 좌측: 타이틀 + 패널 줌 + (로그인 시) 슬롯 */}
-          <div className="flex items-center gap-4 min-w-0">
-            {/* 1) 타이틀 클릭 시 메인 사이트 이동 */}
+          {/* 좌측: 타이틀 + 패널 줌 */}
+          <div className="flex items-center gap-3 min-w-0">
+            {/* 타이틀 클릭 시 메인 홈페이지 이동 */}
             <button
               type="button"
               onClick={() => {
@@ -935,7 +941,7 @@ export default function MapChrome({
               응답하라 입주민이여
             </button>
 
-            {/* 2) 패널 확대/축소 버튼 */}
+            {/* 패널 확대/축소 버튼 (+ / -) */}
             <PanelZoomButtonsAny
               className="ml-1"
               onPrev={goPrevMode}
@@ -943,32 +949,34 @@ export default function MapChrome({
               onChange={(m: PanelZoomMode) => emitPanelZoom(m)}
               onZoomChange={(m: PanelZoomMode) => emitPanelZoom(m)}
             />
-
-            {/* 4) 구독회원 로그인 시 슬롯 버튼 / 액션 버튼 노출 */}
-            {isLoggedIn && (
-              <div className="ml-4">
-                <CartSlotsBar
-                  slots={cartSlots}
-                  loading={cartSlotsLoading}
-                  onSaveSlot={handleSaveSlot}
-                  onLoadSlot={handleLoadSlot}
-                  onClearSlot={handleClearSlot}
-                />
-              </div>
-            )}
           </div>
 
-          {/* 3) 맨 오른쪽 로그인 버튼 (항상 표시) */}
-          <button
-            type="button"
-            onClick={() => {
-              // 이후 NavBar 등에서 'orka:auth:openLogin' 이벤트를 받아 로그인 모달을 열도록 연결 가능
-              window.dispatchEvent(new CustomEvent("orka:auth:openLogin"));
-            }}
-            className="h-9 px-4 rounded-md border border-[#6C2DFF] text-sm font-semibold text-[#6C2DFF] hover:bg-[#F4F0FB]"
-          >
-            로그인
-          </button>
+          {/* 우측: (로그인 시) 슬롯바 + 로그인 버튼 */}
+          <div className="flex items-center gap-4">
+            {/* 구독회원 로그인 시에만 슬롯 UI 노출 */}
+            {isLoggedIn && (
+              <CartSlotsBar
+                slots={cartSlots}
+                loading={cartSlotsLoading}
+                onSaveSlot={handleSaveSlot}
+                onLoadSlot={handleLoadSlot}
+                onClearSlot={handleClearSlot}
+              />
+            )}
+
+            {/* 로그인 버튼은 항상 노출 */}
+            <button
+              type="button"
+              onClick={() => {
+                // 나중에 로그인 모달을 쓰고 싶으면
+                // 여기 대신 커스텀 이벤트(dispatchEvent)로 바꿔주면 됨.
+                window.location.href = "/login";
+              }}
+              className="h-9 px-4 rounded-md border border-[#6C2DFF] text-sm font-semibold text-[#6C2DFF] hover:bg-[#F4F0FB]"
+            >
+              로그인
+            </button>
+          </div>
         </div>
       </div>
 
