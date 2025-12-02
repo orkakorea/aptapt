@@ -751,16 +751,17 @@ export default function MapChrome({
     // ✅ 1) 2탭 상세에 이 단지를 선택해 달라고 MapPage에 알려줌
     if (item.rowKey) {
       onCartItemSelectByRowKey?.(item.rowKey);
-      // ✅ 2) 지도 이동(기존 기능 유지)
-      if (focusByRowKey) {
-        focusByRowKey(item.rowKey, { level: 4 });
-        return;
-      }
     }
 
-    // rowKey 없거나 focusByRowKey 미구현 시, 좌표 기반 포커스 (기존 fallback 유지)
+    // ✅ 2) 좌표가 있으면, 현재 지도에 마커가 없더라도 위도/경도로 직접 이동
     if (item.lat != null && item.lng != null && focusByLatLng) {
       focusByLatLng(item.lat, item.lng, { level: 4 });
+      return;
+    }
+
+    // ✅ 3) 좌표가 없거나 focusByLatLng 미구현 시, rowKey 기반 포커스(기존 동작)로 대체
+    if (item.rowKey && focusByRowKey) {
+      focusByRowKey(item.rowKey, { level: 4 });
     }
   };
 
@@ -775,6 +776,7 @@ export default function MapChrome({
   // 숫자 버튼: 저장된 슬롯이면 카트로 불러오기
   const handleLoadSlot = (slotNo: number) => {
     // getSlotItems의 실제 구현 타입과 무관하게 사용하기 위해 any로 한 번 우회
+    the itemsForSlot may be `null` or `CartItem[]` or a Promise.
     const maybe = (getSlotItems as any)(slotNo) as CartItem[] | Promise<CartItem[] | null> | null;
 
     const applyItems = (items: CartItem[] | null | undefined) => {
