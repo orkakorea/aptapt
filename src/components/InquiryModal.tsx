@@ -372,7 +372,7 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
                 </svg>
               </button>
             </div>
-            // ✅ 변경 후
+
             <div className="px-6 py-5 flex-1 overflow-y-auto min-h-0">
               <form onSubmit={handleSubmit} className="space-y-5">
                 <div style={{ display: "none" }} aria-hidden>
