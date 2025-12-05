@@ -350,7 +350,7 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
         <div className="fixed inset-0 z-[1000] flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40" onClick={() => !submitting && onClose()} />
 
-          <div className="relative z-[1001] w-[720px] max-w-[92vw] rounded-2xl bg-white shadow-2xl">
+          <div className="relative z-[1001] w-[720px] max-w-[92vw] max-h-[90vh] rounded-2xl bg-white shadow-2xl flex flex-col">
             <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
               <div>
                 <div className="text-lg font-bold">
@@ -372,7 +372,7 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
                 </svg>
               </button>
             </div>
-
+            // ✅ 변경 후
             <div className="px-6 py-5 flex-1 overflow-y-auto min-h-0">
               <form onSubmit={handleSubmit} className="space-y-5">
                 <div style={{ display: "none" }} aria-hidden>
