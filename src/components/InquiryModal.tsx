@@ -373,186 +373,188 @@ export default function InquiryModal({ open, mode, prefill, onClose, sourcePage,
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="px-6 py-5 space-y-5">
-              <div style={{ display: "none" }} aria-hidden>
-                <label>
-                  홈페이지
-                  <input
-                    type="text"
-                    name="homepage"
-                    autoComplete="off"
-                    tabIndex={-1}
-                    value={hny}
-                    onChange={(e) => setHny(e.target.value)}
-                  />
-                </label>
-              </div>
-
-              {mode === "SEAT" &&
-                (() => {
-                  const s = deriveSeatHeaderBox();
-                  return (
-                    <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
-                      <div className="text-sm font-semibold mb-2">문의 내용</div>
-                      <div className="grid grid-cols-2 gap-3 text-[13px]">
-                        <div className="flex flex-col">
-                          <span className={READ}>단지명</span>
-                          <span className="font-medium">{s.aptLabel}</span>
-                        </div>
-                        <div className="flex flex-col">
-                          <span className={READ}>상품명</span>
-                          <span className="font-medium">{s.productLabel}</span>
-                        </div>
-                        <div className="flex flex-col">
-                          <span className={READ}>광고기간</span>
-                          <span className="font-medium">{s.monthsLabel}</span>
-                        </div>
-                        <div className="flex flex-col">
-                          <span className={READ}>예상 총광고료</span>
-                          <span className="font-medium">
-                            {fmtWon(s.totalWon)} <span className="text-gray-500">(VAT별도)</span>
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()}
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <div className={LABEL}>
-                    브랜드명 <span className="text-red-500">*</span>
-                  </div>
-                  <input
-                    className={INPUT_BASE}
-                    placeholder="오르카 코리아"
-                    value={brand}
-                    onChange={(e) => setBrand(e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <div className={LABEL}>
-                    캠페인유형 <span className="text-red-500">*</span>
-                  </div>
-                  <select
-                    className={`${INPUT_BASE} bg-white`}
-                    value={campaignType}
-                    onChange={(e) => setCampaignType(e.target.value as CampaignType)}
-                  >
-                    <option value="" disabled>
-                      선택하세요
-                    </option>
-                    <option value="기업">기업</option>
-                    <option value="공공">공공</option>
-                    <option value="병원">병원</option>
-                    <option value="소상공인">소상공인</option>
-                    <option value="광고대행사">광고대행사</option>
-                    <option value="기타">기타</option>
-                  </select>
-                </div>
-
-                <div>
-                  <div className={LABEL}>
-                    담당자명 <span className="text-red-500">*</span>
-                  </div>
-                  <input
-                    className={INPUT_BASE}
-                    placeholder="박우주"
-                    value={managerName}
-                    onChange={(e) => setManagerName(e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <div className={LABEL}>
-                    연락처 <span className="text-red-500">*</span>
-                  </div>
-                  <input
-                    className={INPUT_BASE}
-                    inputMode="numeric"
-                    placeholder="01012345678"
-                    value={phone}
-                    onChange={(e) => handlePhoneChange(e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <div className={LABEL}>이메일 </div>
-                  <input
-                    className={INPUT_BASE}
-                    placeholder="you@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                  />
-                </div>
-
-                <div>
-                  <div className={LABEL}>광고 송출 예정(희망)일</div>
-                  <input
-                    type="date"
-                    className={INPUT_BASE}
-                    value={hopeDate}
-                    onChange={(e) => setHopeDate(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <div className={LABEL}>요청사항 </div>
-                <textarea
-                  className={`${INPUT_BASE} h-28 resize-none`}
-                  placeholder="궁금하신 내용을 자유롭게 작성해주세요."
-                  value={requestText}
-                  onChange={(e) => setRequestText(e.target.value)}
-                />
-              </div>
-
-              <div>
-                <div className={LABEL}>프로모션 코드 </div>
-                <input
-                  className={INPUT_BASE}
-                  placeholder="예: ORCA2024"
-                  value={promoCode}
-                  onChange={(e) => setPromoCode(e.target.value)}
-                />
-              </div>
-
-              {errorMsg && <div className="text-[13px] text-red-600">{errorMsg}</div>}
-              {okMsg && <div className="text-[13px] text-emerald-600">{okMsg}</div>}
-
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3 flex-wrap">
-                  <button
-                    type="button"
-                    className="px-3 py-2 text-[12px] rounded-md border border-black bg-white hover:bg-gray-50 whitespace-nowrap"
-                    onClick={() => setPolicyOpen(true)}
-                  >
-                    개인정보 수집·이용 정책 자세히보기
-                  </button>
-
-                  <label className="flex items-center gap-2 text-[12px] text-gray-700 whitespace-nowrap">
+            <div className="px-6 py-5 flex-1 overflow-y-auto min-h-0">
+              <form onSubmit={handleSubmit} className="space-y-5">
+                <div style={{ display: "none" }} aria-hidden>
+                  <label>
+                    홈페이지
                     <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded border-gray-300"
-                      checked={agreePrivacy}
-                      onChange={(e) => setAgreePrivacy(e.target.checked)}
+                      type="text"
+                      name="homepage"
+                      autoComplete="off"
+                      tabIndex={-1}
+                      value={hny}
+                      onChange={(e) => setHny(e.target.value)}
                     />
-                    개인정보 수집·이용 동의 <span className="text-red-500">*</span>
                   </label>
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={submitDisabled}
-                  className={`rounded-xl px-5 py-3 text-white font-semibold ${
-                    submitDisabled ? "bg-violet-300 cursor-not-allowed" : "bg-violet-600 hover:bg-violet-700"
-                  }`}
-                >
-                  {submitting ? "전송 중..." : "문의 접수"}
-                </button>
-              </div>
-            </form>
+                {mode === "SEAT" &&
+                  (() => {
+                    const s = deriveSeatHeaderBox();
+                    return (
+                      <div className="rounded-xl border border-gray-100 bg-gray-50 p-4">
+                        <div className="text-sm font-semibold mb-2">문의 내용</div>
+                        <div className="grid grid-cols-2 gap-3 text-[13px]">
+                          <div className="flex flex-col">
+                            <span className={READ}>단지명</span>
+                            <span className="font-medium">{s.aptLabel}</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className={READ}>상품명</span>
+                            <span className="font-medium">{s.productLabel}</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className={READ}>광고기간</span>
+                            <span className="font-medium">{s.monthsLabel}</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className={READ}>예상 총광고료</span>
+                            <span className="font-medium">
+                              {fmtWon(s.totalWon)} <span className="text-gray-500">(VAT별도)</span>
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <div className={LABEL}>
+                      브랜드명 <span className="text-red-500">*</span>
+                    </div>
+                    <input
+                      className={INPUT_BASE}
+                      placeholder="오르카 코리아"
+                      value={brand}
+                      onChange={(e) => setBrand(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <div className={LABEL}>
+                      캠페인유형 <span className="text-red-500">*</span>
+                    </div>
+                    <select
+                      className={`${INPUT_BASE} bg-white`}
+                      value={campaignType}
+                      onChange={(e) => setCampaignType(e.target.value as CampaignType)}
+                    >
+                      <option value="" disabled>
+                        선택하세요
+                      </option>
+                      <option value="기업">기업</option>
+                      <option value="공공">공공</option>
+                      <option value="병원">병원</option>
+                      <option value="소상공인">소상공인</option>
+                      <option value="광고대행사">광고대행사</option>
+                      <option value="기타">기타</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <div className={LABEL}>
+                      담당자명 <span className="text-red-500">*</span>
+                    </div>
+                    <input
+                      className={INPUT_BASE}
+                      placeholder="박우주"
+                      value={managerName}
+                      onChange={(e) => setManagerName(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <div className={LABEL}>
+                      연락처 <span className="text-red-500">*</span>
+                    </div>
+                    <input
+                      className={INPUT_BASE}
+                      inputMode="numeric"
+                      placeholder="01012345678"
+                      value={phone}
+                      onChange={(e) => handlePhoneChange(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <div className={LABEL}>이메일 </div>
+                    <input
+                      className={INPUT_BASE}
+                      placeholder="you@example.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                    />
+                  </div>
+
+                  <div>
+                    <div className={LABEL}>광고 송출 예정(희망)일</div>
+                    <input
+                      type="date"
+                      className={INPUT_BASE}
+                      value={hopeDate}
+                      onChange={(e) => setHopeDate(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div className={LABEL}>요청사항 </div>
+                  <textarea
+                    className={`${INPUT_BASE} h-28 resize-none`}
+                    placeholder="궁금하신 내용을 자유롭게 작성해주세요."
+                    value={requestText}
+                    onChange={(e) => setRequestText(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <div className={LABEL}>프로모션 코드 </div>
+                  <input
+                    className={INPUT_BASE}
+                    placeholder="예: ORCA2024"
+                    value={promoCode}
+                    onChange={(e) => setPromoCode(e.target.value)}
+                  />
+                </div>
+
+                {errorMsg && <div className="text-[13px] text-red-600">{errorMsg}</div>}
+                {okMsg && <div className="text-[13px] text-emerald-600">{okMsg}</div>}
+
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <button
+                      type="button"
+                      className="px-3 py-2 text-[12px] rounded-md border border-black bg-white hover:bg-gray-50 whitespace-nowrap"
+                      onClick={() => setPolicyOpen(true)}
+                    >
+                      개인정보 수집·이용 정책 자세히보기
+                    </button>
+
+                    <label className="flex items-center gap-2 text-[12px] text-gray-700 whitespace-nowrap">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-gray-300"
+                        checked={agreePrivacy}
+                        onChange={(e) => setAgreePrivacy(e.target.checked)}
+                      />
+                      개인정보 수집·이용 동의 <span className="text-red-500">*</span>
+                    </label>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={submitDisabled}
+                    className={`rounded-xl px-5 py-3 text-white font-semibold ${
+                      submitDisabled ? "bg-violet-300 cursor-not-allowed" : "bg-violet-600 hover:bg-violet-700"
+                    }`}
+                  >
+                    {submitting ? "전송 중..." : "문의 접수"}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
 
           {policyOpen && (
