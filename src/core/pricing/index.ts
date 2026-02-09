@@ -48,16 +48,16 @@ export const DEFAULT_POLICY = {
     period: [
       { min: 1, max: 2, rate: 0 },
       { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.2 },
-      { min: 12, max: 12, rate: 0.3 },
+      { min: 6, max: 11, rate: 0.15 },
+      { min: 12, max: 12, rate: 0.2 },
     ],
   },
   "MEDIA MEET": {
     period: [
       { min: 1, max: 2, rate: 0 },
       { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.2 },
-      { min: 12, max: 12, rate: 0.3 },
+      { min: 6, max: 11, rate: 0.15 },
+      { min: 12, max: 12, rate: 0.2 },
     ],
   },
   "SPACE LIVING": {
