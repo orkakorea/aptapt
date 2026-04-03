@@ -64,15 +64,16 @@ export const DEFAULT_POLICY = {
     period: [
       { min: 1, max: 2, rate: 0 },
       { min: 3, max: 5, rate: 0.1 },
-      { min: 6, max: 11, rate: 0.2 },
-      { min: 12, max: 12, rate: 0.3 },
+      { min: 6, max: 11, rate: 0.15 },
+      { min: 12, max: 12, rate: 0.2 },
     ],
   },
   "HI-POST": {
     period: [
-      { min: 1, max: 5, rate: 0 },
-      { min: 6, max: 11, rate: 0.05 },
-      { min: 12, max: 12, rate: 0.1 },
+      { min: 1, max: 2, rate: 0 },
+      { min: 3, max: 5, rate: 0.08 },
+      { min: 6, max: 11, rate: 0.1 },
+      { min: 12, max: 12, rate: 0.15 },
     ],
   },
 } as const satisfies DiscountPolicy;
