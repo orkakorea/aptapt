@@ -87,7 +87,7 @@ function resolveProductFile(productName?: string, installLocation?: string): str
   }
 
   if (pn.includes("엘리베이터tv") || pn.includes("elevatortv") || pn.includes("elevator")) return "elevator-tv.png";
-  if (pn.includes("hipost") || pn.includes("hi-post") || pn.includes("하이포스트")) return "hi-post.png";
+  if (pn.includes("htpost") || pn.includes("ht-post") || pn.includes("하이포스트")) return "hi-post.png";
   if (pn.includes("spaceliving") || pn.includes("스페이스") || pn.includes("living")) return "space-living.png";
   return undefined;
 }
