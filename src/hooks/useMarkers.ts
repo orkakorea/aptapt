@@ -120,8 +120,8 @@ function imageForProduct(productName?: string | null, installLocation?: string |
 
   // 하이포스트
   if (
-    compactLower.includes("hipost") ||
-    (compactLower.includes("hi") && compactLower.includes("post")) ||
+    compactLower.includes("htpost") ||
+    (compactLower.includes("ht") && compactLower.includes("post")) ||
     compact.includes("하이포스트")
   ) {
     return "/products/hi-post.png";
