@@ -84,6 +84,6 @@ export function imageForProduct(productName?: string): string {
   }
   if (p.includes("media")) return "/products/media-meet-a.png";
   if (p.includes("space")) return "/products/space-living.png";
-  if (p.includes("hipost") || (p.includes("hi") && p.includes("post"))) return "/products/hi-post.png";
+  if (p.includes("htpost") || (p.includes("ht") && p.includes("post"))) return "/products/hi-post.png";
   return "/placeholder.svg";
 }
