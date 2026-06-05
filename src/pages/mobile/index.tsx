@@ -69,7 +69,7 @@ function classifyProductForPolicy(
 
   if (pn.includes("mediameet") || pn.includes("media-meet") || pn.includes("미디어")) return "MEDIA MEET";
   if (pn.includes("spaceliving") || pn.includes("스페이스") || pn.includes("living")) return "SPACE LIVING";
-  if (pn.includes("hipost") || pn.includes("hi-post") || pn.includes("하이포스트")) return "HI-POST";
+  if (pn.includes("htpost") || pn.includes("ht-post") || pn.includes("하이포스트")) return "HT-POST";
 
   if (pn.includes("townbord") || pn.includes("townboard") || pn.includes("타운보드")) {
     if (loc.includes("ev내부")) return "TOWNBORD_L";
