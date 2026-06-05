@@ -68,7 +68,7 @@ export const DEFAULT_POLICY = {
       { min: 12, max: 12, rate: 0.2 },
     ],
   },
-  "HI-POST": {
+  "HT-POST": {
     period: [
       { min: 1, max: 2, rate: 0 },
       { min: 3, max: 5, rate: 0.08 },
@@ -89,7 +89,7 @@ export function normPolicyKey(productName?: string): PolicyKey | typeof POLICY_K
   if (p.includes("ELEVATOR")) return "ELEVATOR TV";
   if (p.includes("MEDIA")) return "MEDIA MEET";
   if (p.includes("SPACE")) return "SPACE LIVING";
-  if (p.includes("HI") && p.includes("POST")) return "HI-POST";
+  if (p.includes("HT") && p.includes("POST")) return "HT-POST";
   if (p.includes("TOWNBORD") || p.includes("TOWNBOARD")) {
     // _L / L 버전 구분(뒤에 L이 붙거나 _L로 끝나면 L)
     if (/_L\b|\bL\b/.test(p) || p.endsWith("_L") || p.endsWith(" L")) return "TOWNBORD_L";
