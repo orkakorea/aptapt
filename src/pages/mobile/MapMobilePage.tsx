@@ -65,7 +65,7 @@ function imageForProduct(productName?: string): string {
   }
   if (p.includes("media")) return "/products/media-meet-a.png";
   if (p.includes("space")) return "/products/space-living.png";
-  if (p.includes("hipost") || (p.includes("hi") && p.includes("post"))) return "/products/hi-post.png";
+  if (p.includes("htpost") || (p.includes("ht") && p.includes("post"))) return "/products/hi-post.png";
   return "/placeholder.svg";
 }
 function preloadImages(paths: string[]) {
@@ -170,7 +170,7 @@ function normPolicyKey(productName?: string): keyof DiscountPolicy | "_NONE" {
   if (p.includes("ELEVATOR")) return "ELEVATOR TV";
   if (p.includes("MEDIA")) return "MEDIA MEET";
   if (p.includes("SPACE")) return "SPACE LIVING";
-  if (p.includes("HI") && p.includes("POST")) return "HI-POST";
+  if (p.includes("HT") && p.includes("POST")) return "HT-POST";
   if (p.includes("TOWNBORD") || p.includes("TOWNBOARD")) {
     if (/_L\b|\bL\b/.test(p) || p.endsWith("_L") || p.endsWith(" L")) return "TOWNBORD_L";
     return "TOWNBORD_S";
