@@ -254,11 +254,10 @@ function buildSeatRows(data: ReceiptSeat): { rows: SeatRow[]; periodTotal: numbe
         baseTotal = isFinite(baseMonthlyEff) && months ? baseMonthlyEff * months : 0;
       }
       const periodRate = rateFromRanges(DEFAULT_POLICY["ELEVATOR TV"].period, months);
-      const precompRate = months < 3 ? 0.03 : 0.05;
-      const tvTotal = Math.round(baseTotal * (1 - periodRate) * (1 - precompRate));
+      const tvTotal = Math.round(baseTotal * (1 - periodRate));
+
       lineTotal = tvTotal;
-      const eff = baseTotal > 0 ? clamp01(1 - tvTotal / baseTotal) : 0;
-      discountPct = `${Math.round(eff * 100)}%`;
+      discountPct = `${Math.round(periodRate * 100)}%`;
     } else {
       const pctNum = Number(String(discountPct).replace("%", ""));
       const looksZero = !isFinite(pctNum) || Math.abs(pctNum) < 1;
